@@ -57,20 +57,44 @@ class PlayerRadarChart(Scene):
         ###############################################################################################################
         # 选择要提取的选手数据
         self.attributes = ['KPR', 'Survivals', 'ADR', 'Headshot%', 'FirstKillsPerRound', 'Rating Pro']
-        # 定义每个选手入场时间的列表（单位为秒）
-        self.entry_times = [46, 55, 65, 75, 85, 93, 103, 113, 123, 133, 143]
+        # # 定义每个选手入场时间的列表（单位为秒）
+        # self.entry_times = [46, 55, 65, 75, 85, 93, 103, 113, 123, 133, 143]
+        # ###############################################################################################################
+        # self.time_control = {
+        #     'show_title': 3,
+        #     'show_ticks_def': 12,
+        #     'show_ticks_max': 21,
+        #     'show_ticks_min': 31,
+        #     'end_intro': 44,
+        #     'show': self.entry_times,
+        #     'end_show': 153,
+        # }
+        # # 定义每个选手入场时间的列表（单位为秒）for
+        # self.entry_times = [41, 50, 61, 71, 82, 95]
+        # ###############################################################################################################
+        # self.time_control = {
+        #     'show_title': 3,
+        #     'show_ticks_def': 13,
+        #     'show_ticks_max': 21,
+        #     'show_ticks_min': 28,
+        #     'end_intro': 38,
+        #     'show': self.entry_times,
+        #     'end_show': 115,
+        # }
+        # 定义每个选手入场时间的列表（单位为秒）So beautiful
+        self.entry_times = [31, 40, 48, 55, 63, 74]
         ###############################################################################################################
         self.time_control = {
-            'show_title': 3,
-            'show_ticks_def': 12,
-            'show_ticks_max': 21,
-            'show_ticks_min': 31,
-            'end_intro': 44,
+            'show_title': 1,
+            'show_ticks_def': 8,
+            'show_ticks_max': 16,
+            'show_ticks_min': 23,
+            'end_intro': 29,
             'show': self.entry_times,
-            'end_show': 153,
+            'end_show': 83,
         }
-
-        self.music = "music/Piano Fantasia - Song for Denise (Maxi version).mp3"
+        # self.title_text = "2024\n上海Major海选"
+        self.title_text = "2024\n中秋假期"
         self.music = None
 
     def construct(self):
@@ -78,7 +102,9 @@ class PlayerRadarChart(Scene):
         if self.music:
             self.add_sound(self.music, gain=-10)  # -10降低音量
         # 读取 CSV 数据
-        data = self.preprocess_player_data("radar_data/player_statistics.csv")
+        # dataset_name = 'major_data'
+        dataset_name = 'festival_data'
+        data = self.preprocess_player_data(f"radar_data/{dataset_name}/player_statistics.csv")
 
         self.start_time = self.renderer.time
 
@@ -90,6 +116,7 @@ class PlayerRadarChart(Scene):
         self.wait(self.entry_times[0] - current_time)
         # 循环展示选手，控制精确的时间切换
         for i in range(len(self.entry_times)):
+            print(f"下面开始展示选手{data.iloc[i]['ID']}")
             self._show_player_data(i, data.iloc[i], display_time=10)
             if i == len(self.entry_times) - 1:
                 self.play(Uncreate(self.radar_chart),)
@@ -105,7 +132,7 @@ class PlayerRadarChart(Scene):
         self.wait(self.time_control['show_title'] - current_time)
 
         # 创建主标题和副标题
-        self.main_title = Text("2024\n上海Major海选", font_size=80, color=WHITE)
+        self.main_title = Text(self.title_text, font_size=80, color=WHITE)
         subtitle = Text("群友数据图", font_size=60, color=WHITE)
 
         # 设置标题和副标题的位置
@@ -190,7 +217,7 @@ class PlayerRadarChart(Scene):
             hexagon_vertices.append(self.polar_to_cartesian(i, max(self.attribute_ranges[attr]),
                                                             *self.attribute_ranges[attr]) * self.radar_size)
         biggest_radar_chart = Polygon(*hexagon_vertices).set_stroke(width=5, color=self.highlight_color).set_fill(
-            self.highlight_color, opacity=0.1)
+            self.highlight_color, opacity=0.2)
         biggest_radar_chart.set_z_index(3)
         self.play(GrowFromCenter(biggest_radar_chart))
         self.play(value_animation)
@@ -216,7 +243,7 @@ class PlayerRadarChart(Scene):
                 self.polar_to_cartesian(i, (min(self.attribute_ranges[attr])
                                             + 0.05 * (self.attribute_ranges[attr][1] - self.attribute_ranges[attr][0])),
                                         *self.attribute_ranges[attr]) * self.radar_size)
-        smallest_radar_chart = Polygon(*hexagon_vertices).set_stroke(width=5, color=RED).set_fill(RED, opacity=0.1)
+        smallest_radar_chart = Polygon(*hexagon_vertices).set_stroke(width=5, color=RED).set_fill(RED, opacity=0.2)
         smallest_radar_chart.set_z_index(3)
         self.play(Transform(biggest_radar_chart, smallest_radar_chart))
         self.play(value_animation)
@@ -256,7 +283,7 @@ class PlayerRadarChart(Scene):
 
     def _show_player_data(self, index, player_data, display_time):
         if self.chart_background_rect is None:
-            self.chart_background_rect = Rectangle(width=7, height=7, color=BLACK, fill_opacity=0.3)
+            self.chart_background_rect = Rectangle(width=7, height=7, color=BLACK, fill_opacity=0.5)
             self.chart_background_rect.to_edge(LEFT)
             self.chart_background_rect.set_z_index(0)
 
@@ -275,7 +302,7 @@ class PlayerRadarChart(Scene):
             player_icon = manim_crop_image_to_circle(icon_path_jpg).scale(2)
         else:
             # 如果找不到头像文件，用圆形替代
-            player_icon = Circle(radius=1, color=BLUE)
+            player_icon = manim_crop_image_to_circle(f"radar_data/default.jpg").scale(2)
         player_icon.to_edge(RIGHT, buff=1.8)
 
         # 创建一个圆形边框，略大于图片，表示边框
@@ -392,8 +419,7 @@ class PlayerRadarChart(Scene):
             color_theme = self.normal_color
 
         radar_chart = (Polygon(*hexagon_vertices)
-                       .set_stroke(width=5, color=color_theme).set_fill(color_theme, opacity=0.1))
-        print(color_theme)
+                       .set_stroke(width=5, color=color_theme).set_fill(color_theme, opacity=0.2))
         radar_chart.set_glow(2)  # 加入辉光效果
 
         # 将 radar_chart 的原点移动到背景矩形的中心
