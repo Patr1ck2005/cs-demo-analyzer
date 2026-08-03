@@ -14,6 +14,7 @@ from cs_analyzer.model.parsed_demo import ParsedDemo
 
 # Import modules so their @register_module decorators run on import.
 import cs_analyzer.analysis.basic_stats  # noqa: F401
+import cs_analyzer.analysis.preference  # noqa: F401
 import cs_analyzer.analysis.ratings  # noqa: F401
 
 logger = logging.getLogger(__name__)
