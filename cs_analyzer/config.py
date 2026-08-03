@@ -94,6 +94,7 @@ class ActionMapConfig(BaseModel):
     t_color: str = "#FF6B6B"  # warm
     ct_color: str = "#4ECDC4"  # cool
     output_format: str = "png"
+    dpi: int = 150
 
 
 class OverlapAnimationConfig(BaseModel):

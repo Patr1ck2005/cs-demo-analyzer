@@ -1,0 +1,13 @@
+# de_mirage radar map coordinate bounds.
+# World coordinate ranges derived from demo tick data analysis.
+# Radar image: 1024x1024 (standard CS2 radar resolution).
+# Refine these bounds by calibrating known positions if needed.
+
+map_name: de_mirage
+image_width: 1024
+image_height: 1024
+bounds:
+  min_x: -2700.0
+  max_x: 1500.0
+  min_y: -2700.0
+  max_y: 900.0

@@ -20,10 +20,10 @@ from rich.table import Table
 
 from cs_analyzer.batch import BatchRunner
 from cs_analyzer.cache import DemoCache
-from cs_analyzer.config import Settings, load_settings
+from cs_analyzer.config import ActionMapConfig, Settings, load_settings
 from cs_analyzer.export import ReportExporter, VideoExporter
 from cs_analyzer.parser import ParseManager
-from cs_analyzer.render import merge_for_radar
+from cs_analyzer.render import ActionMapRenderer, merge_for_radar
 from cs_analyzer.render.radar_chart import RadarChartRenderer
 from cs_analyzer.analysis import AnalysisRunner
 
@@ -229,6 +229,36 @@ def batch(
     for r in results:
         status = "[green]OK[/green]" if r.success else "[red]FAIL[/red]"
         console.print(f"  {status} {r.demo_path.name}")
+
+
+@app.command("action-map")
+def action_map(
+    demo: Path = typer.Argument(..., help="Path to .dem file"),
+    player: str = typer.Option(..., "--player", help="Player name or steamid"),
+    rounds: str | None = typer.Option(None, "--rounds", help="Comma-separated round numbers (default: all)"),
+    output: Path | None = typer.Option(None, "--output", "-o"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Render 2D action map (player movement trajectories across rounds)."""
+    _setup_logging(verbose)
+    settings = _load_settings(config)
+    manager = ParseManager(cache=DemoCache(settings.cache_dir))
+    demo_data = manager.parse(demo)
+
+    player_obj = demo_data.player(player)
+    if player_obj is None:
+        console.print(f"[red]Player '{player}' not found. Available: {[p.name for p in demo_data.players]}[/red]")
+        raise typer.Exit(1)
+
+    round_list = [int(r) for r in rounds.split(",")] if rounds else None
+    cfg = settings.render.action_map or ActionMapConfig()
+    renderer = ActionMapRenderer(cfg, demo_data)
+    output_path = output or (settings.render.output_dir / demo.stem / f"action_map_{player_obj.name}.png")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    result = renderer.render_player(player_obj.steamid, round_list, output_path)
+    console.print(f"[green]Action map[/green] -> {result}")
 
 
 @app.command()
