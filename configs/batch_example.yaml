@@ -1,0 +1,12 @@
+# Batch processing example
+# Lists multiple .dem files to process together.
+# Usage: csa batch configs/batch_example.yaml --parallel 4
+
+demos:
+  - path: tutorial/demoparser/src/parser/test_demo.dem
+  # - path: demos/match2.dem
+  # - path: demos/match3.dem
+    # provider: faceit  # optional: force provider
+
+parallel: 4
+skip_video: false
