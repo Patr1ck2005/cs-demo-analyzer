@@ -132,7 +132,7 @@ class DemoParserBackend:
 
         players = self._build_players(player_info)
         rounds = self._build_rounds(events, players)
-        team_a, team_b = self._build_teams(players, rounds)
+        team_a, team_b = self._build_teams(player_info)
 
         metadata = MatchMetadata(
             map_name=map_name,
@@ -157,7 +157,6 @@ class DemoParserBackend:
         if player_info is None or player_info.empty:
             return []
 
-        # player_info columns: steamid, name, team_number
         players: list[Player] = []
         seen: set[str] = set()
         for _, row in player_info.iterrows():
@@ -166,19 +165,40 @@ class DemoParserBackend:
                 continue
             seen.add(steamid)
             team_num = int(row.get("team_number", 0))
-            # CS2 team numbers: 2 = T, 3 = CT (spec/gfx are 0/1)
-            side = {2: "T", 3: "CT"}.get(team_num, "SPEC")
-            team_name = row.get("team_name", f"Team {team_num}")
+            # CS2 team numbers: 2 = T, 3 = CT (0/1 = spectator/gfx)
+            team_name = f"Team {team_num}" if team_num in (2, 3) else f"Team {team_num}"
             players.append(
                 Player(
                     steamid=steamid,
                     name=str(row.get("name", "")),
-                    team=str(team_name) if team_name else f"Team {team_num}",
+                    team=team_name,
                 )
             )
-            # side stored implicitly via team; not a Player field to keep it simple
-            _ = side
         return players
+
+    def _build_teams(self, player_info: pd.DataFrame) -> tuple[Team, Team]:
+        """Build two Team objects, inferring starting side from team_number.
+
+        CS2: team_number 2 = T (terrorists), 3 = CT (counter-terrorists).
+        team_a is always the CT-starting team, team_b the T-starting team,
+        so downstream side-swap logic stays consistent.
+        """
+        if player_info is None or player_info.empty:
+            return (
+                Team(name="Team A", starting_side="CT"),
+                Team(name="Team B", starting_side="T"),
+            )
+
+        has_ct = any(int(r.get("team_number", 0)) == 3 for _, r in player_info.iterrows())
+        has_t = any(int(r.get("team_number", 0)) == 2 for _, r in player_info.iterrows())
+
+        ct_name = "Team 3" if has_ct else "Team A"
+        t_name = "Team 2" if has_t else "Team B"
+
+        return (
+            Team(name=ct_name, starting_side="CT"),
+            Team(name=t_name, starting_side="T"),
+        )
 
     def _build_rounds(self, events: dict[str, pd.DataFrame], players: list[Player]) -> list[Round]:
         round_starts = events.get("round_start")
@@ -240,10 +260,17 @@ class DemoParserBackend:
         return rounds
 
     def _winner_side(self, round_end_row: pd.Series) -> str:
-        """Extract winner side from round_end event. CS2 winner enum: 1=T, 2=CT."""
+        """Extract winner side from round_end event.
+
+        CS2 winner enum: 2 = T (terrorists), 3 = CT (counter-terrorists).
+        (CS:GO used 1=T, 2=CT; CS2 shifted to 2/3.)
+        """
         if "winner" in round_end_row:
-            winner = int(round_end_row["winner"])
-            return {1: "T", 2: "CT"}.get(winner, "")
+            try:
+                winner = int(round_end_row["winner"])
+            except (ValueError, TypeError):
+                return ""
+            return {2: "T", 3: "CT"}.get(winner, "")
         return ""
 
     def _bomb_site_for_round(
@@ -267,21 +294,3 @@ class DemoParserBackend:
                 return "B"
         return None
 
-    def _build_teams(self, players: list[Player], rounds: list[Round]) -> tuple[Team, Team]:
-        """Infer two teams from player list. Names may be "Team 2"/"Team 3" for MM demos."""
-        team_names: set[str] = {p.team for p in players}
-        names = sorted(team_names)
-        if len(names) >= 2:
-            return (
-                Team(name=names[0], starting_side="CT"),
-                Team(name=names[1], starting_side="T"),
-            )
-        if len(names) == 1:
-            return (
-                Team(name=names[0], starting_side="CT"),
-                Team(name=names[0] + " (B)", starting_side="T"),
-            )
-        return (
-            Team(name="Team A", starting_side="CT"),
-            Team(name="Team B", starting_side="T"),
-        )
