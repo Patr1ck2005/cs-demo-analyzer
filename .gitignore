@@ -4,6 +4,11 @@
 /tutorial/
 /music/
 /.idea
+/enve/
 
 *.mp4
 *.dem
+
+__pycache__/
+*.pyc
+*.pyo

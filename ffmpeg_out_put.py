@@ -4,10 +4,12 @@ import json
 # 定义前景、背景视频和音乐的路径
 fg_video_path = 'media/videos/cs_radar_chart/1080p60/PlayerRadarChart.mov'
 # bgm_path = 'music/Piano Fantasia - Song for Denise (Maxi version).mp3'
-bgm_path = 'music/So Beautiful.mp3'
+bgm_path = 'music/Michael Jackson - Thriller.mp3'
 # bg_video_path = 'bg/vecteezy_abstract-plexus-tech-background-with-glowing-blue-shiny_21050150~1.mp4'
 # bg_video_path = 'bg/chakra.mp4'
-bg_video_path = 'bg/stringss.mp4'
+# bg_video_path = 'bg/stringss.mp4'
+bg_video_path = 'bg/halloween_shadows_in_window.mp4'
+
 
 # 调用 ffprobe 获取视频时长
 def get_video_duration(video_path):
@@ -40,9 +42,13 @@ foreground_duration = get_video_duration(fg_video_path)
 fg_width, fg_height = get_video_resolution(fg_video_path)
 
 # 背景视频循环播放并与前景视频叠加，使用 NVENC GPU 加速，同时缩放背景至前景视频大小，指定颜色空间为 yuv420p
+# 添加亮度和对比度调整
+brightness = -0.05
+contrast = 1.0
 subprocess.run([
     'ffmpeg', '-hwaccel', 'cuda', '-stream_loop', '-1', '-t', str(foreground_duration), '-i', bg_video_path,
-    '-i', fg_video_path, '-filter_complex', f'[0:v]scale={fg_width}:{fg_height}[bg];[bg]format=yuv420p[bgfmt];[bgfmt][1:v]overlay',
+    '-i', fg_video_path,
+    '-filter_complex', f'[0:v]scale={fg_width}:{fg_height},eq=brightness={brightness}:contrast={contrast}[bg];[bg]format=yuv420p[bgfmt];[bgfmt][1:v]overlay',
     '-c:v', 'h264_nvenc', '-shortest', 'temp_output_video.mp4'
 ])
 

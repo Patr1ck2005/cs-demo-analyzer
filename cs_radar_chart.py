@@ -13,8 +13,6 @@ manim -pqh --format=mov --transparent cs_radar_chart.py PlayerRadarChart
 manim cs_radar_chart.py -p --renderer=opengl
 
 manim -pql cs_radar_chart.py PlayerRadarChart
-
-manim -pqh cs_radar_chart.py PlayerRadarChart
 """
 
 
@@ -29,6 +27,8 @@ class PlayerRadarChart(Scene):
         self.normal_color = WHITE
 
         self.radar_size = 2.4
+
+        self.global_opacity = 0.5
 
         # left
         self.ticks = None
@@ -45,10 +45,10 @@ class PlayerRadarChart(Scene):
         # 定义每个属性的最小值和最大值
         self.attribute_ranges = {
             'KPR': (0.5, 0.9),
-            'Survivals': (0.2, 0.4),
+            'Survivals': (0.2, 0.35),
             'ADR': (50, 90),
             'Headshot%': (30, 50),
-            'FirstKillsPerRound': (0, 0.2),
+            'FirstKillsPerRound': (0, 0.15),
             'RWS': (6, 10),
             'Rating': (0.7, 1.3),
             'Rating Pro': (0.7, 1.2)
@@ -57,7 +57,7 @@ class PlayerRadarChart(Scene):
         ###############################################################################################################
         # 选择要提取的选手数据
         self.attributes = ['KPR', 'Survivals', 'ADR', 'Headshot%', 'FirstKillsPerRound', 'Rating Pro']
-        # # 定义每个选手入场时间的列表（单位为秒）
+        # # 定义每个选手入场时间的列表（单位为秒）Song for Denise
         # self.entry_times = [46, 55, 65, 75, 85, 93, 103, 113, 123, 133, 143]
         # ###############################################################################################################
         # self.time_control = {
@@ -69,7 +69,7 @@ class PlayerRadarChart(Scene):
         #     'show': self.entry_times,
         #     'end_show': 153,
         # }
-        # # 定义每个选手入场时间的列表（单位为秒）for
+        # # 定义每个选手入场时间的列表（单位为秒）Once Upon A Time
         # self.entry_times = [41, 50, 61, 71, 82, 95]
         # ###############################################################################################################
         # self.time_control = {
@@ -81,20 +81,34 @@ class PlayerRadarChart(Scene):
         #     'show': self.entry_times,
         #     'end_show': 115,
         # }
-        # 定义每个选手入场时间的列表（单位为秒）So beautiful
-        self.entry_times = [31, 40, 48, 55, 63, 74]
+        # # 定义每个选手入场时间的列表（单位为秒）So beautiful
+        # self.entry_times = [31, 40, 48, 55, 63, 74, 83]
+        # ###############################################################################################################
+        # self.time_control = {
+        #     'show_title': 1,
+        #     'show_ticks_def': 8,
+        #     'show_ticks_max': 16,
+        #     'show_ticks_min': 23,
+        #     'end_intro': 29,
+        #     'show': self.entry_times,
+        #     'end_show': 93,
+        # }
+        # 定义每个选手入场时间的列表（单位为秒）Thriller
+        self.entry_times = [42, 50, 60, 68, 75, 82]
         ###############################################################################################################
         self.time_control = {
-            'show_title': 1,
-            'show_ticks_def': 8,
-            'show_ticks_max': 16,
-            'show_ticks_min': 23,
-            'end_intro': 29,
+            'show_title': 3,
+            'show_ticks_def': 12,
+            'show_ticks_max': 20,
+            'show_ticks_min': 29,
+            'end_intro': 38,
             'show': self.entry_times,
-            'end_show': 83,
+            'end_show': 93,
         }
         # self.title_text = "2024\n上海Major海选"
-        self.title_text = "2024\n中秋假期"
+        # self.title_text = "2024\n中秋假期"
+        # self.title_text = "到底谁在输?"
+        self.title_text = "2024\n9/22?"
         self.music = None
 
     def construct(self):
@@ -103,7 +117,9 @@ class PlayerRadarChart(Scene):
             self.add_sound(self.music, gain=-10)  # -10降低音量
         # 读取 CSV 数据
         # dataset_name = 'major_data'
-        dataset_name = 'festival_data'
+        # dataset_name = 'festival_data'
+        # dataset_name = '0920-0921'
+        dataset_name = '0922'
         data = self.preprocess_player_data(f"radar_data/{dataset_name}/player_statistics.csv")
 
         self.start_time = self.renderer.time
@@ -158,7 +174,7 @@ class PlayerRadarChart(Scene):
         self.play(FadeOut(self.main_title), FadeOut(subtitle))
 
     def _show_ticks(self):
-        chart_background_rect = Rectangle(width=7, height=6, color=BLACK, fill_opacity=0.3)
+        chart_background_rect = Rectangle(width=7, height=6, color=BLACK, fill_opacity=self.global_opacity)
         # 生成标度线
         ticks = self._draw_ticks()
         ticks.set_z_index(2)
@@ -198,11 +214,11 @@ class PlayerRadarChart(Scene):
         self.wait(self.time_control['show_ticks_max'] - current_time - out_time)
         self.play(FadeOut(title))
         print(current_time)
-        print(self.time_control['show_ticks_def'] - current_time - out_time)
+        print(self.time_control['show_ticks_max'] - current_time - out_time)
 
         # 播放最大刻度
         title = Text("最大刻度", font_size=40, color=WHITE).next_to(chart_background_rect, direction=UP)
-        bigger_background_rect = Rectangle(width=9, height=6, color=BLACK, fill_opacity=0.3)
+        bigger_background_rect = Rectangle(width=9, height=6, color=BLACK, fill_opacity=self.global_opacity)
         bigger_background_rect.set_z_index(0)
         self.play(Write(title))
         self.wait(0.5)
@@ -283,7 +299,7 @@ class PlayerRadarChart(Scene):
 
     def _show_player_data(self, index, player_data, display_time):
         if self.chart_background_rect is None:
-            self.chart_background_rect = Rectangle(width=7, height=7, color=BLACK, fill_opacity=0.5)
+            self.chart_background_rect = Rectangle(width=7, height=7, color=BLACK, fill_opacity=self.global_opacity)
             self.chart_background_rect.to_edge(LEFT)
             self.chart_background_rect.set_z_index(0)
 
