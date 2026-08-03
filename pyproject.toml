@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cs-demo-analyzer"
+version = "0.1.0"
+description = "Local-first CS2 demo analysis toolkit with radar chart, 2D action maps, and preference analysis"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Wang Keren" }]
+keywords = ["csgo", "cs2", "demo", "analyzer", "radar-chart", "manim"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+dependencies = [
+    "demoparser2>=2.0",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.1",
+    "typer>=0.9",
+    "rich>=13.0",
+    "pandas>=2.1",
+    "pyarrow>=14.0",
+    "numpy>=1.24",
+    "Pillow>=10.0",
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+render = [
+    "manim>=0.18",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+    "mypy>=1.5",
+]
+
+[project.scripts]
+csa = "cs_analyzer.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cs_analyzer*"]
+exclude = ["tests*", "tutorial*", "enve*", "media*", "radar_data*", "bg*", "music*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
