@@ -108,15 +108,23 @@ class DemoParserBackend:
                 logger.debug("parse_event(%s) failed: %s", event_type, exc)
                 continue
             if df is not None and not df.empty:
+                # Normalize steamid columns to string for consistent comparison
+                for col in df.columns:
+                    if col.endswith("steamid"):
+                        df[col] = df[col].astype(str)
                 events[event_type] = df
         return events
 
     def _parse_ticks(self, parser: DemoParser) -> pd.DataFrame:
         try:
-            return parser.parse_ticks(self.tick_fields)
+            ticks = parser.parse_ticks(self.tick_fields)
         except Exception as exc:  # noqa: BLE001
             logger.warning("parse_ticks failed: %s", exc)
             return pd.DataFrame()
+        # Normalize steamid to string for consistent comparison with Player model
+        if "steamid" in ticks.columns and not ticks.empty:
+            ticks["steamid"] = ticks["steamid"].astype(str)
+        return ticks
 
     def _build_demo_data(
         self,

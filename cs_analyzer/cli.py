@@ -20,10 +20,11 @@ from rich.table import Table
 
 from cs_analyzer.batch import BatchRunner
 from cs_analyzer.cache import DemoCache
-from cs_analyzer.config import ActionMapConfig, Settings, load_settings
+from cs_analyzer.config import ActionMapConfig, OverlapAnimationConfig, Settings, load_settings
 from cs_analyzer.export import ReportExporter, VideoExporter
 from cs_analyzer.parser import ParseManager
 from cs_analyzer.render import ActionMapRenderer, merge_for_radar
+from cs_analyzer.render.overlap_animation import OverlapAnimationRenderer
 from cs_analyzer.render.radar_chart import RadarChartRenderer
 from cs_analyzer.analysis import AnalysisRunner
 
@@ -259,6 +260,34 @@ def action_map(
 
     result = renderer.render_player(player_obj.steamid, round_list, output_path)
     console.print(f"[green]Action map[/green] -> {result}")
+
+
+@app.command("overlap-animation")
+def overlap_animation(
+    demo: Path = typer.Argument(..., help="Path to .dem file"),
+    player: str = typer.Option(..., "--player", help="Player name or steamid"),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Output .mp4 or .gif path"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Render T/CT overlap animation (player movement, T then CT, animated)."""
+    _setup_logging(verbose)
+    settings = _load_settings(config)
+    manager = ParseManager(cache=DemoCache(settings.cache_dir))
+    demo_data = manager.parse(demo)
+
+    player_obj = demo_data.player(player)
+    if player_obj is None:
+        console.print(f"[red]Player '{player}' not found.[/red]")
+        raise typer.Exit(1)
+
+    cfg = settings.render.overlap_animation or OverlapAnimationConfig()
+    renderer = OverlapAnimationRenderer(cfg, demo_data)
+    output_path = output or (settings.render.output_dir / demo.stem / f"overlap_{player_obj.name}.gif")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    result = renderer.render_player(player_obj.steamid, output_path)
+    console.print(f"[green]Overlap animation[/green] -> {result}")
 
 
 @app.command()
