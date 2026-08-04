@@ -96,6 +96,55 @@ def merge_for_radar(
     return players
 
 
+def merge_for_radar_from_csv(
+    df: "pd.DataFrame",
+    attributes: list[str],
+) -> list[RadarPlayerData]:
+    """Convert a legacy player_statistics.csv DataFrame into RadarPlayerData.
+
+    The CSV is expected to have columns: ID, KPR, Survivals, ADR, Headshot%,
+    FirstKillsPerRound, Rating Pro, RWS, team. Ranks and is_top are computed
+    here (1 = best in each attribute).
+    """
+    players: list[RadarPlayerData] = []
+    for _, row in df.iterrows():
+        players.append(
+            RadarPlayerData(
+                ID=str(row["ID"]),
+                team=str(row.get("team", "")),
+                KPR=float(row.get("KPR", 0.0)),
+                Survivals=float(row.get("Survivals", 0.0)),
+                ADR=float(row.get("ADR", 0.0)),
+                Headshot_pct=float(row.get("Headshot%", 0.0)),
+                FirstKillsPerRound=float(row.get("FirstKillsPerRound", 0.0)),
+                Rating_Pro=float(row.get("Rating Pro", 0.0)),
+                RWS=float(row.get("RWS", 0.0)),
+            )
+        )
+
+    # Compute ranks per attribute (1 = highest value)
+    for attr in attributes:
+        sorted_players = sorted(
+            players, key=lambda p: p.attribute_value(attr), reverse=True
+        )
+        for i, p in enumerate(sorted_players):
+            rank_key = attr
+            if attr == "Headshot%":
+                rank_key = "Headshot_pct"
+            elif attr == "Rating Pro":
+                rank_key = "Rating_Pro"
+            p.ranks[rank_key] = i + 1
+
+    # is_top: player is #1 in at least one attribute
+    for p in players:
+        for attr in attributes:
+            if p.attribute_rank(attr) == 1:
+                p.is_top = True
+                break
+
+    return players
+
+
 class Renderer(ABC):
     """Base class for renderers. Produces visual artifacts from analysis results."""
 

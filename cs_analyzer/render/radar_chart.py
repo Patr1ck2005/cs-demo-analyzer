@@ -167,9 +167,9 @@ class PlayerRadarChart(Scene):
         main_title.to_edge(UP, buff=1.5)
         subtitle.next_to(main_title, DOWN, buff=0.5)
 
-        self.play(Write(main_title, scale=1.5), run_time=3)
+        self.play(Write(main_title), run_time=3)
         self.wait(1.5)
-        self.play(Write(subtitle, shift=DOWN), run_time=1.5)
+        self.play(Write(subtitle), run_time=1.5)
 
         current_time = self.renderer.time - self.start_time
         out_time = 1
@@ -279,7 +279,7 @@ class PlayerRadarChart(Scene):
         title.to_edge(UP, buff=1.5)
         subtitle.next_to(title, buff=2, direction=DOWN)
 
-        self.play(Write(title, shift=DOWN), run_time=2.5)
+        self.play(Write(title), run_time=2.5)
         self.play(Write(subtitle), run_time=1.5)
         self.wait(2.5)
 
