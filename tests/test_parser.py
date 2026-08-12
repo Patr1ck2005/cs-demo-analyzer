@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from cs_analyzer.cache import DemoCache
-from cs_analyzer.model.types import ProviderKind
+from cs_analyzer.model.types import Player, ProviderKind
 from cs_analyzer.parser.backend import DemoParserBackend
 from cs_analyzer.parser.providers import (
     DEFAULT_PROVIDER_CHAIN,
@@ -50,6 +50,91 @@ def test_winner_side_mapping() -> None:
     assert backend._winner_side(pd.Series({"winner": 3})) == "CT"
     assert backend._winner_side(pd.Series({"winner": 0})) == ""
     assert backend._winner_side(pd.Series({})) == ""
+
+
+def test_winner_side_string_values() -> None:
+    backend = DemoParserBackend(tick_fields=[])
+    assert backend._winner_side(pd.Series({"winner": "T"})) == "T"
+    assert backend._winner_side(pd.Series({"winner": "CT"})) == "CT"
+    assert backend._winner_side(pd.Series({"winner": "TERRORIST"})) == "T"
+    assert backend._winner_side(pd.Series({"winner": "Counter-Terrorists"})) == "CT"
+    assert backend._winner_side(pd.Series({"winner": "other"})) == ""
+
+
+def test_build_players_fallback_from_spawns() -> None:
+    spawns = pd.DataFrame(
+        {
+            "tick": [100, 100, 200],
+            "user_steamid": [S_ALICE, S_BOB, S_ALICE],
+            "user_name": ["Alice", "Bob", "Alice"],
+            "user_team_num": [3.0, 2.0, 3.0],
+        }
+    )
+    players = DemoParserBackend(tick_fields=[])._build_players(pd.DataFrame(), {"player_spawn": spawns})
+    by_id = {p.steamid: p for p in players}
+    assert len(players) == 2
+    assert by_id[S_ALICE].name == "Alice"
+    assert by_id[S_ALICE].team == "Team 3"
+    assert by_id[S_BOB].team == "Team 2"
+
+
+def test_build_players_spawn_ignores_team0_first_spawn() -> None:
+    # first spawn is spectator (team 0); later spawn has a real team
+    spawns = pd.DataFrame(
+        {
+            "tick": [100, 300],
+            "user_steamid": [S_ALICE, S_ALICE],
+            "user_name": ["Alice", "Alice"],
+            "user_team_num": [0.0, 3.0],
+        }
+    )
+    players = DemoParserBackend(tick_fields=[])._build_players(pd.DataFrame(), {"player_spawn": spawns})
+    assert players[0].team == "Team 3"
+
+
+def test_fill_teams_from_deaths() -> None:
+    players = [Player(steamid=S_ALICE, name="Alice", team="Team 0")]
+    deaths = pd.DataFrame(
+        {
+            "attacker_steamid": [S_ALICE, S_BOB],
+            "attacker_team_name": ["CT", "TERRORIST"],
+            "user_steamid": [S_BOB, S_ALICE],
+            "user_team_name": ["TERRORIST", "CT"],
+        }
+    )
+    DemoParserBackend(tick_fields=[])._fill_teams_from_deaths(players, {"player_death": deaths})
+    assert players[0].team == "Team 3"
+
+
+def test_build_rounds_uses_round_start_ticks() -> None:
+    round_start = pd.DataFrame({"tick": [1000, 3000], "round": [1, 2]})
+    round_end = pd.DataFrame({"tick": [2500, 5000], "winner": ["T", "CT"], "round": [1, 2]})
+    rounds = DemoParserBackend(tick_fields=[])._build_rounds(
+        {"round_start": round_start, "round_end": round_end}, []
+    )
+    assert len(rounds) == 2
+    assert (rounds[0].start_tick, rounds[0].end_tick) == (1000, 2500)
+    assert (rounds[1].start_tick, rounds[1].end_tick) == (3000, 5000)
+    assert rounds[0].winner_side == "T"
+    assert rounds[1].winner_side == "CT"
+
+
+def test_parse_events_ignores_list_game_events_omission(monkeypatch) -> None:
+    class FakeParser:
+        def list_game_events(self):  # omits round_start/round_end
+            return ["player_death"]
+
+        def parse_event(self, event_type, player=None, other=None):
+            if event_type == "round_end":
+                return pd.DataFrame({"tick": [100], "winner": ["T"]})
+            if event_type == "round_start":
+                return pd.DataFrame({"tick": [0], "round": [1]})
+            return pd.DataFrame()
+
+    events = DemoParserBackend(tick_fields=[])._parse_events(FakeParser())
+    assert "round_end" in events
+    assert "round_start" in events
+    assert events["round_end"].iloc[0]["winner"] == "T"
 
 
 def test_build_rounds_scores_and_duration() -> None:

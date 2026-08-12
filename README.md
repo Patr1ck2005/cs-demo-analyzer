@@ -102,6 +102,20 @@ export:
     use_nvenc: true
 ```
 
+**内容生产配置**：[configs/content_prod.yaml](configs/content_prod.yaml) 预设背景 + BGM + 标题，用于直接产出 `.dem` 全链路雷达视频成品：
+
+```bash
+csa run path/to/demo.dem --config configs/content_prod.yaml
+```
+
+## Demo 兼容性
+
+已用以下类型的真实 `.dem` 端到端验证：
+- **Valve SourceTV**（`tutorial/demoparser/.../test_demo.dem`）
+- **完美世界平台 (WMPVP)** SourceTV：此类 demo 无 `player_info` 表和 `round_start/round_end` 事件列表项，引擎会自动从 `player_spawn` 事件重建玩家名单、从 `parse_event('round_end')` 获取回合与胜者（兼容字符串 "T"/"CT" winner）。
+
+已知限制：个别 SourceTV demo 中某些玩家的 team_num 字段全空，会标记为 "Team 0"（不影响雷达图属性，仅 RWS 与 T/CT 着色受影响）。
+
 ## Architecture
 
 Five-layer pipeline with provider abstraction and serializable intermediates.

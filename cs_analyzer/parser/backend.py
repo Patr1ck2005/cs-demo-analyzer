@@ -93,11 +93,11 @@ class DemoParserBackend:
     # ---- internals ----
 
     def _parse_events(self, parser: DemoParser) -> dict[str, pd.DataFrame]:
-        available = set(parser.list_game_events())
-        wanted = [e for e in WANTED_EVENT_TYPES if e in available]
-
+        # Do NOT pre-filter with list_game_events(): some demos (e.g. WMPVP
+        # SourceTV broadcasts) omit round_start/round_end from that list even
+        # though parse_event() returns them. Try every wanted type, skip failures.
         events: dict[str, pd.DataFrame] = {}
-        for event_type in wanted:
+        for event_type in WANTED_EVENT_TYPES:
             try:
                 df = parser.parse_event(
                     event_type,
@@ -107,7 +107,10 @@ class DemoParserBackend:
             except Exception as exc:  # noqa: BLE001
                 logger.debug("parse_event(%s) failed: %s", event_type, exc)
                 continue
-            if df is not None and not df.empty:
+            if not isinstance(df, pd.DataFrame):
+                logger.debug("parse_event(%s) returned non-DataFrame (%s); skipping", event_type, type(df).__name__)
+                continue
+            if not df.empty:
                 # Normalize steamid columns to string for consistent comparison
                 for col in df.columns:
                     if col.endswith("steamid"):
@@ -138,9 +141,9 @@ class DemoParserBackend:
         server_name = header.get("server_name")
         client_name = header.get("client_name")
 
-        players = self._build_players(player_info)
+        players = self._build_players(player_info, events)
         rounds = self._build_rounds(events, players)
-        team_a, team_b = self._build_teams(player_info)
+        team_a, team_b = self._build_teams(players)
 
         metadata = MatchMetadata(
             map_name=map_name,
@@ -161,10 +164,24 @@ class DemoParserBackend:
             rounds=rounds,
         )
 
-    def _build_players(self, player_info: pd.DataFrame) -> list[Player]:
-        if player_info is None or player_info.empty:
-            return []
+    def _build_players(
+        self, player_info: pd.DataFrame, events: dict[str, pd.DataFrame] | None = None
+    ) -> list[Player]:
+        if player_info is not None and not player_info.empty:
+            players = self._players_from_player_info(player_info)
+            if players:
+                return players
+        # Fallback: some demos (WMPVP SourceTV) ship no player-info table, so
+        # reconstruct the roster from player_spawn events instead.
+        spawns = (events or {}).get("player_spawn")
+        if spawns is not None and not spawns.empty:
+            players = self._players_from_spawns(spawns)
+            self._fill_teams_from_deaths(players, events)
+            return players
+        return []
 
+    @staticmethod
+    def _players_from_player_info(player_info: pd.DataFrame) -> list[Player]:
         players: list[Player] = []
         seen: set[str] = set()
         for _, row in player_info.iterrows():
@@ -174,70 +191,133 @@ class DemoParserBackend:
             seen.add(steamid)
             team_num = int(row.get("team_number", 0))
             # CS2 team numbers: 2 = T, 3 = CT (0/1 = spectator/gfx)
-            team_name = f"Team {team_num}" if team_num in (2, 3) else f"Team {team_num}"
             players.append(
                 Player(
                     steamid=steamid,
                     name=str(row.get("name", "")),
-                    team=team_name,
+                    team=f"Team {team_num}",
                 )
             )
         return players
 
-    def _build_teams(self, player_info: pd.DataFrame) -> tuple[Team, Team]:
-        """Build two Team objects, inferring starting side from team_number.
+    @staticmethod
+    def _players_from_spawns(spawns: pd.DataFrame) -> list[Player]:
+        if "user_steamid" not in spawns.columns:
+            return []
+        valid = spawns[spawns["user_steamid"].notna()]
+        if valid.empty:
+            return []
+        valid = valid[valid["user_steamid"].astype(str).str.strip() != ""]
+        if valid.empty:
+            return []
 
-        CS2: team_number 2 = T (terrorists), 3 = CT (counter-terrorists).
+        players: list[Player] = []
+        for steamid in valid["user_steamid"].unique():
+            rows = valid[valid["user_steamid"] == steamid].sort_values("tick")
+            # Prefer a spawn row where the player is on a real team (2=T, 3=CT);
+            # the first spawn may be a pre-match spectator state (team 0).
+            team_rows = rows[rows.get("user_team_num", pd.Series(dtype=float)).isin((2, 3))]
+            chosen = team_rows.iloc[0] if not team_rows.empty else rows.iloc[0]
+            team_num = chosen.get("user_team_num")
+            try:
+                team_num = int(team_num) if pd.notna(team_num) else 0
+            except (TypeError, ValueError):
+                team_num = 0
+            players.append(
+                Player(
+                    steamid=str(steamid),
+                    name=str(chosen.get("user_name", "")),
+                    team=f"Team {team_num}",
+                )
+            )
+        return players
+
+    @staticmethod
+    def _fill_teams_from_deaths(
+        players: list[Player], events: dict[str, pd.DataFrame] | None
+    ) -> None:
+        """Assign teams to players whose spawn rows carry no team (team 0).
+
+        Some SourceTV demos omit team_num on certain players' spawn events; the
+        same players may still carry TERRORIST/CT team names in player_death /
+        player_hurt rows. Players never found there stay "Team 0" (RWS=0).
+        """
+        tables = [(events or {}).get("player_death"), (events or {}).get("player_hurt")]
+        team_of: dict[str, str] = {}
+        for table in tables:
+            if table is None or table.empty:
+                continue
+            for _, row in table.iterrows():
+                for sid_col, team_col in (
+                    ("attacker_steamid", "attacker_team_name"),
+                    ("user_steamid", "user_team_name"),
+                ):
+                    if sid_col not in row or team_col not in row:
+                        continue
+                    sid = row[sid_col]
+                    team = row[team_col]
+                    if pd.isna(sid) or pd.isna(team) or not isinstance(team, str):
+                        continue
+                    resolved = {"TERRORIST": "Team 2", "CT": "Team 3"}.get(team.strip().upper())
+                    if resolved:
+                        team_of.setdefault(str(sid), resolved)
+        for p in players:
+            if p.team not in ("Team 2", "Team 3"):
+                resolved = team_of.get(p.steamid)
+                if resolved:
+                    p.team = resolved
+
+    def _build_teams(self, players: list[Player]) -> tuple[Team, Team]:
+        """Build two Team objects from the player roster.
+
+        CS2 team_number 2 = T (terrorists), 3 = CT (counter-terrorists).
         team_a is always the CT-starting team, team_b the T-starting team,
         so downstream side-swap logic stays consistent.
         """
-        if player_info is None or player_info.empty:
+        if not players:
             return (
                 Team(name="Team A", starting_side="CT"),
                 Team(name="Team B", starting_side="T"),
             )
-
-        has_ct = any(int(r.get("team_number", 0)) == 3 for _, r in player_info.iterrows())
-        has_t = any(int(r.get("team_number", 0)) == 2 for _, r in player_info.iterrows())
-
-        ct_name = "Team 3" if has_ct else "Team A"
-        t_name = "Team 2" if has_t else "Team B"
-
+        ct_name = next((p.team for p in players if p.team == "Team 3"), None)
+        t_name = next((p.team for p in players if p.team == "Team 2"), None)
         return (
-            Team(name=ct_name, starting_side="CT"),
-            Team(name=t_name, starting_side="T"),
+            Team(name=ct_name or "Team A", starting_side="CT"),
+            Team(name=t_name or "Team B", starting_side="T"),
         )
 
     def _build_rounds(self, events: dict[str, pd.DataFrame], players: list[Player]) -> list[Round]:
-        round_starts = events.get("round_start")
         round_ends = events.get("round_end")
-
         if round_ends is None or round_ends.empty:
             return []
 
-        rounds: list[Round] = []
-        # round_end has: tick, winner, reason, message, + other fields
+        # round_end has: tick, winner, reason, round, + other fields
         ends = round_ends.sort_values("tick").reset_index(drop=True)
 
-        # Match start tick from begin_new_match
+        # Exact round-start ticks keyed by round number when round_start events
+        # are present (their `round` field maps 1:1 to round_end's).
+        starts_by_round: dict[int, int] = {}
+        round_starts = events.get("round_start")
+        if round_starts is not None and not round_starts.empty and "tick" in round_starts.columns:
+            for _, row in round_starts.iterrows():
+                rn = int(row.get("round", 0))
+                if rn > 0:
+                    starts_by_round.setdefault(rn, int(row["tick"]))
+
+        # Fallback match-start tick (used when round_start is absent).
         begin_new_match = events.get("begin_new_match")
         match_start_tick = 0
         if begin_new_match is not None and not begin_new_match.empty:
             match_start_tick = int(begin_new_match["tick"].iloc[0])
 
-        # Compute round start ticks: first round starts at match_start, subsequent
-        # rounds start right after the previous round_end tick.
-        start_ticks: list[int] = []
+        rounds: list[Round] = []
         prev_end = match_start_tick
-        for _, end_row in ends.iterrows():
-            start_ticks.append(prev_end)
-            prev_end = int(end_row["tick"])
-
         t_score = 0
         ct_score = 0
         for i, (_, end_row) in enumerate(ends.iterrows()):
             end_tick = int(end_row["tick"])
-            start_tick = start_ticks[i]
+            round_num = int(end_row.get("round", i + 1)) if "round" in end_row else i + 1
+            start_tick = starts_by_round.get(round_num, prev_end)
             winner_side = self._winner_side(end_row)
 
             if winner_side == "T":
@@ -251,10 +331,10 @@ class DemoParserBackend:
 
             rounds.append(
                 Round(
-                    number=i + 1,
+                    number=round_num,
                     start_tick=start_tick,
                     end_tick=end_tick,
-                    duration_ticks=end_tick - start_tick,
+                    duration_ticks=max(end_tick - start_tick, 0),
                     winner="",  # team name filled by provider if available
                     winner_side=winner_side,
                     bomb_planted=bomb_site is not None,
@@ -264,22 +344,31 @@ class DemoParserBackend:
                     is_warmup=is_warmup,
                 )
             )
+            prev_end = end_tick
 
         return rounds
 
     def _winner_side(self, round_end_row: pd.Series) -> str:
         """Extract winner side from round_end event.
 
-        CS2 winner enum: 2 = T (terrorists), 3 = CT (counter-terrorists).
-        (CS:GO used 1=T, 2=CT; CS2 shifted to 2/3.)
+        Accepts both CS2 numeric enum (2 = T, 3 = CT) and the string
+        form ("T"/"CT"/"TERRORIST") that some SourceTV demos expose.
         """
-        if "winner" in round_end_row:
-            try:
-                winner = int(round_end_row["winner"])
-            except (ValueError, TypeError):
-                return ""
-            return {2: "T", 3: "CT"}.get(winner, "")
-        return ""
+        if "winner" not in round_end_row:
+            return ""
+        winner = round_end_row["winner"]
+        if isinstance(winner, str):
+            w = winner.strip().upper()
+            if w in ("T", "TERRORIST", "T-ERRORIST"):
+                return "T"
+            if w in ("CT", "COUNTER", "COUNTER-TERRORISTS"):
+                return "CT"
+            return ""
+        try:
+            winner = int(winner)
+        except (ValueError, TypeError):
+            return ""
+        return {2: "T", 3: "CT"}.get(winner, "")
 
     def _bomb_site_for_round(
         self, events: dict[str, pd.DataFrame], start_tick: int, end_tick: int

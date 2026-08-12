@@ -4,8 +4,8 @@
 #       --input output/<stem>/media/videos/1080p60/radar_chart.mov --config configs/content_prod.yaml
 render:
   radar_chart:
-    title: "CS2 Radar"
-    subtitle: "数据图"
+    title: "2026 CS2 对局"
+    subtitle: "WMPVP de_ancient"
 
 export:
   video:

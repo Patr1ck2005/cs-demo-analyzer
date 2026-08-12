@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 _CHUNK_SIZE = 65536
 
+# Bump this when parser logic changes (new fields, bug fixes) so cached
+# parses produced by an older parser are invalidated.
+PARSER_VERSION = "1.1.3"
+
 
 class DemoCache:
     """Hash-keyed cache for ParsedDemo instances."""
@@ -37,11 +41,23 @@ class DemoCache:
     def path_for(self, demo_hash: str) -> Path:
         return self.cache_dir / demo_hash
 
+    @staticmethod
+    def _version_file(demo_dir: Path) -> Path:
+        return demo_dir / "parser_version"
+
     def exists(self, demo_hash: str) -> bool:
-        return (self.path_for(demo_hash) / "model.json").exists()
+        demo_dir = self.path_for(demo_hash)
+        vfile = self._version_file(demo_dir)
+        if not (demo_dir / "model.json").exists():
+            return False
+        # Treat caches without a matching parser_version as stale.
+        try:
+            return vfile.exists() and vfile.read_text(encoding="utf-8").strip() == PARSER_VERSION
+        except OSError:
+            return False
 
     def load(self, demo_hash: str) -> ParsedDemo | None:
-        """Load a cached demo, or None if not present / corrupted."""
+        """Load a cached demo, or None if not present / corrupted / stale."""
         if not self.exists(demo_hash):
             return None
         try:
@@ -52,4 +68,6 @@ class DemoCache:
 
     def save(self, demo_hash: str, demo: ParsedDemo) -> None:
         """Persist a parsed demo to cache."""
-        save_parsed_demo(demo, self.path_for(demo_hash))
+        demo_dir = self.path_for(demo_hash)
+        save_parsed_demo(demo, demo_dir)
+        self._version_file(demo_dir).write_text(PARSER_VERSION, encoding="utf-8")

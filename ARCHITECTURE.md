@@ -21,6 +21,19 @@ CsDemoAnalyzer 是一个本地优先的 CS2 demo 分析工具，将 `.dem` 文�
 - 不实现 SaaS Web 服务（仅预留接口）
 - 不做用户系统/计费
 
+### 实现状态（2026-08 与代码同步）
+
+本文是设计文档，部分内容与实际代码有漂移。以代码为准：
+
+| 设计项 | 状态 |
+| :--- | :--- |
+| 5 层架构 + 9 个 CLI 命令 | ✅ 已实现 |
+| provider 链 | ✅ Valve / Faceit / PerfectWorld（单文件 `providers.py`，非子包） |
+| analysis 模块 | ⚠️ 仅 `basic_stats` / `ratings` / `preference` 三个；economy/clutch/refrag/post_plant 未实现，positioning/utility/peek 合并进 `preference.py` |
+| `export/image.py`、`render/styles.py` | ❌ 不存在（图像导出走 PIL 在渲染层，样式在 config） |
+| maps 数据 | ⚠️ 仅 `de_mirage.yaml`，无 PNG 底图 |
+| 解析稳健性 | ✅ 支持无 player_info / 无 round_start 事件的 SourceTV demo（从 spawns 重建玩家、兼容字符串 winner） |
+
 ---
 
 ## 2. 分层架构
@@ -293,93 +306,77 @@ render:
 
 ## 5. 项目结构
 
+> 以下为**当前实际代码**布局（2026-08 与代码同步）。早期规划与实现的差异见 §1 的实现状态表。
+
 ```
 CsDemoAnalyzer/
 ├── cs_analyzer/                       # 主包
 │   ├── __init__.py
 │   ├── __main__.py                    # python -m cs_analyzer
-│   ├── cli.py                         # typer CLI 入口
+│   ├── cli.py                         # typer CLI 入口（9 个命令）
 │   ├── config.py                      # pydantic settings
-│   ├── cache.py                       # 哈希缓存
-│   ├── logging.py                     # 结构化日志
+│   ├── cache.py                       # 哈希缓存 + parser_version 失效标记
+│   ├── batch.py                       # BatchRunner 批处理编排
 │   │
 │   ├── parser/                        # Layer 1
 │   │   ├── __init__.py
-│   │   ├── base.py                    # DemoParser protocol
-│   │   ├── backend.py                 # demoparser2 封装
-│   │   └── providers/
-│   │       ├── __init__.py
-│   │       ├── base.py                # DemoProvider ABC
-│   │       ├── valve.py
-│   │       ├── faceit.py
-│   │       ├── esea.py
-│   │       ├── fivee.py
-│   │       └── perfect_world.py
+│   │   ├── backend.py                 # demoparser2 封装（事件/玩家/回合构建）
+│   │   ├── manager.py                 # ParseManager: 缓存 + provider 检测编排
+│   │   └── providers.py               # DemoProvider ABC + Valve/Faceit/PW + 检测链
 │   │
 │   ├── model/                         # Layer 2
 │   │   ├── __init__.py
-│   │   ├── demo.py                    # DemoData, Match, Round
-│   │   ├── player.py                  # Player, PlayerState
-│   │   ├── events.py                  # GameEvent 子类型
-│   │   ├── ticks.py                   # TickSnapshot
+│   │   ├── types.py                   # DemoData, MatchMetadata, Player, Round, Team
+│   │   ├── parsed_demo.py             # ParsedDemo 容器 + 查询辅助
 │   │   └── io.py                      # JSON/Parquet 序列化
 │   │
 │   ├── analysis/                      # Layer 3
 │   │   ├── __init__.py
-│   │   ├── base.py                    # AnalysisModule ABC
-│   │   ├── registry.py                # 模块注册表
-│   │   ├── context.py                 # AnalysisContext
+│   │   ├── base.py                    # AnalysisModule ABC + 注册表
+│   │   ├── runner.py                  # AnalysisRunner 模块执行/依赖排序
 │   │   ├── basic_stats.py             # KPR/ADR/Survivals/HS%/FK
-│   │   ├── ratings.py                 # RWS, HLTV Rating 2.0
-│   │   ├── positioning.py             # 走位聚类
-│   │   ├── utility.py                 # 道具热图
-│   │   ├── peek.py                    # Peek 模式
-│   │   ├── economy.py                 # 经济效率
-│   │   ├── clutch.py                  # Clutch 表现
-│   │   ├── refrag.py                  # Refrag 效率
-│   │   └── post_plant.py              # Post-plant 定位
+│   │   ├── ratings.py                 # RWS, HLTV Rating 2.0, KAST, Impact
+│   │   └── preference.py              # 位置/道具/Peek/准星（合并自 4 个规划模块）
 │   │
 │   ├── render/                        # Layer 4
 │   │   ├── __init__.py
-│   │   ├── base.py                    # Renderer ABC
-│   │   ├── styles.py                  # 颜色主题、字体
-│   │   ├── radar_chart.py             # 迁移自 cs_radar_chart.py
+│   │   ├── base.py                    # Renderer ABC + RadarPlayerData + merge
+│   │   ├── image_utils.py             # 头像裁剪/透明度工具（迁移自 utils/image_pre.py）
+│   │   ├── radar_chart.py             # PlayerRadarChart + RadarChartRenderer
 │   │   ├── action_map.py              # 2D 行动 map
 │   │   └── overlap_animation.py       # T/CT 重叠动画
 │   │
 │   ├── export/                        # Layer 5
 │   │   ├── __init__.py
 │   │   ├── base.py                    # Exporter ABC
-│   │   ├── video.py                   # ffmpeg (NVENC)
-│   │   ├── image.py                   # PNG/SVG
-│   │   └── report.py                  # JSON/HTML (jinja2)
+│   │   ├── video.py                   # ffmpeg 合成 (bg + music, NVENC)
+│   │   └── report.py                  # JSON/HTML 报告
 │   │
 │   └── maps/                          # 地图资源
 │       ├── __init__.py
 │       ├── loader.py                  # 雷达图加载、坐标映射
-│       └── data/                      # 预置地图 (de_dust2, de_mirage, ...)
-│           ├── de_dust2.png
-│           └── de_dust2.yaml           (世界坐标 -> 雷达像素映射)
+│       └── data/                      # 目前仅 de_mirage.yaml（无 PNG）
 │
 ├── configs/                           # 示例配置
 │   ├── default.yaml
-│   ├── radar_chart.yaml
-│   └── batch_example.yaml
+│   ├── batch_example.yaml
+│   └── content_prod.yaml              # 内容生产：背景 + BGM
 │
 ├── tests/
-│   ├── conftest.py                    # fixtures, sample demo
-│   ├── test_parser.py
+│   ├── conftest.py                    # 合成 demo fixtures
 │   ├── test_model.py
+│   ├── test_parser.py
 │   ├── test_analysis.py
-│   └── test_render.py
+│   ├── test_render.py
+│   └── test_export.py
 │
 ├── examples/
-│   ├── single_demo.py
-│   └── batch_demo.py
+│   └── render_radar_from_csv.py       # CSV 适配器（旧流程兼容）
 │
 ├── pyproject.toml
 ├── ARCHITECTURE.md
 ├── README.md
+├── HANDOFF.md
 └── dev_log.md
 ```
 
