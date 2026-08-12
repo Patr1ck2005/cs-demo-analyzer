@@ -32,29 +32,32 @@ bd80ec1 docs: add ARCHITECTURE.md with layered design and migration plan
 | T/CT 重叠动画 | ✅ 已实现 | `csa overlap-animation <demo> --player <name>`，MP4/GIF 输出 |
 | 偏好分析报告 | ✅ 已实现 | `csa analyze <demo>` 含 `preference` 模块（position/utility/peek/crosshair） |
 | 中间结果可序列化 | ✅ 已实现 | metadata → JSON，ticks/events → Parquet（`.cache/{hash}/`） |
-| 性能 < 30s 解析 / < 60s 渲染 | ⚠️ 未验证 | demoparser2 Rust 后端理论达标，但无真实 .dem 端到端验证 |
-| 类型注解 + 单元测试 | ❌ **缺口** | 类型注解完整，但 `tests/` 目录不存在，零测试 |
-| README / ARCHITECTURE | ✅ 完整 | [README.md](README.md) 257 行 + [ARCHITECTURE.md](ARCHITECTURE.md) 681 行 |
+| 性能：解析 < 30s | ✅ 已验证 | `test_demo.dem`（60MB）解析 <5s（含缓存命中） |
+| 性能：渲染 < 60s | ⚠️ 视质量而定 | 1080p60（high_quality）约 5.5min；仅低质量/短场景可达 <60s，见 §3.5 |
+| 单元测试 | ✅ 已补齐 | `tests/` 45 个测试全绿（model/parser/analysis/export/render） |
+| README / ARCHITECTURE | ⚠️ 有漂移 | [ARCHITECTURE.md](ARCHITECTURE.md) 与代码结构不一致（见 §5.6） |
 
 ## 3. 验收缺口（下一 agent 首要任务）
 
-1. **单元测试缺失**：`tests/` 目录不存在。pyproject.toml 已配置 `[tool.pytest.ini_options]`（testpaths=["tests"]），需补 core 逻辑测试：model 序列化往返、parser 字段映射、analysis 指标数值正确性（对照已知 demo 手算）、export ffmpeg 调用参数。
-2. **真实 .dem 端到端验证**：`.dem` 文件被 gitignore（`*.dem`），仓库无测试 demo。性能指标（解析 <30s / 渲染 <60s）和 batch 5+ demo 均未用真实文件验证。
-3. **地图 PNG 底图缺失**：`cs_analyzer/maps/data/` 无 `de_mirage.png` + 坐标映射 yaml。当前 2D map / T/CT 动画在黑底渲染轨迹。用户提到雷达图 PNG 因 agent 无法读图而暂缺，需人工放入。
+1. **~~单元测试缺失~~ → 已补齐**：`tests/` 45 个测试全绿。覆盖 model 序列化往返、parser 字段映射/回合构建、provider 检测、analysis 指标（basic_stats/ratings/preference 手算对照）、export ffmpeg 探测 fallback、render 雷达数据合并。
+2. **~~真实 .dem 端到端~~ → 已验证**：`tutorial/demoparser/src/parser/test_demo.dem`（60MB，demoparser2 自带，gitignore 但仓库内存在）跑通 `csa run`：parse→analyze→radar_chart.mov（59 动画）→report.html→final.mp4。`configs/content_prod.yaml` 产出带 bg+BGM 的 `final_content.mp4`（31MB 1080p）。
+3. **地图 PNG 底图缺失**：`cs_analyzer/maps/data/` 只有 `de_mirage.yaml` 无 PNG。**仅影响 2D map / T/CT 动画（B/C 通道），不阻塞雷达图（A 通道）**。
+4. **用户真实对局 .dem 缺失**：群友对局（0922/0925 等）原始 .dem 未提供；当前成品用的是测试 demo。产出真正商业价值内容需用户提供自己的 .dem。
+5. **渲染性能**：high_quality(1080p60) 110s 场景约 5.5min。若需 <60s 需低质量或短场景；内容生产建议 medium_quality 或降低 fps。
 
 ## 4. 运行环境（关键！）
 
 | 项 | 值 |
 | :--- | :--- |
 | OS | Windows 11 Pro 10.0.26200 |
-| Python | `C:\Program Files\Python311\python.exe`（3.11） |
-| manim | 0.20.1（注意：`Write(scale=...)` / `Write(shift=...)` 已移除，代码已适配） |
+| Python | **`D:\Program Files\Python311\python.exe`（3.11.9）** — 真正的工作环境 |
+| manim | 0.20.1（代码已适配 `Write(scale=...)`/`Write(shift=...)` 移除） |
 | demoparser2 | 已安装，import 正常 |
-| ffmpeg | `D:\ProgramData\oopz\ffmpeg.exe`（2022-10-30 版，支持 NVENC） |
+| ffmpeg | `D:\ProgramData\oopz\ffmpeg.exe`（支持 NVENC h264/hevc） |
 | ffprobe | **缺失** → `VideoExporter` 已实现 `ffmpeg -i` stderr 解析 fallback |
-| 虚拟环境 | `enve/`（旧 venv，含 demoparser2） |
+| 虚拟环境 | `enve/` 是 **DELL 机器复制的旧 venv**（manim 0.18.1），已修 pyvenv.cfg 指向本机，但**不建议使用**；基 Python 已装全部依赖 |
 
-**注意**：ffmpeg 不在 PATH，`VideoExporter._find_executable()` 硬编码搜索 `C:/ProgramData/oopz`、`D:/ProgramData/oopz`、`C:/ffmpeg/bin`。若迁移机器需更新该列表。
+**关键修正（vs 旧 HANDOFF）**：Python 在 `D:\Program Files\Python311`（不是 C:\），旧路径 `C:\Program Files\Python311` 不存在。`enve/` 是陈旧环境。ffmpeg 不在 PATH，`VideoExporter._find_executable()` 硬编码搜索 `C:/ProgramData/oopz`、`D:/ProgramData/oopz`、`C:/ffmpeg/bin`（当前命中 `D:/ProgramData/oopz`）。若迁移机器需更新该列表。
 
 ## 5. 已知问题 / 技术债务
 
@@ -63,6 +66,7 @@ bd80ec1 docs: add ARCHITECTURE.md with layered design and migration plan
 3. **RWS / Rating 是近似**：自实现 HLTV 公式，与 Faceit/完美平台 proprietary 数值有差异，README 已标注。
 4. **Player team 名**：`_build_players` 用 `team_number` 生成 `Team 2`/`Team 3` 而非真实队名（Valve MM demo 无队名），provider 层可后续补充。
 5. **`statistics_script.py` 遗留**：`radar_data/statistics_script.py` 依赖外部 `match_data.json` 的老流程仍在，新架构从 .dem 直接算，两者并存。`examples/render_radar_from_csv.py` 是 CSV 输入的兼容适配层。
+6. **ARCHITECTURE.md 与代码漂移**：ARCHITECTURE 是早期规划，代码演进后未同步。实际：`parser/` 是单文件 `providers.py`+`manager.py`（非 `providers/` 5 子文件）；model 是 `types.py`+`parsed_demo.py`+`io.py`（非 demo/player/events/ticks.py）；analysis 只有 `basic_stats/ratings/preference` 三个模块（economy/clutch/refrag 等未实现）；无 `export/image.py`、`render/styles.py`。以代码为准，ARCHITECTURE 仅作意图参考。
 
 ## 6. 关键入口
 
@@ -92,13 +96,15 @@ python -m cs_analyzer batch configs/batch_example.yaml --parallel 4
 
 ## 7. 下一步建议（按优先级）
 
-1. **补单元测试**（验收硬缺口）→ `tests/` + fixtures，覆盖 model/parser/analysis/export
-2. **准备测试 demo** → 放一个真实 .dem 到 `tests/fixtures/` 或 `demo/`，验证 `csa run` 端到端 + 性能指标
-3. **补地图底图** → `cs_analyzer/maps/data/de_mirage.png` + yaml 坐标映射
-4. **验证 batch 5+ demo** → 用真实文件跑 `csa batch`
-5. **可选**：装 ffprobe 根治探测、provider 补充真实队名映射
+1. **提供群友真实 .dem** → 放入仓库（gitignore 已排除，放 `demos/` 即可），跑 `csa run <你的.dem> --config configs/content_prod.yaml` 产出有真实价值的雷达视频
+2. **验证 batch 5+ demo** → 用 5+ 个真实 .dem 跑 `csa batch configs/batch_example.yaml --parallel 4`
+3. **补地图底图** → `cs_analyzer/maps/data/de_mirage.png` + yaml 坐标映射（B/C 通道需要）
+4. **同步 ARCHITECTURE.md** → 对齐实际代码结构（§5.6 列出的漂移点）
+5. **可选**：装 ffprobe 根治探测、provider 补充真实队名映射、content 渲染质量可调（当前硬编码 high_quality）
 
 ## 8. 已验证里程碑（本阶段成果）
 
-- **雷达图成品**：`output/0922_final.mp4`（28.7MB，1分46秒，720p30，6 选手轮播 + halloween 背景 + Thriller 音乐，NVENC 硬件编码）。用 0922 群友内战数据（6 选手），data 来自 `radar_data/0922/player_statistics.csv`。
-- 修复：Manim 0.20 API 变更、ffprobe 缺失 fallback、CSV→RadarPlayerData 适配。
+- **.dem 全链路成品（deepseek-v4-pro 本轮）**：`output/test_demo/final_content.mp4`（31MB，1分50秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为真实 .dem（`tutorial/demoparser/src/parser/test_demo.dem`），走 parse→analyze→Manim render→ffmpeg 合成全链路。
+- **雷达图成品（GLM5.2 上轮，CSV 路径）**：`output/0922_final.mp4`（28.7MB，1分46秒，720p30，6 选手轮播 + halloween 背景 + Thriller 音乐）。data 来自 `radar_data/0922/player_statistics.csv`。
+- **单元测试**：`tests/` 45 个测试全绿。
+- 修复：enve venv 跨机失效（pyvenv.cfg 指向本机基 Python）、HANDOFF 中 Python 路径错误、新增 `configs/content_prod.yaml`。
