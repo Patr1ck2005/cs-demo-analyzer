@@ -33,6 +33,7 @@ CsDemoAnalyzer 是一个本地优先的 CS2 demo 分析工具，将 `.dem` 文�
 | `export/image.py`、`render/styles.py` | ❌ 不存在（图像导出走 PIL 在渲染层，样式在 config） |
 | maps 数据 | ⚠️ 仅 `de_mirage.yaml`，无 PNG 底图 |
 | 解析稳健性 | ✅ 支持无 player_info / 无 round_start 事件的 SourceTV demo（从 spawns 重建玩家、兼容字符串 winner） |
+| 2D 回放系统 | ✅ `cs_analyzer/replay/`（PlayerTimeline）+ `render/replay_animation.py`（手动帧循环 + FFMpegWriter）+ 特效/HUD/中文字体；`csa replay` 四种模式（all/highlights/openings/montage） |
 
 ---
 

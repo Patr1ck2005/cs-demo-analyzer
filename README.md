@@ -68,7 +68,7 @@ csa batch configs/batch_example.yaml --parallel 4
 | `csa render <demo>` | Render radar chart video (.mov) |
 | `csa action-map <demo> --player <name>` | 2D movement trajectory map (PNG) |
 | `csa overlap-animation <demo> --player <name>` | T/CT overlap animation (GIF/MP4) |
-| `csa replay <demo> --player <name> [--mode all\|highlights\|montage] [--speed N] [--rounds a,b] [--opening S] [--composite]` | 2D replay video of a player's actions (MP4) |
+| `csa replay <demo> --player <name> [--mode all\|highlights\|openings\|montage] [--speed N] [--rounds a,b] [--opening S] [--composite]` | 2D replay video of a player's actions (MP4) |
 | `csa export <demo> --format video\|report` | Export final video or HTML report |
 | `csa run <demo>` | Full pipeline (parse + analyze + render + export) |
 | `csa batch <config.yaml>` | Batch process multiple demos |
@@ -119,7 +119,7 @@ csa run path/to/demo.dem --config configs/content_prod.yaml
 
 ## 2D Replay（选手行动回放）
 
-在俯视地图上动画展示一名选手完整时间线的行动：走位轨迹、跳跃、射击、击杀（含受害者连线）、投掷道具（烟雾扩散/闪光/手雷/燃烧弹特效），配专业 HUD（比分/回合/时钟/事件流/选手 K/D）。三种播放模式：
+在俯视地图上动画展示一名选手完整时间线的行动：走位轨迹（归位出生点自动断线）、跳跃、射击、击杀（含受害者连线）、投掷道具（烟雾扩散/闪光/手雷/燃烧弹特效），配专业 HUD（比分/回合/时钟/事件流/选手 K/D）。四种播放模式：
 
 ```bash
 # 全场 15x 快进
@@ -128,7 +128,10 @@ csa replay demo.dem --player "PlayerName" --mode all --speed 15
 # 高光回合（指定回合，正常/指定速度）
 csa replay demo.dem --player "PlayerName" --mode highlights --rounds 4,18,3 --speed 2
 
-# 每回合开局 20 秒 @ 5x 蒙太奇
+# 开局重叠：所有回合前 20 秒路径重叠同图，每回合一色
+csa replay demo.dem --player "PlayerName" --mode openings --opening 20
+
+# 蒙太奇：每回合开局 20 秒 @ 5x 顺序拼接
 csa replay demo.dem --player "PlayerName" --mode montage --opening 20
 
 # 加背景 + BGM 合成（复用 export.video 配置）
