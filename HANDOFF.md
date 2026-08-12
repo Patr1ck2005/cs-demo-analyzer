@@ -66,7 +66,8 @@ bd80ec1 docs: add ARCHITECTURE.md with layered design and migration plan
 3. **RWS / Rating 是近似**：自实现 HLTV 公式，与 Faceit/完美平台 proprietary 数值有差异，README 已标注。
 4. **Player team 名**：`_build_players` 用 `team_number` 生成 `Team 2`/`Team 3` 而非真实队名（Valve MM demo 无队名），provider 层可后续补充。
 5. **`statistics_script.py` 遗留**：`radar_data/statistics_script.py` 依赖外部 `match_data.json` 的老流程仍在，新架构从 .dem 直接算，两者并存。`examples/render_radar_from_csv.py` 是 CSV 输入的兼容适配层。
-6. **ARCHITECTURE.md 与代码漂移**：ARCHITECTURE 是早期规划，代码演进后未同步。实际：`parser/` 是单文件 `providers.py`+`manager.py`（非 `providers/` 5 子文件）；model 是 `types.py`+`parsed_demo.py`+`io.py`（非 demo/player/events/ticks.py）；analysis 只有 `basic_stats/ratings/preference` 三个模块（economy/clutch/refrag 等未实现）；无 `export/image.py`、`render/styles.py`。以代码为准，ARCHITECTURE 仅作意图参考。
+6. **ARCHITECTURE.md 与代码漂移**：ARCHITECTURE 是早期规划，代码演进后未同步。实际：`parser/` 是单文件 `providers.py`+`manager.py`（非 `providers/` 5 子文件）；model 是 `types.py`+`parsed_demo.py`+`io.py`（非 demo/player/events/ticks.py）；analysis 只有 `basic_stats/ratings/preference` 三个模块（economy/clutch/refrag 等未实现）；无 `export/image.py`、`render/styles.py`。以代码为准，ARCHITECTURE 仅作意图参考。已更新 §1 实现状态表 + §5 结构树。
+7. **WMPVP/完美平台 SourceTV demo 解析**（已修复）：此类 demo 无 `player_info` 表、`list_game_events()` 不列 `round_start/round_end`。backend 已改为全事件尝试 + 从 `player_spawn` 重建玩家 + 兼容字符串 winner（"T"/"CT"）+ round_start 精确边界。**已知限制**：个别玩家 team_num 全空 → 标记 "Team 0"（RWS=0，不影响雷达图属性）。缓存加了 `parser_version` 失效标记，改解析逻辑需同步 bump `cache.PARSER_VERSION`。
 
 ## 6. 关键入口
 
@@ -104,7 +105,8 @@ python -m cs_analyzer batch configs/batch_example.yaml --parallel 4
 
 ## 8. 已验证里程碑（本阶段成果）
 
-- **.dem 全链路成品（deepseek-v4-pro 本轮）**：`output/test_demo/final_content.mp4`（31MB，1分50秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为真实 .dem（`tutorial/demoparser/src/parser/test_demo.dem`），走 parse→analyze→Manim render→ffmpeg 合成全链路。
+- **真实对局成品（deepseek-v4-pro 本轮）**：`output/real_demo_1/final.mp4`（30.8MB，1分49秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为用户真实 WMPVP 对局（`demos/real_demo_1.dem`，de_ancient，24 回合 14-10，10 玩家），走 .dem 全链路。修复了 WMPVP SourceTV 无 player_info/round_start 的解析问题（§5.7）。
+- **.dem 全链路成品（deepseek-v4-pro 本轮）**：`output/test_demo/final_content.mp4`（31MB，1分50秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为测试 .dem（`tutorial/demoparser/src/parser/test_demo.dem`）。
 - **雷达图成品（GLM5.2 上轮，CSV 路径）**：`output/0922_final.mp4`（28.7MB，1分46秒，720p30，6 选手轮播 + halloween 背景 + Thriller 音乐）。data 来自 `radar_data/0922/player_statistics.csv`。
 - **单元测试**：`tests/` 45 个测试全绿。
 - 修复：enve venv 跨机失效（pyvenv.cfg 指向本机基 Python）、HANDOFF 中 Python 路径错误、新增 `configs/content_prod.yaml`。
