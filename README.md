@@ -1,6 +1,6 @@
 # CsDemoAnalyzer
 
-Local-first CS2 demo analysis toolkit. Parses `.dem` files into typed intermediate data, computes statistics, and renders radar charts, 2D action maps, and T/CT overlap animations.
+Local-first CS2 demo analysis toolkit. Parses `.dem` files into typed intermediate data, computes statistics, and renders radar charts, 2D action maps, and 2D replay videos (single-player action timelines + 10-player team replays).
 
 ## Features
 
@@ -11,7 +11,7 @@ Local-first CS2 demo analysis toolkit. Parses `.dem` files into typed intermedia
 
 **P1 - Visualization**
 - 2D action map: multi-round movement trajectories, T/CT colors, phase distinction
-- T/CT overlap animation: player's T-side and CT-side trajectories animated over time
+- 2D replay videos: single-player action timeline + 10-player team replay (time-driven overlays, utilities/kills/deaths animated)
 
 **P2 - Analysis**
 - Basic stats: KPR, ADR, Survivals, HS%, First Kills Per Round
@@ -48,8 +48,8 @@ csa render path/to/demo.dem --output output/radar.mov
 # Render 2D action map
 csa action-map path/to/demo.dem --player "PlayerName" --output output/action_map.png
 
-# Render T/CT overlap animation
-csa overlap-animation path/to/demo.dem --player "PlayerName" --output output/overlap.gif
+# Render a 2D replay recipe (e.g. 10-player full record)
+csa recipe path/to/demo.dem t-full
 
 # Full pipeline: parse + analyze + render + export
 csa run path/to/demo.dem
@@ -67,8 +67,8 @@ csa batch configs/batch_example.yaml --parallel 4
 | `csa analyze <demo>` | Run analysis modules, print stats table |
 | `csa render <demo>` | Render radar chart video (.mov) |
 | `csa action-map <demo> --player <name>` | 2D movement trajectory map (PNG) |
-| `csa overlap-animation <demo> --player <name>` | T/CT overlap animation (GIF/MP4) |
-| `csa replay <demo> --player <name> [--mode all\|highlights\|openings\|montage] [--speed N] [--rounds a,b] [--opening S] [--composite]` | 2D replay video of a player's actions (MP4) |
+| `csa replay <demo> [--player X] [--mode overlap-full\|openings\|highlights\|team\|team-highlight\|team-overlap-round\|team-overlap-full] [--speed N] [--rounds a,b] [--composite]` | 2D replay video (single or 10-player) |
+| `csa recipe <demo> <name> [--player X] [--override style.yaml] [--list]` | Render a declarative recipe (fine-grained customization) |
 | `csa export <demo> --format video\|report` | Export final video or HTML report |
 | `csa run <demo>` | Full pipeline (parse + analyze + render + export) |
 | `csa batch <config.yaml>` | Batch process multiple demos |
@@ -117,30 +117,74 @@ csa run path/to/demo.dem --config configs/content_prod.yaml
 
 已知限制：个别 SourceTV demo 中某些玩家的 team_num 字段全空，会标记为 "Team 0"（不影响雷达图属性，仅 RWS 与 T/CT 着色受影响）。
 
-## 2D Replay（选手行动回放）
+## 2D Replay（行动回放 · 常用配方）
 
-在俯视地图上动画展示一名选手完整时间线的行动：走位轨迹（归位出生点自动断线）、跳跃、射击、击杀（含受害者连线）、投掷道具（烟雾扩散/闪光/手雷/燃烧弹特效），配专业 HUD（比分/回合/时钟/事件流/选手 K/D）。四种播放模式：
+俯视地图上动画展示行动：走位轨迹（归位断线）、跳跃、射击、击杀（受害者连线）、投掷道具（**抛掷物飞行 → 落点爆开 → 持续消散**，烟雾真实 ~22s / 燃烧弹 ~7s 时长）、死亡 ☠ 标记、专业 HUD。所有配方**自动去掉准备时间（round_freeze_end 起播）与死亡时间**（单人存活窗口裁剪；团队死者变尸体☠继续播）。带投掷物是标配，无投掷物版本不做。
+
+### 单人（S，`--player <名字或steamid>`）
+
+| 配方 | 成品 | 制备 |
+| :-- | :-- | :-- |
+| S-全场重叠 | 每回合完整存活路径重叠一图，每回合一色 | `--mode overlap-full` |
+| S-开局重叠 | 每回合开局 **30s** 路径重叠，每回合一色 | `--mode openings`（默认 30s，`--opening N` 可调） |
+| S-高光 | 指定回合正常速度 | `--mode highlights --rounds 3,5,12 --speed 2` |
+
+### 10人（T，团队，无需 `--player`）
+
+| 配方 | 成品 | 制备 |
+| :-- | :-- | :-- |
+| T-全场记录(不重叠) | 全员同时连续回放：分色轨迹、尸体☠、击杀连线、全员投掷物 | `--mode team --speed 10` |
+| T-高光 | 击杀最多的 3 回合全员回放 | `--mode team-highlights --speed 2` |
+| T-高亮单人 | 全员回放但只高亮一名选手（白环+加粗轨迹+★） | `--mode team-highlight --player <steamid>` |
+| T-逐回合重叠 | 每回合 10 人路径重叠，逐回合切换 | `--mode team-overlap-round --speed 12` |
+| T-全场重叠 | 全场 10 人路径一次性重叠 | `--mode team-overlap-full` |
+
+**团队配色**：T 用黄色系、CT 用蓝色系（队内不同深浅区分个人），一眼分清阵营。所有配方（含重叠类）均带完整动作渲染（抛掷物飞行动画/烟雾/击杀连线）。
+
+## 统一渲染配方框架
+
+所有配方在 `configs/recipes.yaml` 声明式定义（目标 + 模式 + 细粒度样式），用统一入口渲染，任何视觉参数可自定义覆盖：
 
 ```bash
-# 全场 15x 快进
-csa replay demo.dem --player "PlayerName" --mode all --speed 15
+# 列出全部配方
+csa recipe demo.dem --list
 
-# 高光回合（指定回合，正常/指定速度）
-csa replay demo.dem --player "PlayerName" --mode highlights --rounds 4,18,3 --speed 2
+# 按配方渲染（单人配方需 --player）
+csa recipe demo.dem t-full
+csa recipe demo.dem s-openings --player "PlayerName"
 
-# 开局重叠：所有回合前 20 秒路径重叠同图，每回合一色
-csa replay demo.dem --player "PlayerName" --mode openings --opening 20
+# 细粒度自定义：额外样式覆盖，不动默认配方
+csa recipe demo.dem t-full --override my_style.yaml
+```
 
-# 蒙太奇：每回合开局 20 秒 @ 5x 顺序拼接
-csa replay demo.dem --player "PlayerName" --mode montage --opening 20
+`my_style.yaml` 例子（只写想改的项，其余用配方默认）：
 
-# 加背景 + BGM 合成（复用 export.video 配置）
-csa replay demo.dem --player "PlayerName" --mode all --composite
+```yaml
+canvas:   {width: 1920, height: 1080, fps: 60, bg: "#0a0a0a"}   # 画布/分辨率/帧率
+effects:  {show_smoke: true, smoke_color: "#AAAAAA", smoke_max_radius: 150,
+           show_flash: false, show_he: true, he_radius: 100}    # 特效逐项开关+颜色+半径
+trail:    {seconds: 2.0, width_min: 1.0, width_max: 5.0}       # 轨迹
+marker:   {size: 10, halo: true, halo_size: 24}                # 选手标记/光环
+hud:      {show_score: true, show_feed: false}                 # HUD 元素
+team:     {t_palette: ["#FFD54F","#FFB300"], ct_palette: ["#29B6F6","#0288D1"]}  # 阵营色板
+```
+
+样式分层：`canvas / trail / marker / hud / team / effects`，`effects` 里任意细粒度项（`show_*` 开关、各类颜色/半径/时长、投掷物飞行秒数）都可改。低层命令 `csa replay --mode` 仍可用。
+
+```bash
+# 单人开局重叠 30s
+csa replay demo.dem --player "PlayerName" --mode openings
+
+# 团队全场记录
+csa replay demo.dem --mode team --speed 10
+
+# 团队高光
+csa replay demo.dem --mode team-highlights
 ```
 
 `--player` 接受名字或 steamid。默认深色底图（无地图 PNG 时从 tick 数据推导坐标边界）；放地图 PNG 到 `cs_analyzer/maps/data/` 后可显示底图。
 
-已知限制：个别 SourceTV demo 中某些玩家的 tick 位置数据缺失（如 team_num 全空的玩家），会拒绝回放并提示换人。
+已知限制：个别 SourceTV demo 中某些玩家的 tick 位置数据缺失（如 team_num 全空的玩家），单人回放会拒绝并提示换人；团队模式自动跳过该玩家（N 人参与）。
 
 ## Architecture
 
@@ -159,7 +203,7 @@ Five-layer pipeline with provider abstraction and serializable intermediates.
 [Analysis] ── pluggable modules ──> AnalysisResult (typed, JSON-serializable)
     │
     ▼
-[Render] ── RadarChart / ActionMap / OverlapAnimation ──> RenderArtifact
+[Render] ── RadarChart / ActionMap / ReplayAnimation / TeamReplay ──> RenderArtifact
     │
     ▼
 [Export] ── ffmpeg / PIL / jinja2 ──> final output (mp4/png/html/json)
@@ -282,7 +326,7 @@ cs_analyzer/
 ├── parser/          # Layer 1: .dem parsing + provider abstraction
 ├── model/           # Layer 2: pydantic models + JSON/Parquet IO
 ├── analysis/        # Layer 3: pluggable metric modules
-├── render/          # Layer 4: radar chart, action map, overlap animation
+├── render/          # Layer 4: radar chart, action map, replay/team replay
 ├── export/          # Layer 5: video (ffmpeg), report (HTML/JSON)
 ├── maps/            # map radar images + coordinate mappings
 ├── cli.py           # typer CLI

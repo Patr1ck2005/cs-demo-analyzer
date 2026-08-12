@@ -88,11 +88,13 @@ python -m cs_analyzer batch configs/batch_example.yaml --parallel 4
 ```
 
 核心文件：
-- CLI: `cs_analyzer/cli.py`
+- CLI: `cs_analyzer/cli.py`（含 `replay` 低层命令 + `recipe` 统一配方命令）
+- 配方: `cs_analyzer/recipe.py` + `configs/recipes.yaml`（声明式配方 + 细粒度样式覆盖）
 - 解析: `cs_analyzer/parser/backend.py` (demoparser2), `providers.py`
 - 模型: `cs_analyzer/model/types.py`, `io.py`
 - 分析: `cs_analyzer/analysis/`（basic_stats, ratings, preference）
-- 渲染: `cs_analyzer/render/`（radar_chart, action_map, overlap_animation）
+- 回放: `cs_analyzer/replay/timeline.py`（PlayerTimeline + round_freeze_ends + 存活窗口）
+- 渲染: `cs_analyzer/render/`（radar_chart, action_map, overlap_animation, **replay_animation**, **team_animation**, effects, hud, fonts）
 - 导出: `cs_analyzer/export/video.py` (ffmpeg), `report.py`
 - 缓存: `cs_analyzer/cache.py`, `batch.py`
 
@@ -106,7 +108,10 @@ python -m cs_analyzer batch configs/batch_example.yaml --parallel 4
 
 ## 8. 已验证里程碑（本阶段成果）
 
-- **2D 回放系统（deepseek-v4-pro 本轮）**：`cs_analyzer/replay/`（PlayerTimeline 数据层）+ `cs_analyzer/render/replay_animation.py`（手动帧循环 + FFMpegWriter）+ `effects.py`/`hud.py`/`fonts.py`。`csa replay` 模式：全场15x / 高光 / **开局 montage**（每回合开局顺序剪辑）/ **重叠 openings**（多回合开局路径同图叠绘、每回合一色）。**注意：开局（opening）与重叠（overlap）是独立概念**（用户明确）：开局 = 每回合开局段；重叠 = 多路径同图叠绘（含既有 `overlap-animation` 的 T/CT 重叠）。轨迹用 LineCollection，归位出生点自动断线。深色底图 + 专业 HUD + 行动特效（跳跃/射击/击杀/道具）。成品：`output/replay_Jake_15x.mp4`（2:03，720p30）、`replay_Jake_highlights.mp4`、`replay_Jake_openings.mp4`。
+- **统一渲染配方框架（deepseek-v4-pro 本轮）**：`cs_analyzer/recipe.py`（Recipe 模型 + flatten_style/apply_style/render_recipe）+ `configs/recipes.yaml`（8 个声明式配方）+ `csa recipe <demo> <名> [--override style.yaml]` 统一入口。`ReplayConfig` 细粒度化（特效逐项开关 show_*/各类颜色/半径/时长、轨迹、HUD 元素、选手标记/光环、团队色板 t_palette/ct_palette），渲染器全部读配置（effects.py 去掉硬编码颜色）。样式覆盖：`canvas/trail/marker/hud/team/effects`。
+- **团队回放渲染器（deepseek-v4-pro 本轮）**：`cs_analyzer/render/team_animation.py`——10 人同时回放，分色（**T 黄系 / CT 蓝系**）、尸体 ☠、击杀连线、全员投掷物；支持 team/team-highlights/team-highlight(高亮单人白环★)/team-overlap-round/team-overlap-full。重叠类全部时间驱动 + 真实特效（抛掷物/烟雾/击杀动画），openings 用本地偏移对齐。
+- **回放通用处理**：`round_freeze_end` 去准备时间；单人存活窗口裁剪去死亡时间；团队尸体☠继续播；死亡 ☠ 标记（mathtext）。PARSER_VERSION 已至 1.4.0。
+- **2D 回放系统（deepseek-v4-pro 早轮）**：`cs_analyzer/replay/`（PlayerTimeline 数据层）+ `cs_analyzer/render/replay_animation.py`（手动帧循环 + FFMpegWriter）+ `effects.py`/`hud.py`/`fonts.py`。轨迹用 LineCollection，归位出生点自动断线。深色底图 + 专业 HUD + 行动特效。
 - **真实对局成品（deepseek-v4-pro 本轮）**：`output/real_demo_1/final.mp4`（30.8MB，1分49秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为用户真实 WMPVP 对局（`demos/real_demo_1.dem`，de_ancient，24 回合 14-10，10 玩家），走 .dem 全链路。修复了 WMPVP SourceTV 无 player_info/round_start 的解析问题（§5.7）。
 - **.dem 全链路成品（deepseek-v4-pro 本轮）**：`output/test_demo/final_content.mp4`（31MB，1分50秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为测试 .dem（`tutorial/demoparser/src/parser/test_demo.dem`）。
 - **雷达图成品（GLM5.2 上轮，CSV 路径）**：`output/0922_final.mp4`（28.7MB，1分46秒，720p30，6 选手轮播 + halloween 背景 + Thriller 音乐）。data 来自 `radar_data/0922/player_statistics.csv`。
