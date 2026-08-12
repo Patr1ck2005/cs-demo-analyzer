@@ -2,13 +2,12 @@
 
 Manual frame loop + FFMpegWriter (streaming to ffmpeg stdin), NOT FuncAnimation:
 robust for thousands of frames, deterministic frame count, easy progress/failure
-diagnosis. Supports three playback modes: full match (fast-forward), highlight
-rounds, and a round-openings montage (per-round clips concatenated).
+diagnosis. Playback modes: full match (fast-forward), highlight rounds, and
+time-driven path overlays (openings / full overlap).
 """
 from __future__ import annotations
 
 import logging
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,7 +23,7 @@ from matplotlib.collections import LineCollection
 from cs_analyzer.config import ReplayConfig
 from cs_analyzer.maps import MapResource, load_map_or_fallback
 from cs_analyzer.model.parsed_demo import ParsedDemo
-from cs_analyzer.replay.timeline import PlayerTimeline, build_timeline
+from cs_analyzer.replay.timeline import PlayerTimeline, build_timeline, round_freeze_ends
 from cs_analyzer.render.effects import EffectManager
 from cs_analyzer.render.fonts import setup_fonts
 from cs_analyzer.render.hud import ReplayHUD
@@ -91,17 +90,24 @@ class ReplayAnimationRenderer:
     ) -> Path:
         """Render a player replay video.
 
-        mode: "all" (full match), "highlights" (selected rounds), "montage"
-              (each round's opening window, concatenated).
+        mode: "all" (full match), "highlights" (selected rounds),
+              "openings" / "overlap-full" (time-driven path overlays).
         """
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         setup_fonts(self.config.font)
 
-        timeline = build_timeline(self.demo, steamid_or_name)
+        timeline = build_timeline(
+            self.demo, steamid_or_name, nade_flight_seconds=self.config.nade_flight_seconds
+        )
 
         if mode == "openings":
-            return self._render_openings(timeline, output_path, opening, speed, tick_rate)
+            windows = self._opening_windows(timeline, opening, tick_rate)
+            return self._render_overlay(timeline, windows, output_path, speed, tick_rate,
+                                        "开局路径重叠 30s", aligned=True)
+        if mode == "overlap-full":
+            windows = self._full_windows(timeline)
+            return self._render_overlay(timeline, windows, output_path, speed, tick_rate, "全场路径重叠")
 
         segments = self._build_segments(timeline, mode, speed, rounds, opening, tick_rate)
         if not segments:
@@ -116,8 +122,6 @@ class ReplayAnimationRenderer:
             )
         logger.info("replay %s: %d segments, %d frames", timeline.player.name, len(segments), total_frames)
 
-        if mode == "montage":
-            return self._render_montage(timeline, segments, output_path, tick_rate)
         return self._render_continuous(timeline, segments, output_path, tick_rate)
 
     # ---- segment building ----
@@ -132,14 +136,6 @@ class ReplayAnimationRenderer:
         tick_rate: int,
     ) -> list[Segment]:
         regular = self.demo.regular_rounds
-        if mode == "montage":
-            open_sec = opening if opening is not None else self.config.montage_open_seconds
-            open_ticks = int(open_sec * tick_rate)
-            segs = []
-            for rnd in regular:
-                end = min(rnd.end_tick, rnd.start_tick + open_ticks)
-                segs.append(Segment(rnd.start_tick, end, self.config.speed_montage, f"R{rnd.number}"))
-            return segs
         if mode == "highlights":
             selected = [r for r in regular if rounds is None or r.number in rounds]
             spd = speed if speed is not None else self.config.speed_highlight
@@ -153,104 +149,164 @@ class ReplayAnimationRenderer:
             ticks_per_frame = tick_rate * seg.speed / self.config.fps
             seg.n_frames = max(int(seg.duration_ticks / ticks_per_frame), 1)
 
-    # ---- montage (per-round clips + concat) ----
+    # ---- overlay windows (overlap round paths, color-coded) ----
 
-    def _render_montage(
-        self, timeline: PlayerTimeline, segments: list[Segment], output_path: Path, tick_rate: int
-    ) -> Path:
-        tmp_dir = output_path.parent / f".{output_path.stem}_parts"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        parts: list[Path] = []
-        try:
-            for i, seg in enumerate(segments):
-                part = tmp_dir / f"part_{i:03d}.mp4"
-                self._render_continuous(timeline, [seg], part, tick_rate, single_segment=True)
-                parts.append(part)
-            self._concat_parts(parts, output_path)
-        finally:
-            import shutil
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-        return output_path
+    def _opening_windows(
+        self, timeline: PlayerTimeline, opening: float | None, tick_rate: int
+    ) -> list[tuple[int, int, int]]:
+        """Per-round opening windows: [freeze_end, freeze_end + opening], clamped
+        to the player's alive end (prep/death time trimmed)."""
+        freeze = round_freeze_ends(self.demo)
+        open_ticks = int((opening if opening is not None else self.config.opening_seconds) * tick_rate)
+        windows = []
+        for r in self.demo.regular_rounds:
+            fe = freeze.get(r.number, r.start_tick)
+            start, alive_end = timeline.alive_window(r, fe)
+            end = min(r.end_tick, start + open_ticks, alive_end)
+            if end > start:
+                windows.append((r.number, start, end))
+        return windows
 
-    @staticmethod
-    def _concat_parts(parts: list[Path], output_path: Path) -> None:
-        ffmpeg = find_ffmpeg()
-        list_file = output_path.parent / f".{output_path.stem}_concat.txt"
-        with open(list_file, "w", encoding="utf-8") as f:
-            for p in parts:
-                # Absolute paths: ffmpeg concat resolves relative paths against
-                # the list file's directory, which would double the prefix.
-                f.write(f"file '{str(p.resolve()).replace(chr(39), chr(39) * 2)}'\n")
-        cmd = [
-            ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", str(output_path),
-        ]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        list_file.unlink(missing_ok=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"ffmpeg concat failed: {result.stderr[-500:]}")
+    def _full_windows(self, timeline: PlayerTimeline) -> list[tuple[int, int, int]]:
+        """Per-round full alive windows (prep + death time trimmed)."""
+        freeze = round_freeze_ends(self.demo)
+        windows = []
+        for r in self.demo.regular_rounds:
+            fe = freeze.get(r.number, r.start_tick)
+            start, end = timeline.alive_window(r, fe)
+            if end > start:
+                windows.append((r.number, start, end))
+        return windows
 
-    # ---- openings mode (overlap round-opening paths, color-coded) ----
-
-    def _render_openings(
+    def _render_overlay(
         self,
         timeline: PlayerTimeline,
+        windows: list[tuple[int, int, int]],
         output_path: Path,
-        opening: float | None,
         speed: float | None,
         tick_rate: int,
+        title: str,
+        aligned: bool = False,
     ) -> Path:
-        """Overlay each round's opening window on one map, one color per round.
+        """Time-driven overlay: advance a game tick through the windows while the
+        player's actions animate (projectiles/smoke/kills via EffectManager) and
+        each window's path grows to the current tick. Holds the full overlay at
+        the end for comparison.
 
-        All rounds' first `opening` game-seconds draw simultaneously (progressively
-        revealed), each in a distinct color, so routes between rounds are compared.
+        aligned=True (openings): windows all start at different absolute ticks but
+        represent the same relative window (e.g. first 30s of each round). Advance
+        a LOCAL offset and remap effects to local ticks so rounds are compared
+        simultaneously. aligned=False (full overlap): advance the global tick.
         """
-        open_ticks = int((opening if opening is not None else self.config.montage_open_seconds) * tick_rate)
-        rounds = self.demo.regular_rounds
-        windows = [
-            (r.number, r.start_tick, min(r.end_tick, r.start_tick + open_ticks))
-            for r in rounds
-            if r.end_tick > r.start_tick
-        ]
         if not windows:
-            raise ValueError("No rounds with opening windows to overlay.")
+            raise ValueError("No windows to overlay.")
+        spd = speed if speed is not None else (
+            self.config.speed_overlay if aligned else self.config.speed_full
+        )
+        if aligned:
+            span = max(w[2] - w[1] for w in windows)
+            t0 = 0.0
+            effects_view = self._local_offset_view(timeline, windows)
+        else:
+            t0 = min(w[1] for w in windows)
+            span = max(w[2] for w in windows) - t0
+            effects_view = timeline
+        n_frames = max(int(span / (tick_rate * spd / self.config.fps)), 1)
+        hold_frames = int(self.config.fps * self.config.overlay_hold_seconds)
 
-        spd = speed if speed is not None else self.config.speed_montage
-        n_frames = max(int(open_ticks / (tick_rate * spd / self.config.fps)), 1)
-        hold_frames = int(self.config.fps * 3)  # hold the full overlay after the reveal
-
-        fig, ax, round_lines, round_labels, spawns = self._setup_openings_figure(timeline, windows)
-        # Precompute each round's timeline index range.
-        idx_ranges = []
-        for _, start, end in windows:
-            lo = int(np.searchsorted(timeline.ticks, start, side="left"))
-            hi = int(np.searchsorted(timeline.ticks, end, side="right"))
-            idx_ranges.append((lo, hi))
+        fig, ax, round_lines, round_labels, spawns = self._setup_overlay_figure(timeline, windows, title)
+        effects = EffectManager(self.config, effects_view, self.map, tick_rate=tick_rate)
+        effects.attach(ax)
+        hud = ReplayHUD(self.config, timeline, self.demo)
+        hud.attach(fig, ax)
 
         writer = self._make_writer()
         try:
             with writer.saving(fig, str(output_path), dpi=self.config.dpi):
                 for i in range(n_frames + hold_frames):
-                    progress = min(i / max(n_frames - 1, 1), 1.0)
-                    for k, ((_, start, _), (lo, hi)) in enumerate(zip(windows, idx_ranges)):
+                    p = min(i / max(n_frames - 1, 1), 1.0)
+                    for k, (rnum, wstart, wend) in enumerate(windows):
                         line = round_lines[k]
+                        if aligned:
+                            # local offset -> absolute tick within this window
+                            local = p * (wend - wstart)
+                            a, b = wstart, wstart + local
+                            if local < 1:
+                                line.set_visible(False)
+                                continue
+                        else:
+                            t = t0 + p * span
+                            if t < wstart:
+                                line.set_visible(False)
+                                continue
+                            a, b = wstart, min(t, wend)
+                        lo = int(np.searchsorted(timeline.ticks, a, side="left"))
+                        hi = int(np.searchsorted(timeline.ticks, b, side="right"))
                         if hi - lo < 2:
                             line.set_visible(False)
                             continue
-                        reveal = max(int(progress * (hi - lo)), 2)
-                        seg = np.arange(lo, lo + reveal)
-                        wx = timeline.xs[seg]
-                        wy = timeline.ys[seg]
+                        idx = np.arange(lo, hi)
+                        wx = timeline.xs[idx]
+                        wy = timeline.ys[idx]
                         px, py = self.map.world_to_pixel_array(wx, wy)
                         line.set_data(px, py)
                         line.set_visible(True)
+                    if aligned:
+                        effects.update(p * span)
+                    else:
+                        effects.update(t)
+                        rnd = self.demo.data.round_at_tick(int(t))
+                        if rnd is not None:
+                            hud.update(t, rnd.number, timeline.side_for_round(rnd), title)
                     writer.grab_frame()
         finally:
             plt.close(fig)
-        logger.info("replay openings -> %s", output_path)
+        logger.info("replay overlay -> %s", output_path)
         return output_path
 
-    def _setup_openings_figure(self, timeline: PlayerTimeline, windows):
+    def _local_offset_view(self, timeline: PlayerTimeline, windows):
+        """Duck-typed timeline whose effect ticks are local offsets within the
+        aligned windows (so a shared local tick drives all rounds' effects)."""
+        from dataclasses import replace
+
+        def local_of(tick):
+            for _, s, e in windows:
+                if s <= tick < e:
+                    return tick - s
+            return None
+
+        class View:
+            pass
+
+        view = View()
+        view.utilities = {}
+        for kind, evs in timeline.utilities.items():
+            out = []
+            for e in evs:
+                loc = local_of(e.tick)
+                if loc is None:
+                    continue
+                kwargs = {}
+                if hasattr(e, "throw_tick") and e.throw_tick >= 0:
+                    kwargs["throw_tick"] = e.throw_tick - e.tick + loc
+                out.append(replace(e, tick=loc, **kwargs))
+            out.sort(key=lambda e: e.tick)
+            view.utilities[kind] = out
+        view.kills = []
+        for k in timeline.kills:
+            loc = local_of(k.tick)
+            if loc is not None:
+                view.kills.append(replace(k, tick=loc))
+        view.kills.sort(key=lambda k: k.tick)
+        view.shots = [replace(s, tick=local_of(s.tick)) for s in timeline.shots if local_of(s.tick) is not None]
+        view.shots.sort(key=lambda e: e.tick)
+        view.jumps = [replace(j, tick=local_of(j.tick)) for j in timeline.jumps if local_of(j.tick) is not None]
+        view.jumps.sort(key=lambda e: e.tick)
+        view.deaths = [replace(d, tick=local_of(d.tick)) for d in timeline.deaths if local_of(d.tick) is not None]
+        view.deaths.sort(key=lambda e: e.tick)
+        return view
+
+    def _setup_overlay_figure(self, timeline: PlayerTimeline, windows, title: str):
         fig, ax = plt.subplots(
             figsize=(self.config.width / self.config.dpi, self.config.height / self.config.dpi),
             dpi=self.config.dpi,
@@ -287,8 +343,8 @@ class ReplayAnimationRenderer:
                 round_labels.append(None)
                 spawns.append(None)
 
-        title = ax.text(self.map.image_width / 2, 12, "开局路径重叠", color="white",
-                        fontsize=16, ha="center", va="top", zorder=20)
+        ax.text(self.map.image_width / 2, 12, title, color="white",
+                fontsize=16, ha="center", va="top", zorder=20)
         return fig, ax, round_lines, round_labels, spawns
 
     # ---- continuous render ----
@@ -360,7 +416,9 @@ class ReplayAnimationRenderer:
         trail_col.set_visible(False)
         ax.add_collection(trail_col)
 
-        player_marker, = ax.plot([], [], "o", color="white", markersize=9, markeredgecolor="black",
+        player_marker, = ax.plot([], [], "o", color="white",
+                                 markersize=self.config.player_marker_size,
+                                 markeredgecolor=self.config.player_marker_edge,
                                  markeredgewidth=1.0, zorder=8)
         player_marker.set_color(self.config.t_color)
 
@@ -395,7 +453,7 @@ class ReplayAnimationRenderer:
             wy = timeline.ys[idx]
             px, py = self.map.world_to_pixel_array(wx, wy)
             # Drop segment pairs that span a teleport (respawn / round jump).
-            segs = build_trail_segments(wx, wy)
+            segs = build_trail_segments(wx, wy, self.config.break_distance)
             if segs:
                 segs = [
                     (self.map.world_to_pixel(x0, y0), self.map.world_to_pixel(x1, y1))
@@ -404,10 +462,10 @@ class ReplayAnimationRenderer:
                 base = np.asarray(mcolors.to_rgba(self.config.t_color if side == "T" else self.config.ct_color))
                 n = len(segs)
                 rgba = np.tile(base, (n, 1))
-                rgba[:, 3] = np.linspace(0.15, 1.0, n)  # recency fade
+                rgba[:, 3] = np.linspace(self.config.trail_alpha_min, self.config.trail_alpha_max, n)
                 trail_col.set_segments(segs)
                 trail_col.set_color(rgba)
-                trail_col.set_linewidths(np.linspace(1.2, 3.5, n))
+                trail_col.set_linewidths(np.linspace(self.config.trail_width_min, self.config.trail_width_max, n))
                 trail_col.set_visible(True)
             else:
                 trail_col.set_segments([])

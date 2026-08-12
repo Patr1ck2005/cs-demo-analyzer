@@ -97,37 +97,77 @@ class ActionMapConfig(BaseModel):
     dpi: int = 150
 
 
-class OverlapAnimationConfig(BaseModel):
-    """Layer 4: T/CT overlap animation options."""
-
-    duration: float = 15.0
-    fps: int = 30
-    output_format: str = "mp4"
-
-
 class ReplayConfig(BaseModel):
-    """2D replay animation options (playback modes, HUD, effects)."""
+    """2D replay animation options — fine-grained, fully customizable.
 
+    Every visual knob is a field here so recipes (configs/recipes.yaml) can
+    override any of them. Renderers read from this config instead of
+    hardcoding colors/sizes.
+    """
+
+    # ---- canvas / output ----
     fps: int = 30
     dpi: int = 100
     width: int = 1280
     height: int = 720
+    bg_color: str = "#1a1a1a"
+    font: str = "Microsoft YaHei"
+
+    # ---- playback ----
     speed_full: float = 15.0  # full-match time multiplier
     speed_highlight: float = 1.0
-    speed_montage: float = 5.0
-    montage_open_seconds: float = 20.0  # opening window per round (game seconds)
+    speed_team: float = 5.0  # 10-player full-record multiplier
+    speed_overlay: float = 5.0  # single-player overlay default speed
+    team_trail_seconds: float = 1.2  # per-player trail window (output seconds)
+    opening_seconds: float = 30.0  # opening window per round (game seconds)
     round_clock_seconds: float = 115.0  # CS2 round timer for HUD countdown
     max_frames: int = 6000  # hard cap on output frames
-    trail_seconds: float = 1.5  # trail window in OUTPUT seconds
-    trail_segments: int = 6
-    hud_enabled: bool = True
+    overlay_hold_seconds: float = 3.0  # hold the full overlay at the end
 
+    # ---- team color families (T = yellows, CT = blues) ----
     t_color: str = "#FF6B6B"
     ct_color: str = "#4ECDC4"
-    bg_color: str = "#1a1a1a"
-    trail_color: str = "#FFFFFF"
+    t_palette: list[str] = ["#FFD54F", "#FFB300", "#FFCA28", "#FF8F00", "#FFC107"]
+    ct_palette: list[str] = ["#29B6F6", "#0288D1", "#4FC3F7", "#01579B", "#81D4FA"]
 
-    # Effect lifetimes (game-time seconds)
+    # ---- trail ----
+    trail_enabled: bool = True
+    trail_seconds: float = 1.5  # trail window in OUTPUT seconds
+    trail_segments: int = 6
+    trail_width_min: float = 1.2
+    trail_width_max: float = 3.5
+    trail_alpha_min: float = 0.15
+    trail_alpha_max: float = 1.0
+    trail_color: str = "#FFFFFF"
+    break_distance: float = 300.0  # teleport break threshold (world units)
+
+    # ---- player marker ----
+    player_marker_size: float = 9.0
+    player_marker_edge: str = "black"
+    halo_enabled: bool = True
+    halo_size: float = 20.0
+
+    # ---- HUD elements ----
+    hud_enabled: bool = True
+    hud_show_score: bool = True
+    hud_show_round: bool = True
+    hud_show_clock: bool = True
+    hud_show_feed: bool = True
+    hud_show_legend: bool = True
+
+    # ---- per-effect toggles ----
+    show_projectiles: bool = True
+    show_smoke: bool = True
+    show_flash: bool = True
+    show_he: bool = True
+    show_fire: bool = True
+    show_molly: bool = True
+    show_kills: bool = True
+    show_deaths: bool = True
+    show_jumps: bool = True
+    show_shots: bool = True
+
+    # ---- effect lifetimes (game-time seconds) ----
     smoke_duration: float = 18.0
     molotov_duration: float = 7.0
     flash_duration: float = 2.0
@@ -137,7 +177,39 @@ class ReplayConfig(BaseModel):
     jump_duration: float = 0.4
     shot_frames: int = 1
 
-    font: str = "Microsoft YaHei"
+    # ---- effect colors ----
+    smoke_color: str = "#AAAAAA"
+    flash_color: str = "#FFFFFF"
+    he_color: str = "#FF8800"
+    fire_color: str = "#FF6600"
+    molly_color: str = "#FF8800"
+    projectile_colors: dict[str, str] = {
+        "smoke": "#9E9E9E", "flash": "#FFFFFF", "he": "#FF8800",
+        "molly": "#FF8800", "fire": "#FF6600",
+    }
+    shot_color: str = "#FFD700"
+    jump_color: str = "#FFD700"
+    death_color: str = "#FF3333"
+    kill_color: str = "#FFD700"
+    victim_color: str = "#FF6666"
+    kill_line_color: str = "#FFD700"
+
+    # ---- effect visuals ----
+    smoke_max_radius: float = 120.0
+    smoke_grow_seconds: float = 1.0
+    smoke_fade_seconds: float = 2.5
+    flash_radius: float = 130.0
+    he_radius: float = 85.0
+    fire_radius: float = 50.0
+    nade_projectile_size: float = 4.0
+    nade_path_alpha: float = 0.8
+    jump_ring_seconds: float = 0.6
+
+    # Estimated grenade flight time (game seconds) used to reconstruct the
+    # throw origin. Real grenade flight data is absent from SourceTV demos.
+    nade_flight_seconds: dict[str, float] = {
+        "smoke": 2.0, "flash": 1.5, "he": 1.5, "molly": 1.5, "fire": 1.5,
+    }
 
 
 class RenderConfig(BaseModel):
@@ -146,7 +218,6 @@ class RenderConfig(BaseModel):
     output_dir: Path = Path("output")
     radar_chart: RadarChartConfig | None = None
     action_map: ActionMapConfig | None = None
-    overlap_animation: OverlapAnimationConfig | None = None
     replay: ReplayConfig = ReplayConfig()
 
 

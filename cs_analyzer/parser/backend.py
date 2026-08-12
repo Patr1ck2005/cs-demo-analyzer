@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # Event types we always try to parse. Missing ones are silently skipped.
 WANTED_EVENT_TYPES: tuple[str, ...] = (
     "round_start",
+    "round_freeze_end",
     "round_end",
     "round_mvp",
     "begin_new_match",
@@ -45,6 +46,8 @@ WANTED_EVENT_TYPES: tuple[str, ...] = (
     "smokegrenade_detonate",
     "molotov_detonate",
     "inferno_startburn",
+    "smokegrenade_expired",
+    "inferno_expire",
 )
 
 # Player fields appended to every event (prefixed attacker_/user_/etc. by demoparser)

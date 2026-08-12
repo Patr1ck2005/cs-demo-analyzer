@@ -11,7 +11,7 @@ from cs_analyzer.replay.timeline import build_timeline
 from cs_analyzer.render.effects import EffectManager
 from cs_analyzer.render.replay_animation import ReplayAnimationRenderer, build_trail_segments
 
-from .conftest import S_ALICE, build_parsed_demo
+from .conftest import S_ALICE, S_BOB, build_parsed_demo
 
 
 def _demo_with_round_ticks():
@@ -52,22 +52,191 @@ def test_build_segments_highlights_filter() -> None:
     assert segs[0].speed == ReplayConfig().speed_highlight
 
 
-def test_build_segments_montage_clamps_to_round_duration() -> None:
-    r = _renderer()
-    # opening 1s @ 64 tick = 64 ticks, well under round duration 2560
-    segs = r._build_segments(_timeline(), "montage", None, None, opening=1.0, tick_rate=64)
-    assert len(segs) == 2
-    for s in segs:
-        assert s.end_tick - s.start_tick == 64
-        assert s.speed == ReplayConfig().speed_montage
-
-
 def test_assign_frame_counts() -> None:
     r = _renderer()
     segs = r._build_segments(_timeline(), "highlights", None, [1], None, tick_rate=64)
     r._assign_frame_counts(segs, tick_rate=64)
     # round 1 = 2560 ticks, speed 1, 30fps -> 2560 / (64*1/30) = 1200 frames
     assert segs[0].n_frames == 1200
+
+
+def test_utility_throw_reconstruction() -> None:
+    """Smoke landing point is exact; throw origin is reconstructed from the
+    player's own position flight-seconds before impact."""
+    ticks = pd.DataFrame(
+        {
+            "tick": [0, 1280, 2560],
+            "steamid": [S_ALICE] * 3,
+            "X": [0.0, 500.0, 1000.0],
+            "Y": [0.0, 0.0, 0.0],
+            "is_alive": [True] * 3,
+            "team_num": [3.0] * 3,
+        }
+    )
+    events = {
+        "smokegrenade_detonate": pd.DataFrame(
+            {"tick": [2560], "user_steamid": [S_ALICE], "x": [900.0], "y": [0.0]}
+        )
+    }
+    demo = build_parsed_demo(events=events, ticks=ticks)
+    tl = build_timeline(demo, S_ALICE)
+    e = tl.utilities["smoke"][0]
+    # landing point exact; flight 2.0s @ 64 = 128 ticks
+    assert (e.x, e.y) == (900.0, 0.0)
+    assert e.throw_tick == 2560 - 128
+    tx = float(np.interp(e.throw_tick, ticks["tick"], ticks["X"]))
+    assert abs(e.throw_x - tx) < 1e-6
+    # no expired event -> duration falls back to renderer default (0 here)
+    assert e.duration_ticks == 0
+
+
+def test_utility_real_smoke_duration() -> None:
+    """smokegrenade_expired matched by entityid yields the real lifetime."""
+    ticks = pd.DataFrame(
+        {
+            "tick": [0, 500, 1000, 1500, 2500],
+            "steamid": [S_ALICE] * 5,
+            "X": [0.0, 100.0, 200.0, 300.0, 400.0],
+            "Y": [0.0] * 5,
+            "is_alive": [True] * 5,
+            "team_num": [3.0] * 5,
+        }
+    )
+    dur_s = 22.1
+    events = {
+        "smokegrenade_detonate": pd.DataFrame(
+            {"tick": [1000], "user_steamid": [S_ALICE], "entityid": [42], "x": [150.0], "y": [0.0]}
+        ),
+        "smokegrenade_expired": pd.DataFrame(
+            {"tick": [1000 + int(dur_s * 64)], "user_steamid": [S_ALICE], "entityid": [42], "x": [150.0], "y": [0.0]}
+        ),
+    }
+    demo = build_parsed_demo(events=events, ticks=ticks)
+    tl = build_timeline(demo, S_ALICE)
+    assert tl.utilities["smoke"][0].duration_ticks == int(dur_s * 64)
+
+
+def test_utility_duration_rejects_reused_entityid() -> None:
+    """Entityid reuse across rounds must not produce absurd durations."""
+    ticks = pd.DataFrame(
+        {
+            "tick": [0, 1000, 2000, 3000, 200000],
+            "steamid": [S_ALICE] * 5,
+            "X": [0.0, 100.0, 200.0, 300.0, 400.0],
+            "Y": [0.0] * 5,
+            "is_alive": [True] * 5,
+            "team_num": [3.0] * 5,
+        }
+    )
+    events = {
+        "smokegrenade_detonate": pd.DataFrame(
+            {"tick": [1000], "user_steamid": [S_ALICE], "entityid": [7], "x": [150.0], "y": [0.0]}
+        ),
+        "smokegrenade_expired": pd.DataFrame(
+            {"tick": [200000], "user_steamid": [S_ALICE], "entityid": [7], "x": [150.0], "y": [0.0]}
+        ),
+    }
+    demo = build_parsed_demo(events=events, ticks=ticks)
+    tl = build_timeline(demo, S_ALICE)
+    assert tl.utilities["smoke"][0].duration_ticks == 0  # outside sane window
+
+
+def test_effect_projectile_window() -> None:
+    """A thrown nade is a projectile active during [throw_tick, land_tick]."""
+    demo = _demo_with_round_ticks()
+    tl = _timeline(demo)
+    from cs_analyzer.replay.timeline import Utility
+
+    tl.utilities["smoke"] = [Utility(tick=1000, x=300.0, y=30.0, kind="smoke",
+                                     throw_tick=872, throw_x=100.0, throw_y=10.0)]
+    from cs_analyzer.maps import load_map_or_fallback
+
+    map_res = load_map_or_fallback(demo.metadata.map_name, demo.ticks)
+    mgr = EffectManager(ReplayConfig(), tl, map_res, tick_rate=64)
+    data = mgr._projectiles
+    assert data["starts"].size == 1
+    assert mgr._projectile_active(data, 871).size == 0  # before throw
+    assert mgr._projectile_active(data, 900).size == 1  # in flight
+    assert mgr._projectile_active(data, 1000).size == 0  # landed (window ends)
+
+
+def test_effect_attach_adds_circles_to_axes() -> None:
+    """Regression: Circle() artists must be added to the axes or they never
+    render. This was the root cause of 'utilities completely absent'."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    demo = _demo_with_round_ticks()
+    tl = _timeline(demo)
+    from cs_analyzer.maps import load_map_or_fallback
+
+    map_res = load_map_or_fallback(demo.metadata.map_name, demo.ticks)
+    mgr = EffectManager(ReplayConfig(), tl, map_res, tick_rate=64)
+    fig, ax = plt.subplots()
+    mgr.attach(ax)
+    n_patches = len(ax.patches)
+    expected = 8 + 5 + 5 + 8 + 4 + 6  # smoke+flash+he+fire+molly+jump_rings
+    assert n_patches >= expected
+    plt.close(fig)
+
+
+def _demo_with_freeze_and_death():
+    """Round 1 [0,2560] freeze-end 500; Alice dies at 2000."""
+    ticks = pd.DataFrame(
+        {
+            "tick": list(range(0, 5120, 64)),
+            "steamid": [S_ALICE] * 80,
+            "X": [float(i) for i in range(80)],
+            "Y": [0.0] * 80,
+            "is_alive": [True] * 80,
+            "team_num": [3.0] * 80,
+        }
+    )
+    events = {
+        "player_death": pd.DataFrame(
+            {"tick": [2000], "user_steamid": [S_ALICE], "attacker_steamid": [S_BOB],
+             "user_name": ["Alice"], "attacker_name": ["Bob"]}
+        ),
+        "round_freeze_end": pd.DataFrame({"tick": [500, 2660]}),
+    }
+    return build_parsed_demo(events=events, ticks=ticks)
+
+
+def test_alive_window_trims_freeze_and_death() -> None:
+    demo = _demo_with_freeze_and_death()
+    tl = _timeline(demo)
+    from cs_analyzer.replay.timeline import round_freeze_ends
+
+    freeze = round_freeze_ends(demo)
+    rnd = demo.regular_rounds[0]
+    start, end = tl.alive_window(rnd, freeze.get(rnd.number))
+    assert start == 500   # prep/freeze time trimmed
+    assert end == 2000    # post-death time trimmed (death tick inclusive)
+
+
+def test_full_windows_freeze_death_trim() -> None:
+    demo = _demo_with_freeze_and_death()
+    r = ReplayAnimationRenderer(ReplayConfig(), demo)
+    tl = _timeline(demo)
+    wins = r._full_windows(tl)
+    by_round = {n: (s, e) for n, s, e in wins}
+    assert by_round[1] == (500, 2000)  # freeze + death trimmed
+    # round 2 has no Alice death -> whole [freeze, end]
+    assert by_round[2][0] == 2660
+    assert by_round[2][1] == 5120
+
+
+def test_opening_windows_clamp_to_30s() -> None:
+    demo = _demo_with_freeze_and_death()
+    r = ReplayAnimationRenderer(ReplayConfig(), demo)
+    tl = _timeline(demo)
+    wins = r._opening_windows(tl, opening=30.0, tick_rate=64)
+    by_round = {n: (s, e) for n, s, e in wins}
+    # round 1: freeze 500 -> +30s(1920 ticks) = 2420, but death at 2000 clamps
+    assert by_round[1] == (500, 2000)
+    # round 2: freeze 2660 -> +1920 = 4580 < 5120
+    assert by_round[2] == (2660, 4580)
 
 
 def test_effect_active_window() -> None:

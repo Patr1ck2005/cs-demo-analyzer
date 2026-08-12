@@ -20,7 +20,7 @@ _CHUNK_SIZE = 65536
 
 # Bump this when parser logic changes (new fields, bug fixes) so cached
 # parses produced by an older parser are invalidated.
-PARSER_VERSION = "1.2.0"
+PARSER_VERSION = "1.4.0"
 
 
 class DemoCache:

@@ -40,6 +40,24 @@ class Kill:
     weapon: str
 
 
+@dataclass
+class Utility(Event):
+    """A grenade thrown by the target player.
+
+    tick/x/y are the LANDING (impact) point and tick. throw_* is the
+    reconstructed throw origin (player's position `nade_flight_seconds`
+    before impact — approximate, demoparser2 has no grenade flight data).
+    duration_ticks is the real in-game lifetime when known (smoke/fire from
+    *_expired events), else 0 meaning "use renderer default".
+    """
+
+    kind: str = ""
+    throw_tick: int = -1
+    throw_x: float = 0.0
+    throw_y: float = 0.0
+    duration_ticks: int = 0
+
+
 # Utility type -> event table name(s); first present table wins.
 UTILITY_TABLES: dict[str, tuple[str, ...]] = {
     "smoke": ("smokegrenade_detonate",),
@@ -48,6 +66,39 @@ UTILITY_TABLES: dict[str, tuple[str, ...]] = {
     "molly": ("molotov_detonate",),
     "fire": ("inferno_startburn",),
 }
+
+# End-of-effect tables used to derive real durations (matched by entityid).
+UTILITY_END_TABLES: dict[str, str] = {
+    "smoke": "smokegrenade_expired",
+    "fire": "inferno_expire",
+}
+
+# Sane duration windows (seconds) for end-matched durations; entityids are
+# reused across rounds so a match outside this window is a false positive.
+UTILITY_DURATION_WINDOW: dict[str, tuple[float, float]] = {
+    "smoke": (10.0, 60.0),
+    "fire": (1.0, 30.0),
+}
+
+# Fallback durations (seconds) when no real end event is available.
+UTILITY_DEFAULT_SECONDS: dict[str, float] = {
+    "smoke": 18.0,
+    "flash": 2.0,
+    "he": 1.0,
+    "molly": 7.0,
+    "fire": 7.0,
+}
+
+# Estimated grenade flight time (seconds) used to reconstruct the throw origin.
+NADE_FLIGHT_SECONDS: dict[str, float] = {
+    "smoke": 2.0,
+    "flash": 1.5,
+    "he": 1.5,
+    "molly": 1.5,
+    "fire": 1.5,
+}
+
+TICK_RATE = 64  # CS2 SourceTV/GOTV tick rate
 
 
 class PlayerTimeline:
@@ -116,10 +167,45 @@ class PlayerTimeline:
         """Utility events with per-kind lists sorted by tick."""
         return {kind: sorted(evs, key=lambda e: e.tick) for kind, evs in self.utilities.items()}
 
+    def alive_window(self, rnd: Round, freeze_end: int | None = None) -> tuple[int, int]:
+        """Alive tick window [start, end] for this player in a round.
+
+        Trims the round's prep/freeze time (start at freeze_end) and the
+        player's post-death time (end at their death tick).
+        """
+        start = int(freeze_end) if freeze_end else int(rnd.start_tick)
+        end = int(rnd.end_tick)
+        for d in self.deaths:
+            if start <= d.tick < end:
+                end = d.tick  # include the death tick so the skull shows
+                break
+        return start, end
+
 
 # ---- builders ----
 
-def build_timeline(demo: ParsedDemo, steamid_or_name: str) -> PlayerTimeline:
+def round_freeze_ends(demo: ParsedDemo) -> dict[int, int]:
+    """Map round number -> freeze-end tick (when the round goes live).
+
+    `round_freeze_end` fires once per round; the round's prep/buy time before
+    it is 'invalid' and is trimmed by starting replays at this tick.
+    """
+    df = demo.events.get("round_freeze_end")
+    if df is None or df.empty or "tick" not in df.columns:
+        return {}
+    ends = sorted(int(t) for t in df["tick"])
+    out: dict[int, int] = {}
+    for i, r in enumerate(sorted(demo.regular_rounds, key=lambda r: r.start_tick)):
+        if i < len(ends):
+            out[r.number] = ends[i]
+    return out
+
+
+def build_timeline(
+    demo: ParsedDemo,
+    steamid_or_name: str,
+    nade_flight_seconds: dict[str, float] | None = None,
+) -> PlayerTimeline:
     """Extract a PlayerTimeline for a player (by steamid or name)."""
     player = demo.player(steamid_or_name)
     if player is None:
@@ -149,7 +235,7 @@ def build_timeline(demo: ParsedDemo, steamid_or_name: str) -> PlayerTimeline:
     _extract_shots(tl, demo.events.get("weapon_fire"))
     _extract_jumps(tl, demo.events.get("player_jump"))
     _extract_kills_deaths(tl, demo.events.get("player_death"))
-    _extract_utilities(tl, demo.events)
+    _extract_utilities(tl, demo.events, nade_flight_seconds)
     return tl
 
 
@@ -214,19 +300,74 @@ def _extract_kills_deaths(tl: PlayerTimeline, df: pd.DataFrame | None) -> None:
     tl.deaths.sort(key=lambda e: e.tick)
 
 
-def _extract_utilities(tl: PlayerTimeline, events: dict[str, pd.DataFrame]) -> None:
+def _extract_utilities(
+    tl: PlayerTimeline,
+    events: dict[str, pd.DataFrame],
+    nade_flight_seconds: dict[str, float] | None = None,
+) -> None:
+    flight = {**(NADE_FLIGHT_SECONDS), **(nade_flight_seconds or {})}
     for kind, tables in UTILITY_TABLES.items():
         for table in tables:
             df = events.get(table)
             if df is None or df.empty or "user_steamid" not in df.columns:
                 continue
             sub = df[df["user_steamid"] == tl.player.steamid]
-            evs: list[Event] = []
+            end_by_id = _end_tick_by_entity(events.get(UTILITY_END_TABLES.get(kind, "")))
+            evs: list[Utility] = []
             for _, row in sub.iterrows():
                 # Impact point is the lowercase x/y (thrower position is user_X/Y).
                 x, y = _position(row, tl, "x", "y")
-                evs.append(Event(tick=int(row["tick"]), x=x, y=y))
+                land_tick = int(row["tick"])
+                dur_ticks = _real_duration(kind, land_tick, row.get("entityid"), end_by_id)
+                throw_tick, tx, ty = _reconstruct_throw(tl, kind, land_tick, x, y, flight)
+                evs.append(
+                    Utility(
+                        tick=land_tick, x=x, y=y,
+                        kind=kind,
+                        throw_tick=throw_tick, throw_x=tx, throw_y=ty,
+                        duration_ticks=dur_ticks,
+                    )
+                )
             tl.utilities[kind] = evs
             break  # first present table for this kind wins
     for evs in tl.utilities.values():
         evs.sort(key=lambda e: e.tick)
+
+
+def _end_tick_by_entity(df: pd.DataFrame | None) -> dict[int, int]:
+    """Map entityid -> end tick from an *_expired table (empty if absent)."""
+    if df is None or df.empty or "entityid" not in df.columns or "tick" not in df.columns:
+        return {}
+    return {int(eid): int(t) for eid, t in zip(df["entityid"], df["tick"])}
+
+
+def _real_duration(kind: str, land_tick: int, entityid, end_by_id: dict[int, int]) -> int:
+    """Real effect lifetime in ticks when a sane end match exists, else 0."""
+    if entityid is None or entityid not in end_by_id:
+        return 0
+    end = end_by_id[int(entityid)]
+    secs = (end - land_tick) / TICK_RATE
+    lo, hi = UTILITY_DURATION_WINDOW.get(kind, (0.0, 1e9))
+    if lo <= secs <= hi:
+        return int(end - land_tick)
+    return 0  # entityid reuse across rounds / unreliable match
+
+
+def _reconstruct_throw(
+    tl: PlayerTimeline, kind: str, land_tick: int, land_x: float, land_y: float,
+    flight: dict[str, float],
+) -> tuple[int, float, float]:
+    """Estimate throw origin from the player's own position flight-seconds
+    before impact. No grenade flight data exists in SourceTV demos, so this
+    is an approximation; falls back to the landing point (no flight) on NaN.
+    """
+    fsec = float(flight.get(kind, 0.0))
+    if fsec <= 0:
+        return -1, land_x, land_y
+    throw_tick = int(land_tick - fsec * TICK_RATE)
+    if throw_tick < 0:
+        return -1, land_x, land_y
+    tx, ty = tl.position_at(throw_tick)
+    if not (np.isfinite(tx) and np.isfinite(ty)):
+        return -1, land_x, land_y
+    return throw_tick, float(tx), float(ty)
