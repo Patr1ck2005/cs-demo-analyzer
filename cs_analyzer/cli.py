@@ -262,6 +262,45 @@ def action_map(
     console.print(f"[green]Action map[/green] -> {result}")
 
 
+@app.command()
+def replay(
+    demo: Path = typer.Argument(..., help="Path to .dem file"),
+    player: str = typer.Option(..., "--player", help="Player name or steamid"),
+    mode: str = typer.Option("all", "--mode", help="all | highlights | montage"),
+    speed: float | None = typer.Option(None, "--speed", help="Time multiplier (overrides mode default)"),
+    rounds: str | None = typer.Option(None, "--rounds", help="Comma-separated round numbers (highlights mode)"),
+    opening: float | None = typer.Option(None, "--opening", help="Opening seconds per round (montage mode)"),
+    composite: bool = typer.Option(False, "--composite", help="Add background + music (export.video config)"),
+    output: Path | None = typer.Option(None, "--output", "-o"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Render a 2D replay video of a player's actions on the map."""
+    _setup_logging(verbose)
+    settings = _load_settings(config)
+    manager = ParseManager(cache=DemoCache(settings.cache_dir))
+    demo_data = manager.parse(demo)
+
+    from cs_analyzer.render.replay_animation import ReplayAnimationRenderer
+
+    cfg = settings.render.replay
+    renderer = ReplayAnimationRenderer(cfg, demo_data)
+    round_list = [int(r) for r in rounds.split(",")] if rounds else None
+    output_path = output or (settings.render.output_dir / demo.stem / f"replay_{mode}_{player}.mp4")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    result = renderer.render_player(
+        player, output_path, mode=mode, speed=speed, rounds=round_list, opening=opening,
+    )
+    if composite:
+        from cs_analyzer.export import VideoExporter
+
+        final = output_path.with_stem(f"{output_path.stem}_final")
+        exporter = VideoExporter(settings.export.video)
+        result = exporter.export(result, final)
+    console.print(f"[green]Replay[/green] -> {result}")
+
+
 @app.command("overlap-animation")
 def overlap_animation(
     demo: Path = typer.Argument(..., help="Path to .dem file"),

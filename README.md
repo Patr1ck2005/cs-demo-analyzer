@@ -68,6 +68,7 @@ csa batch configs/batch_example.yaml --parallel 4
 | `csa render <demo>` | Render radar chart video (.mov) |
 | `csa action-map <demo> --player <name>` | 2D movement trajectory map (PNG) |
 | `csa overlap-animation <demo> --player <name>` | T/CT overlap animation (GIF/MP4) |
+| `csa replay <demo> --player <name> [--mode all\|highlights\|montage] [--speed N] [--rounds a,b] [--opening S] [--composite]` | 2D replay video of a player's actions (MP4) |
 | `csa export <demo> --format video\|report` | Export final video or HTML report |
 | `csa run <demo>` | Full pipeline (parse + analyze + render + export) |
 | `csa batch <config.yaml>` | Batch process multiple demos |
@@ -115,6 +116,28 @@ csa run path/to/demo.dem --config configs/content_prod.yaml
 - **完美世界平台 (WMPVP)** SourceTV：此类 demo 无 `player_info` 表和 `round_start/round_end` 事件列表项，引擎会自动从 `player_spawn` 事件重建玩家名单、从 `parse_event('round_end')` 获取回合与胜者（兼容字符串 "T"/"CT" winner）。
 
 已知限制：个别 SourceTV demo 中某些玩家的 team_num 字段全空，会标记为 "Team 0"（不影响雷达图属性，仅 RWS 与 T/CT 着色受影响）。
+
+## 2D Replay（选手行动回放）
+
+在俯视地图上动画展示一名选手完整时间线的行动：走位轨迹、跳跃、射击、击杀（含受害者连线）、投掷道具（烟雾扩散/闪光/手雷/燃烧弹特效），配专业 HUD（比分/回合/时钟/事件流/选手 K/D）。三种播放模式：
+
+```bash
+# 全场 15x 快进
+csa replay demo.dem --player "PlayerName" --mode all --speed 15
+
+# 高光回合（指定回合，正常/指定速度）
+csa replay demo.dem --player "PlayerName" --mode highlights --rounds 4,18,3 --speed 2
+
+# 每回合开局 20 秒 @ 5x 蒙太奇
+csa replay demo.dem --player "PlayerName" --mode montage --opening 20
+
+# 加背景 + BGM 合成（复用 export.video 配置）
+csa replay demo.dem --player "PlayerName" --mode all --composite
+```
+
+`--player` 接受名字或 steamid。默认深色底图（无地图 PNG 时从 tick 数据推导坐标边界）；放地图 PNG 到 `cs_analyzer/maps/data/` 后可显示底图。
+
+已知限制：个别 SourceTV demo 中某些玩家的 tick 位置数据缺失（如 team_num 全空的玩家），会拒绝回放并提示换人。
 
 ## Architecture
 

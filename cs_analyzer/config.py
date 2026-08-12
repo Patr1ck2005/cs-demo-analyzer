@@ -105,6 +105,41 @@ class OverlapAnimationConfig(BaseModel):
     output_format: str = "mp4"
 
 
+class ReplayConfig(BaseModel):
+    """2D replay animation options (playback modes, HUD, effects)."""
+
+    fps: int = 30
+    dpi: int = 100
+    width: int = 1280
+    height: int = 720
+    speed_full: float = 15.0  # full-match time multiplier
+    speed_highlight: float = 1.0
+    speed_montage: float = 5.0
+    montage_open_seconds: float = 20.0  # opening window per round (game seconds)
+    round_clock_seconds: float = 115.0  # CS2 round timer for HUD countdown
+    max_frames: int = 6000  # hard cap on output frames
+    trail_seconds: float = 1.5  # trail window in OUTPUT seconds
+    trail_segments: int = 6
+    hud_enabled: bool = True
+
+    t_color: str = "#FF6B6B"
+    ct_color: str = "#4ECDC4"
+    bg_color: str = "#1a1a1a"
+    trail_color: str = "#FFFFFF"
+
+    # Effect lifetimes (game-time seconds)
+    smoke_duration: float = 18.0
+    molotov_duration: float = 7.0
+    flash_duration: float = 2.0
+    he_duration: float = 1.0
+    kill_duration: float = 1.2
+    death_duration: float = 1.0
+    jump_duration: float = 0.4
+    shot_frames: int = 1
+
+    font: str = "Microsoft YaHei"
+
+
 class RenderConfig(BaseModel):
     """Layer 4: render options."""
 
@@ -112,6 +147,7 @@ class RenderConfig(BaseModel):
     radar_chart: RadarChartConfig | None = None
     action_map: ActionMapConfig | None = None
     overlap_animation: OverlapAnimationConfig | None = None
+    replay: ReplayConfig = ReplayConfig()
 
 
 class VideoExportConfig(BaseModel):

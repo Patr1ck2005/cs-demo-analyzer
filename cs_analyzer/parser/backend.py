@@ -31,6 +31,7 @@ WANTED_EVENT_TYPES: tuple[str, ...] = (
     "player_hurt",
     "player_death",
     "weapon_fire",
+    "player_jump",
     "player_spawn",
     "player_team",
     "player_blind",

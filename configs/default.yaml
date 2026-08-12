@@ -49,6 +49,18 @@ render:
     assets:
       player_images_dir: radar_data
       default_image: radar_data/default.jpg
+  replay:
+    fps: 30
+    dpi: 100
+    width: 1280
+    height: 720
+    speed_full: 15.0
+    speed_highlight: 1.0
+    speed_montage: 5.0
+    montage_open_seconds: 20.0
+    max_frames: 6000
+    trail_seconds: 1.5
+    hud_enabled: true
 
 export:
   video:

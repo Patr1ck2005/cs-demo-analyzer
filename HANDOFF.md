@@ -68,6 +68,7 @@ bd80ec1 docs: add ARCHITECTURE.md with layered design and migration plan
 5. **`statistics_script.py` 遗留**：`radar_data/statistics_script.py` 依赖外部 `match_data.json` 的老流程仍在，新架构从 .dem 直接算，两者并存。`examples/render_radar_from_csv.py` 是 CSV 输入的兼容适配层。
 6. **ARCHITECTURE.md 与代码漂移**：ARCHITECTURE 是早期规划，代码演进后未同步。实际：`parser/` 是单文件 `providers.py`+`manager.py`（非 `providers/` 5 子文件）；model 是 `types.py`+`parsed_demo.py`+`io.py`（非 demo/player/events/ticks.py）；analysis 只有 `basic_stats/ratings/preference` 三个模块（economy/clutch/refrag 等未实现）；无 `export/image.py`、`render/styles.py`。以代码为准，ARCHITECTURE 仅作意图参考。已更新 §1 实现状态表 + §5 结构树。
 7. **WMPVP/完美平台 SourceTV demo 解析**（已修复）：此类 demo 无 `player_info` 表、`list_game_events()` 不列 `round_start/round_end`。backend 已改为全事件尝试 + 从 `player_spawn` 重建玩家 + 兼容字符串 winner（"T"/"CT"）+ round_start 精确边界。**已知限制**：个别玩家 team_num 全空 → 标记 "Team 0"（RWS=0，不影响雷达图属性）。缓存加了 `parser_version` 失效标记，改解析逻辑需同步 bump `cache.PARSER_VERSION`。
+8. **个别玩家 tick 位置缺失**（2D 回放）：real_demo_1 中 2 名玩家（庄小蔥、陈平啦4）demoparser2 未跟踪其 per-tick 位置/队伍（同 §7 的 Team 0 玩家），`csa replay` 会拒绝并提示换人。其余 8 名玩家数据完整。若需回放此类玩家，需调查 demoparser2 对该 demo 实体的跟踪问题。
 
 ## 6. 关键入口
 
@@ -105,6 +106,7 @@ python -m cs_analyzer batch configs/batch_example.yaml --parallel 4
 
 ## 8. 已验证里程碑（本阶段成果）
 
+- **2D 回放系统（deepseek-v4-pro 本轮）**：`cs_analyzer/replay/`（PlayerTimeline 数据层）+ `cs_analyzer/render/replay_animation.py`（手动帧循环 + FFMpegWriter）+ `effects.py`/`hud.py`/`fonts.py`。`csa replay` 三种模式：全场15x / 高光 / 开局20s@5x 蒙太奇。深色底图 + 专业 HUD（比分/回合/时钟/事件流）+ 行动特效（跳跃/射击/击杀/道具）。成品：`output/replay_Jake_15x.mp4`（2:03，720p30）。
 - **真实对局成品（deepseek-v4-pro 本轮）**：`output/real_demo_1/final.mp4`（30.8MB，1分49秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为用户真实 WMPVP 对局（`demos/real_demo_1.dem`，de_ancient，24 回合 14-10，10 玩家），走 .dem 全链路。修复了 WMPVP SourceTV 无 player_info/round_start 的解析问题（§5.7）。
 - **.dem 全链路成品（deepseek-v4-pro 本轮）**：`output/test_demo/final_content.mp4`（31MB，1分50秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为测试 .dem（`tutorial/demoparser/src/parser/test_demo.dem`）。
 - **雷达图成品（GLM5.2 上轮，CSV 路径）**：`output/0922_final.mp4`（28.7MB，1分46秒，720p30，6 选手轮播 + halloween 背景 + Thriller 音乐）。data 来自 `radar_data/0922/player_statistics.csv`。

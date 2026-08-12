@@ -12,6 +12,7 @@ from pathlib import Path
 
 from cs_analyzer.config import VideoExportConfig
 from cs_analyzer.export.base import Exporter
+from cs_analyzer.utils.ffmpeg import find_executable
 
 logger = logging.getLogger(__name__)
 
@@ -27,20 +28,7 @@ class VideoExporter(Exporter):
     @staticmethod
     def _find_executable(name: str) -> str | None:
         """Find an executable, including common Windows locations."""
-        import shutil
-        path = shutil.which(name)
-        if path:
-            return path
-        # Common alternative locations on Windows (oopz ships ffmpeg without ffprobe)
-        candidates = [
-            Path("C:/ProgramData/oopz") / f"{name}.exe",
-            Path("D:/ProgramData/oopz") / f"{name}.exe",
-            Path("C:/ffmpeg/bin") / f"{name}.exe",
-        ]
-        for c in candidates:
-            if c.exists():
-                return str(c)
-        return None
+        return find_executable(name)
 
     def export(self, input_path: str | Path, output_path: str | Path) -> Path:
         """Overlay foreground video on background + add music.
