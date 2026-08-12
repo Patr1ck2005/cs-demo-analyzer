@@ -106,7 +106,7 @@ python -m cs_analyzer batch configs/batch_example.yaml --parallel 4
 
 ## 8. 已验证里程碑（本阶段成果）
 
-- **2D 回放系统（deepseek-v4-pro 本轮）**：`cs_analyzer/replay/`（PlayerTimeline 数据层）+ `cs_analyzer/render/replay_animation.py`（手动帧循环 + FFMpegWriter）+ `effects.py`/`hud.py`/`fonts.py`。`csa replay` 四种模式：全场15x / 高光 / **开局重叠 openings**（多回合开局路径同图重叠、每回合一色）/ 蒙太奇 montage（顺序剪辑）。轨迹用 LineCollection，归位出生点自动断线。深色底图 + 专业 HUD（比分/回合/时钟/事件流）+ 行动特效（跳跃/射击/击杀/道具）。成品：`output/replay_Jake_15x.mp4`（2:03，720p30）、`replay_Jake_highlights.mp4`、`replay_Jake_openings.mp4`。
+- **2D 回放系统（deepseek-v4-pro 本轮）**：`cs_analyzer/replay/`（PlayerTimeline 数据层）+ `cs_analyzer/render/replay_animation.py`（手动帧循环 + FFMpegWriter）+ `effects.py`/`hud.py`/`fonts.py`。`csa replay` 模式：全场15x / 高光 / **开局 montage**（每回合开局顺序剪辑）/ **重叠 openings**（多回合开局路径同图叠绘、每回合一色）。**注意：开局（opening）与重叠（overlap）是独立概念**（用户明确）：开局 = 每回合开局段；重叠 = 多路径同图叠绘（含既有 `overlap-animation` 的 T/CT 重叠）。轨迹用 LineCollection，归位出生点自动断线。深色底图 + 专业 HUD + 行动特效（跳跃/射击/击杀/道具）。成品：`output/replay_Jake_15x.mp4`（2:03，720p30）、`replay_Jake_highlights.mp4`、`replay_Jake_openings.mp4`。
 - **真实对局成品（deepseek-v4-pro 本轮）**：`output/real_demo_1/final.mp4`（30.8MB，1分49秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为用户真实 WMPVP 对局（`demos/real_demo_1.dem`，de_ancient，24 回合 14-10，10 玩家），走 .dem 全链路。修复了 WMPVP SourceTV 无 player_info/round_start 的解析问题（§5.7）。
 - **.dem 全链路成品（deepseek-v4-pro 本轮）**：`output/test_demo/final_content.mp4`（31MB，1分50秒，1080p，h264 + AAC(Thriller)，halloween 背景）。输入为测试 .dem（`tutorial/demoparser/src/parser/test_demo.dem`）。
 - **雷达图成品（GLM5.2 上轮，CSV 路径）**：`output/0922_final.mp4`（28.7MB，1分46秒，720p30，6 选手轮播 + halloween 背景 + Thriller 音乐）。data 来自 `radar_data/0922/player_statistics.csv`。
