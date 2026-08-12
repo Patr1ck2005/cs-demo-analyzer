@@ -266,7 +266,7 @@ def action_map(
 def replay(
     demo: Path = typer.Argument(..., help="Path to .dem file"),
     player: str = typer.Option(..., "--player", help="Player name or steamid"),
-    mode: str = typer.Option("all", "--mode", help="all | highlights | montage"),
+    mode: str = typer.Option("all", "--mode", help="all | highlights | openings | montage"),
     speed: float | None = typer.Option(None, "--speed", help="Time multiplier (overrides mode default)"),
     rounds: str | None = typer.Option(None, "--rounds", help="Comma-separated round numbers (highlights mode)"),
     opening: float | None = typer.Option(None, "--opening", help="Opening seconds per round (montage mode)"),

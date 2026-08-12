@@ -15,10 +15,11 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FFMpegWriter
-from matplotlib.lines import Line2D
+from matplotlib.collections import LineCollection
 
 from cs_analyzer.config import ReplayConfig
 from cs_analyzer.maps import MapResource, load_map_or_fallback
@@ -30,6 +31,22 @@ from cs_analyzer.render.hud import ReplayHUD
 from cs_analyzer.utils.ffmpeg import find_ffmpeg
 
 logger = logging.getLogger(__name__)
+
+# World-units gap between consecutive ticks treated as a teleport (respawn /
+# round-to-round jump). A player moving at 64 tick moves < ~10 units/tick.
+_BREAK_DISTANCE = 300.0
+
+
+def build_trail_segments(wx, wy, break_distance: float = _BREAK_DISTANCE) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Build line-segment pairs from world points, dropping pairs that span a
+    teleport (respawn / round jump) so spawn points are never connected."""
+    if len(wx) < 2:
+        return []
+    dist = np.hypot(np.diff(wx), np.diff(wy))
+    return [
+        ((wx[i], wy[i]), (wx[i + 1], wy[i + 1]))
+        for i in range(len(wx) - 1) if dist[i] < break_distance
+    ]
 
 
 @dataclass
@@ -82,6 +99,10 @@ class ReplayAnimationRenderer:
         setup_fonts(self.config.font)
 
         timeline = build_timeline(self.demo, steamid_or_name)
+
+        if mode == "openings":
+            return self._render_openings(timeline, output_path, opening, speed, tick_rate)
+
         segments = self._build_segments(timeline, mode, speed, rounds, opening, tick_rate)
         if not segments:
             raise ValueError("No segments to render (empty selection or no rounds).")
@@ -169,6 +190,107 @@ class ReplayAnimationRenderer:
         if result.returncode != 0:
             raise RuntimeError(f"ffmpeg concat failed: {result.stderr[-500:]}")
 
+    # ---- openings mode (overlap round-opening paths, color-coded) ----
+
+    def _render_openings(
+        self,
+        timeline: PlayerTimeline,
+        output_path: Path,
+        opening: float | None,
+        speed: float | None,
+        tick_rate: int,
+    ) -> Path:
+        """Overlay each round's opening window on one map, one color per round.
+
+        All rounds' first `opening` game-seconds draw simultaneously (progressively
+        revealed), each in a distinct color, so routes between rounds are compared.
+        """
+        open_ticks = int((opening if opening is not None else self.config.montage_open_seconds) * tick_rate)
+        rounds = self.demo.regular_rounds
+        windows = [
+            (r.number, r.start_tick, min(r.end_tick, r.start_tick + open_ticks))
+            for r in rounds
+            if r.end_tick > r.start_tick
+        ]
+        if not windows:
+            raise ValueError("No rounds with opening windows to overlay.")
+
+        spd = speed if speed is not None else self.config.speed_montage
+        n_frames = max(int(open_ticks / (tick_rate * spd / self.config.fps)), 1)
+        hold_frames = int(self.config.fps * 3)  # hold the full overlay after the reveal
+
+        fig, ax, round_lines, round_labels, spawns = self._setup_openings_figure(timeline, windows)
+        # Precompute each round's timeline index range.
+        idx_ranges = []
+        for _, start, end in windows:
+            lo = int(np.searchsorted(timeline.ticks, start, side="left"))
+            hi = int(np.searchsorted(timeline.ticks, end, side="right"))
+            idx_ranges.append((lo, hi))
+
+        writer = self._make_writer()
+        try:
+            with writer.saving(fig, str(output_path), dpi=self.config.dpi):
+                for i in range(n_frames + hold_frames):
+                    progress = min(i / max(n_frames - 1, 1), 1.0)
+                    for k, ((_, start, _), (lo, hi)) in enumerate(zip(windows, idx_ranges)):
+                        line = round_lines[k]
+                        if hi - lo < 2:
+                            line.set_visible(False)
+                            continue
+                        reveal = max(int(progress * (hi - lo)), 2)
+                        seg = np.arange(lo, lo + reveal)
+                        wx = timeline.xs[seg]
+                        wy = timeline.ys[seg]
+                        px, py = self.map.world_to_pixel_array(wx, wy)
+                        line.set_data(px, py)
+                        line.set_visible(True)
+                    writer.grab_frame()
+        finally:
+            plt.close(fig)
+        logger.info("replay openings -> %s", output_path)
+        return output_path
+
+    def _setup_openings_figure(self, timeline: PlayerTimeline, windows):
+        fig, ax = plt.subplots(
+            figsize=(self.config.width / self.config.dpi, self.config.height / self.config.dpi),
+            dpi=self.config.dpi,
+        )
+        fig.patch.set_facecolor(self.config.bg_color)
+        ax.set_facecolor(self.config.bg_color)
+        if self.map.image_path is not None:
+            img = plt.imread(str(self.map.image_path))
+            ax.imshow(img, extent=[0, self.map.image_width, self.map.image_height, 0], origin="upper")
+        else:
+            ax.set_xlim(0, self.map.image_width)
+            ax.set_ylim(self.map.image_height, 0)
+        ax.set_aspect("equal")
+        ax.axis("off")
+
+        cmap = plt.get_cmap("tab20")
+        round_lines = []
+        round_labels = []
+        spawns = []
+        for k, (rnum, start, _) in enumerate(windows):
+            color = cmap(k % 20)
+            (line,) = ax.plot([], [], color=color, linewidth=2.0, alpha=0.85, zorder=5)
+            round_lines.append(line)
+            # label the round number at its opening start position
+            lo = int(np.searchsorted(timeline.ticks, start, side="left"))
+            if lo < len(timeline.ticks):
+                wx, wy = timeline.xs[lo], timeline.ys[lo]
+                px, py = self.map.world_to_pixel(wx, wy)
+                txt = ax.text(px, py, str(rnum), color=color, fontsize=9, weight="bold",
+                              ha="center", va="center", zorder=9)
+                round_labels.append(txt)
+                spawns.append((px, py))
+            else:
+                round_labels.append(None)
+                spawns.append(None)
+
+        title = ax.text(self.map.image_width / 2, 12, "开局路径重叠", color="white",
+                        fontsize=16, ha="center", va="top", zorder=20)
+        return fig, ax, round_lines, round_labels, spawns
+
     # ---- continuous render ----
 
     def _render_continuous(
@@ -232,15 +354,12 @@ class ReplayAnimationRenderer:
         ax.set_aspect("equal")
         ax.axis("off")
 
-        # Trail lines (fixed pool, segmented fading).
-        trail_colors = {"T": self.config.t_color, "CT": self.config.ct_color}
-        trail_alpha = np.linspace(1.0, 0.15, self.config.trail_segments)
-        trail_width = np.linspace(3.5, 1.2, self.config.trail_segments)
-        trail_lines = [
-            ax.plot([], [], color=trail_colors.get("T", self.config.trail_color),
-                    linewidth=trail_width[k], alpha=trail_alpha[k], zorder=4)[0]
-            for k in range(self.config.trail_segments)
-        ]
+        # Trail as a LineCollection: per-segment color/alpha (recency fade) and
+        # breaks at teleports (respawn / round jump) — never connects spawn points.
+        trail_col = LineCollection([], zorder=4)
+        trail_col.set_visible(False)
+        ax.add_collection(trail_col)
+
         player_marker, = ax.plot([], [], "o", color="white", markersize=9, markeredgecolor="black",
                                  markeredgewidth=1.0, zorder=8)
         player_marker.set_color(self.config.t_color)
@@ -252,7 +371,7 @@ class ReplayAnimationRenderer:
         hud.attach(fig, ax)
 
         ctx = {
-            "trail_lines": trail_lines,
+            "trail_collection": trail_col,
             "player_marker": player_marker,
             "effects": effects,
             "hud": hud,
@@ -264,30 +383,38 @@ class ReplayAnimationRenderer:
         px: float, py: float, alive: bool, tick_rate: int,
     ) -> None:
         side = timeline.side_at_tick(tick)
-        trail_lines = ctx["trail_lines"]
+        trail_col = ctx["trail_collection"]
         # Trail: points within an output-time window scaled to game ticks.
-        window_ticks = int(self.config.trail_seconds * self.config.fps * (tick_rate * seg.speed / self.config.fps))
+        window_ticks = int(self.config.trail_seconds * tick_rate * seg.speed)
         window_ticks = max(window_ticks, 1)
         lo = int(np.searchsorted(timeline.ticks, tick - window_ticks, side="left"))
         hi = int(np.searchsorted(timeline.ticks, tick, side="right"))
-        idx = np.arange(lo, hi)
-        if idx.size >= 2:
-            n = len(idx)
-            chunks = np.array_split(idx, min(self.config.trail_segments, n))
-            for k, line in enumerate(trail_lines):
-                if k < len(chunks) and len(chunks[k]) >= 2:
-                    line.set_visible(True)
-                    c = chunks[k]
-                    wx = timeline.xs[c]
-                    wy = timeline.ys[c]
-                    lpx, lpy = self.map.world_to_pixel_array(wx, wy)
-                    line.set_data(lpx, lpy)
-                    line.set_color(self.config.t_color if side == "T" else self.config.ct_color)
-                else:
-                    line.set_visible(False)
+        if hi - lo >= 2:
+            idx = np.arange(lo, hi)
+            wx = timeline.xs[idx]
+            wy = timeline.ys[idx]
+            px, py = self.map.world_to_pixel_array(wx, wy)
+            # Drop segment pairs that span a teleport (respawn / round jump).
+            segs = build_trail_segments(wx, wy)
+            if segs:
+                segs = [
+                    (self.map.world_to_pixel(x0, y0), self.map.world_to_pixel(x1, y1))
+                    for (x0, y0), (x1, y1) in segs
+                ]
+                base = np.asarray(mcolors.to_rgba(self.config.t_color if side == "T" else self.config.ct_color))
+                n = len(segs)
+                rgba = np.tile(base, (n, 1))
+                rgba[:, 3] = np.linspace(0.15, 1.0, n)  # recency fade
+                trail_col.set_segments(segs)
+                trail_col.set_color(rgba)
+                trail_col.set_linewidths(np.linspace(1.2, 3.5, n))
+                trail_col.set_visible(True)
+            else:
+                trail_col.set_segments([])
+                trail_col.set_visible(False)
         else:
-            for line in trail_lines:
-                line.set_visible(False)
+            trail_col.set_segments([])
+            trail_col.set_visible(False)
 
         # Player marker.
         marker = ctx["player_marker"]

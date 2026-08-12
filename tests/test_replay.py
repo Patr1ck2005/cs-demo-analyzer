@@ -4,10 +4,12 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+import numpy as np
+
 from cs_analyzer.config import ReplayConfig
 from cs_analyzer.replay.timeline import build_timeline
 from cs_analyzer.render.effects import EffectManager
-from cs_analyzer.render.replay_animation import ReplayAnimationRenderer
+from cs_analyzer.render.replay_animation import ReplayAnimationRenderer, build_trail_segments
 
 from .conftest import S_ALICE, build_parsed_demo
 
@@ -83,6 +85,20 @@ def test_effect_active_window() -> None:
     assert mgr._active_idx(data, 50).size == 0
     assert mgr._active_idx(data, 100).size == 1
     assert mgr._active_idx(data, 100 + int(18 * 64) // 2).size == 1
+
+
+def test_trail_segments_break_at_teleport() -> None:
+    wx = np.array([0.0, 10.0, 20.0, 30.0])
+    wy = np.zeros(4)
+    segs = build_trail_segments(wx, wy, break_distance=50.0)
+    assert len(segs) == 3  # continuous path fully connected
+
+    # A teleport in the middle must not be connected across.
+    wx2 = np.array([0.0, 10.0, 2000.0, 2010.0])
+    segs2 = build_trail_segments(wx2, wy, break_distance=50.0)
+    assert len(segs2) == 2  # pairs 0-1 and 2-3; pair 1-2 spans the jump
+    for (x0, _), (x1, _) in segs2:
+        assert abs(x1 - x0) < 50.0  # no segment crosses the teleport
 
 
 @pytest.mark.skipif(
