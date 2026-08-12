@@ -20,11 +20,10 @@ from rich.table import Table
 
 from cs_analyzer.batch import BatchRunner
 from cs_analyzer.cache import DemoCache
-from cs_analyzer.config import ActionMapConfig, OverlapAnimationConfig, Settings, load_settings
+from cs_analyzer.config import ActionMapConfig, Settings, load_settings
 from cs_analyzer.export import ReportExporter, VideoExporter
 from cs_analyzer.parser import ParseManager
 from cs_analyzer.render import ActionMapRenderer, merge_for_radar
-from cs_analyzer.render.overlap_animation import OverlapAnimationRenderer
 from cs_analyzer.render.radar_chart import RadarChartRenderer
 from cs_analyzer.analysis import AnalysisRunner
 
@@ -43,6 +42,18 @@ def _setup_logging(verbose: bool) -> None:
 
 def _load_settings(config: Path | None) -> Settings:
     return load_settings(config) if config else load_settings()
+
+
+def _pick_team_highlight_rounds(renderer, k: int = 3) -> list[int]:
+    """Rounds with the most total kills (across all players), for team highlights."""
+    counts: dict[int, int] = {}
+    for tl in renderer.timelines:
+        for kk in tl.kills:
+            rnd = renderer.demo.data.round_at_tick(kk.tick)
+            if rnd is not None:
+                counts[rnd.number] = counts.get(rnd.number, 0) + 1
+    top = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:k]
+    return [n for n, _ in top]
 
 
 @app.command()
@@ -265,8 +276,12 @@ def action_map(
 @app.command()
 def replay(
     demo: Path = typer.Argument(..., help="Path to .dem file"),
-    player: str = typer.Option(..., "--player", help="Player name or steamid"),
-    mode: str = typer.Option("all", "--mode", help="all | highlights | openings | montage"),
+    player: str | None = typer.Option(None, "--player", help="Player name or steamid (single-player modes / team-highlight)"),
+    mode: str = typer.Option(
+        "all", "--mode",
+        help="single: overlap-full | openings | highlights; team: team | team-highlights | "
+             "team-highlight(--player) | team-overlap-round | team-overlap-full",
+    ),
     speed: float | None = typer.Option(None, "--speed", help="Time multiplier (overrides mode default)"),
     rounds: str | None = typer.Option(None, "--rounds", help="Comma-separated round numbers (highlights mode)"),
     opening: float | None = typer.Option(None, "--opening", help="Opening seconds per round (montage mode)"),
@@ -281,17 +296,46 @@ def replay(
     manager = ParseManager(cache=DemoCache(settings.cache_dir))
     demo_data = manager.parse(demo)
 
-    from cs_analyzer.render.replay_animation import ReplayAnimationRenderer
-
     cfg = settings.render.replay
-    renderer = ReplayAnimationRenderer(cfg, demo_data)
     round_list = [int(r) for r in rounds.split(",")] if rounds else None
-    output_path = output or (settings.render.output_dir / demo.stem / f"replay_{mode}_{player}.mp4")
+    pid = player or "team"
+    output_path = output or (settings.render.output_dir / demo.stem / f"replay_{mode}_{pid}.mp4")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    result = renderer.render_player(
-        player, output_path, mode=mode, speed=speed, rounds=round_list, opening=opening,
-    )
+    if mode in ("team", "team-highlights", "team-highlight", "team-overlap-round", "team-overlap-full"):
+        from cs_analyzer.render.team_animation import TeamReplayRenderer
+
+        renderer = TeamReplayRenderer(cfg, demo_data)
+        if mode in ("team-highlights", "team-highlight") and round_list is None:
+            round_list = _pick_team_highlight_rounds(renderer, k=3)
+        if mode == "team-overlap-round":
+            result = renderer.render_overlay(output_path, per_round=True,
+                                             speed=speed if speed is not None else cfg.speed_team)
+        elif mode == "team-overlap-full":
+            result = renderer.render_overlay(output_path, per_round=False,
+                                             speed=speed if speed is not None else cfg.speed_full)
+        elif mode == "team-highlight":
+            if not player:
+                raise typer.BadParameter("--player is required for --mode team-highlight")
+            result = renderer.render(
+                output_path, rounds=round_list,
+                speed=speed if speed is not None else cfg.speed_team,
+                highlight_steamid=player,
+            )
+        else:
+            result = renderer.render(
+                output_path, rounds=round_list,
+                speed=speed if speed is not None else cfg.speed_team,
+            )
+    else:
+        if not player:
+            raise typer.BadParameter(f"--player is required for --mode {mode}")
+        from cs_analyzer.render.replay_animation import ReplayAnimationRenderer
+
+        renderer = ReplayAnimationRenderer(cfg, demo_data)
+        result = renderer.render_player(
+            player, output_path, mode=mode, speed=speed, rounds=round_list, opening=opening,
+        )
     if composite:
         from cs_analyzer.export import VideoExporter
 
@@ -301,32 +345,45 @@ def replay(
     console.print(f"[green]Replay[/green] -> {result}")
 
 
-@app.command("overlap-animation")
-def overlap_animation(
+@app.command("recipe")
+def recipe(
     demo: Path = typer.Argument(..., help="Path to .dem file"),
-    player: str = typer.Option(..., "--player", help="Player name or steamid"),
-    output: Path | None = typer.Option(None, "--output", "-o", help="Output .mp4 or .gif path"),
-    config: Path | None = typer.Option(None, "--config", "-c"),
+    name: str | None = typer.Argument(None, help="Recipe name from configs/recipes.yaml"),
+    player: str | None = typer.Option(None, "--player", help="Player name or steamid (single / team-highlight)"),
+    config: Path | None = typer.Option(None, "--config", "-c", help="Recipe YAML (default configs/recipes.yaml)"),
+    override: Path | None = typer.Option(None, "--override", "-o", help="Extra style-override YAML on top of the recipe"),
+    out: Path | None = typer.Option(None, "--out", help="Output .mp4 path"),
+    list_only: bool = typer.Option(False, "--list", help="List available recipes"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Render T/CT overlap animation (player movement, T then CT, animated)."""
+    """Render a named recipe (unified fine-grained customization)."""
     _setup_logging(verbose)
-    settings = _load_settings(config)
+    from cs_analyzer.recipe import load_recipes, render_recipe
+
+    recipe_path = config or Path("configs/recipes.yaml")
+    recipes = load_recipes(recipe_path)
+    if list_only or name is None:
+        for rname, r in sorted(recipes.items()):
+            console.print(f"[bold]{rname}[/bold]  {r.title}  ({r.kind}/{r.mode})")
+        return
+    if name not in recipes:
+        raise typer.BadParameter(f"unknown recipe '{name}'. Available: {sorted(recipes)}")
+
+    settings = _load_settings(None)
     manager = ParseManager(cache=DemoCache(settings.cache_dir))
     demo_data = manager.parse(demo)
+    rec = recipes[name]
+    overrides = None
+    if override:
+        import yaml
+        with open(override, encoding="utf-8") as f:
+            overrides = yaml.safe_load(f) or {}
+    output_path = out or (settings.render.output_dir / demo.stem / f"recipe_{name}.mp4")
+    result = render_recipe(demo_data, rec, output_path, player=player, overrides=overrides)
+    console.print(f"[green]Recipe[/green] {name} -> {result}")
 
-    player_obj = demo_data.player(player)
-    if player_obj is None:
-        console.print(f"[red]Player '{player}' not found.[/red]")
-        raise typer.Exit(1)
 
-    cfg = settings.render.overlap_animation or OverlapAnimationConfig()
-    renderer = OverlapAnimationRenderer(cfg, demo_data)
-    output_path = output or (settings.render.output_dir / demo.stem / f"overlap_{player_obj.name}.gif")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    result = renderer.render_player(player_obj.steamid, output_path)
-    console.print(f"[green]Overlap animation[/green] -> {result}")
+@app.command()
 
 
 @app.command()

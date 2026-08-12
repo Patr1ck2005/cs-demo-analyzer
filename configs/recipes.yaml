@@ -1,0 +1,79 @@
+# 统一渲染配方（recipe）定义
+#
+# 每个配方 = 目标(kind) + 渲染模式(mode) + 播放参数 + style 样式。
+# style 里任意细粒度项（canvas/trail/effects/hud/marker/team 颜色等）都可改；
+# 运行时用 `csa recipe <demo> <名> --config my_style.yaml` 再叠加覆盖。
+# 可用 `csa recipe <demo> --list` 查看全部配方。
+
+# ---------- 单人 ----------
+s-overlap-full:
+  title: 单人全场重叠
+  kind: single
+  mode: overlap-full
+  speed: 15
+  style:
+    canvas: {width: 1280, height: 720, fps: 30, bg: "#141414"}
+    effects: {show_smoke: true, show_projectiles: true, show_kills: true, show_deaths: true}
+
+s-openings:
+  title: 单人开局重叠 30s
+  kind: single
+  mode: openings
+  opening: 30
+  speed: 5
+  style:
+    canvas: {width: 1280, height: 720, fps: 30, bg: "#141414"}
+    effects: {show_smoke: true, show_projectiles: true, show_kills: true}
+
+s-highlights:
+  title: 单人高光
+  kind: single
+  mode: highlights
+  speed: 2
+  style:
+    canvas: {width: 1280, height: 720, fps: 30}
+    trail: {seconds: 1.5, width_min: 1.5, width_max: 4.0}
+
+# ---------- 10人 ----------
+t-full:
+  title: 10人全场记录(不重叠)
+  kind: team
+  mode: team
+  speed: 10
+  style:
+    team: {t_palette: ["#FFD54F", "#FFB300", "#FFCA28", "#FF8F00", "#FFC107"],
+           ct_palette: ["#29B6F6", "#0288D1", "#4FC3F7", "#01579B", "#81D4FA"]}
+    effects: {show_smoke: true, show_fire: true, show_kills: true}
+
+t-highlights:
+  title: 10人高光
+  kind: team
+  mode: team-highlights
+  speed: 2
+  style:
+    effects: {show_smoke: true, show_kills: true}
+
+t-highlight:
+  title: 10人高亮单人
+  kind: team
+  mode: team-highlight
+  speed: 2
+  style:
+    marker: {halo: true, halo_size: 22}
+    effects: {show_smoke: true, show_kills: true}
+
+t-overlap-round:
+  title: 10人逐回合重叠
+  kind: team
+  mode: team-overlap-round
+  speed: 12
+  style:
+    effects: {show_smoke: true, show_fire: true, show_kills: true}
+
+t-overlap-full:
+  title: 10人全场重叠
+  kind: team
+  mode: team-overlap-full
+  speed: 15
+  style:
+    effects: {show_smoke: true, show_fire: true, show_kills: true}
