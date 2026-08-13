@@ -90,8 +90,10 @@ class ReplayHUD:
         kills = len(self.tl.kills)
         deaths = len(self.tl.deaths)
         self._player_name.set_text(f"{p.name}")
-        self._player_name.set_color(self.config.t_color if side == "T" else self.config.ct_color)
+        side_color = self.config.t_color if side == "T" else self.config.ct_color
+        self._player_name.set_color(side_color)
         self._side_badge.set_text(f"阵营: {'T 恐怖分子' if side == 'T' else 'CT 反恐精英'}")
+        self._side_badge.set_color(side_color)  # side feedback: T yellow / CT blue
         self._kd.set_text(f"K/D  {kills}/{deaths}")
 
         self._set_score(tick, round_number)

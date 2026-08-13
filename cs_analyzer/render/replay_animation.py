@@ -115,6 +115,8 @@ class ReplayAnimationRenderer:
         self._assign_frame_counts(segments, tick_rate)
 
         total_frames = sum(s.n_frames for s in segments)
+        if self.config.round_end_hold_seconds > 0:
+            total_frames += int(self.config.fps * self.config.round_end_hold_seconds) * len(segments)
         if total_frames > self.config.max_frames:
             raise ValueError(
                 f"Render would produce {total_frames} frames (cap {self.config.max_frames}). "
@@ -213,6 +215,7 @@ class ReplayAnimationRenderer:
             effects_view = timeline
         n_frames = max(int(span / (tick_rate * spd / self.config.fps)), 1)
         hold_frames = int(self.config.fps * self.config.overlay_hold_seconds)
+        fade_frames = min(int(self.config.fps * self.config.overlay_fade_seconds), hold_frames)
 
         fig, ax, round_lines, round_labels, spawns = self._setup_overlay_figure(timeline, windows, title)
         effects = EffectManager(self.config, effects_view, self.map, tick_rate=tick_rate)
@@ -251,6 +254,17 @@ class ReplayAnimationRenderer:
                         px, py = self.map.world_to_pixel_array(wx, wy)
                         line.set_data(px, py)
                         line.set_visible(True)
+                    if i >= n_frames:
+                        # fade the finished overlay out before the video ends
+                        held = i - n_frames
+                        prog = held / max(fade_frames, 1) if held < fade_frames else 1.0
+                        alpha = max(0.85 * (1.0 - prog), 0.0)
+                        for line in round_lines:
+                            if line.get_visible():
+                                line.set_alpha(alpha)
+                        effects.set_alpha_scale(max(1.0 - prog, 0.0))  # V1: effects fade too
+                    else:
+                        effects.set_alpha_scale(1.0)
                     if aligned:
                         effects.update(p * span)
                     else:
@@ -377,6 +391,10 @@ class ReplayAnimationRenderer:
                         frame_no += 1
                         if frame_no % 200 == 0:
                             logger.info("replay frame %d/%d", frame_no, sum(s.n_frames for s in segments))
+                    if self.config.round_end_hold_seconds > 0:
+                        hold_frames = int(self.config.fps * self.config.round_end_hold_seconds)
+                        self._hold_and_fade(writer, ctx, tick, hold_frames,
+                                            self._winner_for_segment(seg))
         except Exception:
             logger.error("replay render failed at %s", output_path)
             raise
@@ -384,6 +402,38 @@ class ReplayAnimationRenderer:
             plt.close(fig)
         logger.info("replay -> %s", output_path)
         return output_path
+
+    def _hold_and_fade(self, writer, ctx, tick: float, hold_frames: int, winner_side: str | None) -> None:
+        """Round-end pause: show the winner banner, then fade the trail + effects
+        before the next round (V2/V3)."""
+        banner = ctx.get("winner_banner")
+        show_banner = None
+        if winner_side is not None and self.config.show_winner_banner:
+            show_banner = banner
+            banner.set_text(f"{winner_side} 获胜")
+            banner.set_color(self.config.t_color if winner_side == "T" else self.config.ct_color)
+            banner.set_visible(True)
+        fade_frames = min(int(self.config.fps * self.config.overlay_fade_seconds), hold_frames)
+        for h in range(hold_frames):
+            if h >= hold_frames - fade_frames:
+                prog = (h - (hold_frames - fade_frames)) / max(fade_frames, 1)
+                a = max(1.0 - prog, 0.0)
+            else:
+                a = 1.0
+            ctx["trail_collection"].set_alpha(a)
+            ctx["effects"].set_alpha_scale(a)
+            ctx["effects"].update(tick)
+            if show_banner is not None:
+                show_banner.set_alpha(a)
+                show_banner.set_visible(a > 0)
+            writer.grab_frame()
+        ctx["effects"].set_alpha_scale(1.0)
+        if show_banner is not None:
+            show_banner.set_visible(False)
+
+    def _winner_for_segment(self, seg: Segment) -> str | None:
+        rnd = self.demo.data.round_at_tick(max(seg.end_tick - 1, seg.start_tick))
+        return rnd.winner_side if rnd else None
 
     def _make_writer(self) -> FFMpegWriter:
         matplotlib.rcParams["animation.ffmpeg_path"] = find_ffmpeg()
@@ -428,11 +478,16 @@ class ReplayAnimationRenderer:
         hud = ReplayHUD(self.config, timeline, self.demo)
         hud.attach(fig, ax)
 
+        winner_banner = fig.text(0.5, 0.5, "", color="white", fontsize=48, weight="bold",
+                                 ha="center", va="center", transform=fig.transFigure, zorder=30)
+        winner_banner.set_visible(False)
+
         ctx = {
             "trail_collection": trail_col,
             "player_marker": player_marker,
             "effects": effects,
             "hud": hud,
+            "winner_banner": winner_banner,
         }
         return fig, ax, ctx
 

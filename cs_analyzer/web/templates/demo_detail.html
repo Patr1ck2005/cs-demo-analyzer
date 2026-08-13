@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ demo.filename }}{% endblock %}
+{% block content %}
+<div class="sub"><a href="/">← 返回列表</a></div>
+
+<div class="card">
+  <div class="score"><span class="t">{{ demo.t_score }}</span> T &nbsp;:&nbsp;
+    <span class="ct">{{ demo.ct_score }}</span> CT</div>
+  <div class="sub">{{ demo.filename }} · {{ demo.map_name }} · {{ demo.provider }} · {{ demo.num_rounds }} 回合</div>
+</div>
+
+<h2>选手统计（{{ players|length }}）</h2>
+<table>
+  <thead>
+    <tr><th>选手</th><th>阵营</th><th>K</th><th>D</th><th>A</th><th>ADR</th>
+        <th>KPR</th><th>Rating</th><th>RWS</th><th>KAST%</th><th>回放</th></tr>
+  </thead>
+  <tbody>
+  {% for p in players %}
+    <tr>
+      <td><a href="/demo/{{ demo.hash }}/player/{{ p.steamid }}">{{ p.name }}</a></td>
+      <td><span class="badge {{ 't' if p.team_label=='T' else 'ct' if p.team_label=='CT' else 't0' }}">{{ p.team_label }}</span></td>
+      <td>{{ p.K }}</td><td>{{ p.D }}</td><td>{{ p.A }}</td>
+      <td>{{ p.ADR }}</td><td>{{ p.KPR }}</td><td>{{ p.Rating }}</td>
+      <td>{{ p.RWS }}</td><td>{{ p.KAST }}</td>
+      <td><span class="badge {{ 'ok' if p.replayable else 'no' }}">{{ '可回放' if p.replayable else '无位置' }}</span></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>雷达图</h2>
+<div class="grid">
+  {% for p in players %}
+  {% if p.radar_img %}
+  <div class="card">
+    <a href="/demo/{{ demo.hash }}/player/{{ p.steamid }}">
+      <img src="{{ p.radar_img }}" alt="{{ p.name }} 雷达图">
+    </a>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+
+<h2>回合时间线</h2>
+<div class="pill-row">
+  {% for r in rounds %}
+    <span class="badge {{ 't' if r.winner_side=='T' else 'ct' }}">R{{ r.number }} {{ r.winner_side }}</span>
+  {% endfor %}
+</div>
+
+<h2>击杀流</h2>
+<div class="card">
+  {% for k in kills %}
+    <div class="kill-line">R{{ k.round }} · {{ k.attacker }} 击杀 {{ k.victim }} ({{ k.weapon }})</div>
+  {% else %}
+    <div class="sub">无击杀事件</div>
+  {% endfor %}
+</div>
+{% endblock %}

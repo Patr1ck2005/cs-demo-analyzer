@@ -118,12 +118,14 @@ class TeamReplayRenderer:
 
         fig, ax, ctx = self._setup_figure()
         writer = self._make_writer()
+        hold_round = int(self.config.fps * self.config.round_end_hold_seconds)
         total_frames = 0
         seg_frame_counts = []
         for _, start, end, spd in segs:
             n = max(int((end - start) / (self.tick_rate * spd / self.config.fps)), 1)
             seg_frame_counts.append(n)
             total_frames += n
+        total_frames += hold_round * len(segs)
         if total_frames > self.config.max_frames:
             raise ValueError(
                 f"Team render would produce {total_frames} frames (cap {self.config.max_frames}). "
@@ -164,6 +166,9 @@ class TeamReplayRenderer:
                         frame_no += 1
                         if frame_no % 200 == 0:
                             logger.info("team frame %d/%d", frame_no, total_frames)
+                    if hold_round:
+                        self._hold_and_fade(writer, ctx, tick, hold_round,
+                                            self._winner_for_round(rnum))
         except Exception:
             logger.error("team render failed at %s", output_path)
             raise
@@ -191,12 +196,13 @@ class TeamReplayRenderer:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         setup_fonts(self.config.font)
         spd = speed if speed is not None else self.config.speed_team
-        fig, ax, lines, rlabel, hud_ctx = self._setup_overlay_axes()
+        fig, ax, lines, markers, corpse_marks, rlabel, hud_ctx, banner = self._setup_overlay_axes()
         view = _TeamView(self.team_utils, self.all_kills)
         effects = EffectManager(self.config, view, self.map, tick_rate=self.tick_rate)
         effects.attach(ax)
         writer = self._make_writer()
         freeze = self.freeze
+        hold_round = int(self.config.fps * self.config.round_end_hold_seconds)
         try:
             with writer.saving(fig, str(output_path), dpi=self.config.dpi):
                 if per_round:
@@ -206,14 +212,16 @@ class TeamReplayRenderer:
                         windows = self._round_player_windows(r, fe)
                         n = max(int((t1 - t0) / (self.tick_rate * spd / self.config.fps)), 1)
                         rlabel.set_text(f"回合 {r.number} · 团队走位 + 动作")
+                        last_tick = t0
                         for f in range(n):
                             t = t0 + (t1 - t0) * f / n
-                            self._overlay_frame(lines, windows, t)
+                            self._overlay_frame(lines, markers, corpse_marks, windows, t)
                             effects.update(t)
                             self._overlay_hud(hud_ctx, t, r.number)
                             writer.grab_frame()
-                        for _ in range(int(self.config.fps * 0.8)):
-                            writer.grab_frame()
+                            last_tick = t
+                        self._fade_hold(writer, lines, markers, corpse_marks, effects,
+                                        last_tick, hold_round, r.winner_side, banner)
                 else:
                     t0 = min(freeze.get(r.number, r.start_tick) for r in self.demo.regular_rounds)
                     t1 = max(r.end_tick for r in self.demo.regular_rounds)
@@ -225,13 +233,15 @@ class TeamReplayRenderer:
                             "raise --speed"
                         )
                     rlabel.set_text("全场团队路径 + 动作")
+                    last_tick = t0
                     for f in range(n):
                         t = t0 + (t1 - t0) * f / n
-                        self._overlay_frame(lines, windows, t)
+                        self._overlay_frame(lines, markers, corpse_marks, windows, t)
                         effects.update(t)
                         writer.grab_frame()
-                    for _ in range(int(self.config.fps * 3)):
-                        writer.grab_frame()
+                        last_tick = t
+                    self._fade_hold(writer, lines, markers, corpse_marks, effects,
+                                    last_tick, int(self.config.fps * 3))
         except Exception:
             logger.error("team overlay render failed at %s", output_path)
             raise
@@ -249,20 +259,114 @@ class TeamReplayRenderer:
             windows.append((tl, fe, max(end, fe + 1)))
         return windows
 
-    def _overlay_frame(self, lines, windows, t) -> None:
-        for line, (tl, wstart, wend) in zip(lines, windows):
+    def _overlay_frame(self, lines, markers, corpse_marks, windows, t) -> None:
+        for cm in corpse_marks:
+            cm.set_alpha(0)
+        for i, (line, marker, (tl, wstart, wend)) in enumerate(zip(lines, markers, windows)):
             if t < wstart:
                 line.set_visible(False)
+                marker.set_alpha(0)
                 continue
+            dead = t >= wend
+            # V6: a player dead in this window -> their path turns gray
+            line.set_color(self.config.dead_line_color if dead else self._overlay_colors[i])
             lo = int(np.searchsorted(tl.ticks, wstart, side="left"))
             hi = int(np.searchsorted(tl.ticks, min(t, wend), side="right"))
             if hi - lo < 2:
                 line.set_visible(False)
+                marker.set_alpha(0)
                 continue
             idx = np.arange(lo, hi)
             px, py = self.map.world_to_pixel_array(tl.xs[idx], tl.ys[idx])
             line.set_data(px, py)
+            line.set_alpha(0.85)  # reset after a previous round faded out
             line.set_visible(True)
+            # position dot at the current tick (clamped to the alive window)
+            cur = min(t, wend)
+            cx = float(np.interp(cur, tl.ticks[idx], tl.xs[idx]))
+            cy = float(np.interp(cur, tl.ticks[idx], tl.ys[idx]))
+            mpx, mpy = self.map.world_to_pixel(cx, cy)
+            if dead:
+                marker.set_alpha(0)
+                dp = next((d for d in tl.deaths if wstart <= d.tick <= wend), None)
+                if dp is not None:
+                    dpx, dpy = self.map.world_to_pixel(dp.x, dp.y)
+                    corpse_marks[i].set_data([dpx], [dpy])
+                    corpse_marks[i].set_alpha(1.0)
+            else:
+                marker.set_data([mpx], [mpy])
+                marker.set_alpha(1.0)
+                marker.set_visible(True)
+
+    def _fade_hold(self, writer, lines, markers, corpse_marks, effects, last_tick: float,
+                   hold_frames: int, winner_side: str | None = None, banner=None) -> None:
+        """Hold the finished overlay (winner banner), then fade paths + effects out."""
+        show_banner = None
+        if winner_side is not None and self.config.show_winner_banner and banner is not None:
+            show_banner = banner
+            banner.set_text(f"{winner_side} 获胜")
+            banner.set_color(self.config.t_color if winner_side == "T" else self.config.ct_color)
+            banner.set_visible(True)
+        fade_frames = min(int(self.config.fps * self.config.overlay_fade_seconds), hold_frames)
+        for h in range(hold_frames):
+            if h >= hold_frames - fade_frames:
+                prog = (h - (hold_frames - fade_frames)) / max(fade_frames, 1)
+                alpha = max(0.85 * (1.0 - prog), 0.0)
+                es = max(1.0 - prog, 0.0)
+            else:
+                alpha = 0.85
+                es = 1.0
+            for line in lines:
+                if line.get_visible():
+                    line.set_alpha(alpha)
+            for m in markers:
+                if m.get_alpha() > 0:
+                    m.set_alpha(alpha)
+            for cm in corpse_marks:
+                if cm.get_alpha() > 0:
+                    cm.set_alpha(alpha)
+            effects.set_alpha_scale(es)
+            effects.update(last_tick)
+            if show_banner is not None:
+                show_banner.set_alpha(es)
+                show_banner.set_visible(es > 0)
+            writer.grab_frame()
+        effects.set_alpha_scale(1.0)
+        if show_banner is not None:
+            show_banner.set_visible(False)
+
+    def _hold_and_fade(self, writer, ctx, tick: float, hold_frames: int, winner_side: str | None) -> None:
+        """Continuous render: pause per round-end with winner banner, then fade
+        trails + effects before the next round (V2/V3)."""
+        banner = ctx.get("winner_banner")
+        show_banner = None
+        if winner_side is not None and self.config.show_winner_banner:
+            show_banner = banner
+            banner.set_text(f"{winner_side} 获胜")
+            banner.set_color(self.config.t_color if winner_side == "T" else self.config.ct_color)
+            banner.set_visible(True)
+        fade_frames = min(int(self.config.fps * self.config.overlay_fade_seconds), hold_frames)
+        for h in range(hold_frames):
+            if h >= hold_frames - fade_frames:
+                prog = (h - (hold_frames - fade_frames)) / max(fade_frames, 1)
+                a = max(1.0 - prog, 0.0)
+            else:
+                a = 1.0
+            for tc in ctx["trail_cols"]:
+                tc.set_alpha(a)
+            ctx["effects"].set_alpha_scale(a)
+            ctx["effects"].update(tick)
+            if show_banner is not None:
+                show_banner.set_alpha(a)
+                show_banner.set_visible(a > 0)
+            writer.grab_frame()
+        ctx["effects"].set_alpha_scale(1.0)
+        if show_banner is not None:
+            show_banner.set_visible(False)
+
+    def _winner_for_round(self, rnum: int) -> str | None:
+        r = next((r for r in self.demo.regular_rounds if r.number == rnum), None)
+        return r.winner_side if r else None
 
     def _overlay_hud(self, hud_ctx, tick, rnum) -> None:
         rnd = next((r for r in self.demo.regular_rounds if r.number == rnum), None)
@@ -291,14 +395,23 @@ class TeamReplayRenderer:
         ax.set_aspect("equal")
         ax.axis("off")
         lines = [ax.plot([], [], color=c, linewidth=2.2, alpha=0.85, zorder=5)[0] for c in self.colors]
+        self._overlay_colors = [l.get_color() for l in lines]  # V6 dead-line gray needs the original
+        # player position dots + corpses, matching the continuous team render
+        markers = [ax.plot([], [], "o", color=c, markersize=7, markeredgecolor="black",
+                           markeredgewidth=0.6, alpha=0, zorder=8)[0] for c in self.colors]
+        corpse_marks = [ax.plot([], [], marker=_SKULL, color="#FF3333", markersize=13,
+                                linestyle="None", alpha=0, zorder=9)[0] for _ in self.colors]
         rlabel = ax.text(self.map.image_width / 2, 12, "", color="white",
                          fontsize=15, ha="center", va="top", zorder=20)
         score_text = fig.text(0.5, 0.97, "", color="white", fontsize=18, weight="bold",
                               ha="center", va="top", transform=fig.transFigure, zorder=20)
         clock_text = fig.text(0.98, 0.10, "", color="white", fontsize=20, weight="bold",
                               ha="right", va="bottom", transform=fig.transFigure, zorder=20)
+        banner = fig.text(0.5, 0.5, "", color="white", fontsize=52, weight="bold",
+                          ha="center", va="center", transform=fig.transFigure, zorder=30)
+        banner.set_visible(False)
         hud_ctx = {"score": score_text, "clock": clock_text}
-        return fig, ax, lines, rlabel, hud_ctx
+        return fig, ax, lines, markers, corpse_marks, rlabel, hud_ctx, banner
 
     # ---- figure / writer ----
 
@@ -360,6 +473,9 @@ class TeamReplayRenderer:
                               ha="right", va="bottom", transform=fig.transFigure, zorder=20)
         legend = fig.text(0.02, 0.06, "", color="#CCCCCC", fontsize=11,
                           ha="left", va="bottom", transform=fig.transFigure, zorder=20)
+        winner_banner = fig.text(0.5, 0.5, "", color="white", fontsize=52, weight="bold",
+                                 ha="center", va="center", transform=fig.transFigure, zorder=30)
+        winner_banner.set_visible(False)
 
         # pooled kill-connection artists
         kill_lines = []
@@ -389,6 +505,7 @@ class TeamReplayRenderer:
             "kill_stars": kill_stars,
             "kill_skulls": kill_skulls,
             "kill_data": self._kill_windows(),
+            "winner_banner": winner_banner,
         }
         return fig, ax, ctx
 

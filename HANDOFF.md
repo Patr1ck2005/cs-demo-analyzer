@@ -88,26 +88,31 @@ python -m cs_analyzer batch configs/batch_example.yaml --parallel 4
 ```
 
 核心文件：
-- CLI: `cs_analyzer/cli.py`（含 `replay` 低层命令 + `recipe` 统一配方命令）
+- CLI: `cs_analyzer/cli.py`（replay/recipe/coverage/serve 等命令）
 - 配方: `cs_analyzer/recipe.py` + `configs/recipes.yaml`（声明式配方 + 细粒度样式覆盖）
+- 覆盖度: `cs_analyzer/coverage.py`（DemoCoverage/scan_demo/render_coverage_report）+ `scripts/probe_team0.py`（Team 0 探针）
 - 解析: `cs_analyzer/parser/backend.py` (demoparser2), `providers.py`
 - 模型: `cs_analyzer/model/types.py`, `io.py`
-- 分析: `cs_analyzer/analysis/`（basic_stats, ratings, preference）
+- 分析: `cs_analyzer/analysis/`（basic_stats, ratings, preference, **aggregate** 跨场聚合）
 - 回放: `cs_analyzer/replay/timeline.py`（PlayerTimeline + round_freeze_ends + 存活窗口）
-- 渲染: `cs_analyzer/render/`（radar_chart, action_map, overlap_animation, **replay_animation**, **team_animation**, effects, hud, fonts）
+- 渲染: `cs_analyzer/render/`（radar_chart, action_map, **replay_animation**, **team_animation**, effects, hud, fonts, **radar_static**, **preference_charts**, **aggregate_charts**）
+- Web: `cs_analyzer/web/`（app.py FastAPI 路由, store.py demo 索引, tasks.py 后台任务, templates/, static/）
 - 导出: `cs_analyzer/export/video.py` (ffmpeg), `report.py`
 - 缓存: `cs_analyzer/cache.py`, `batch.py`
 
 ## 7. 下一步建议（按优先级）
 
-1. **提供群友真实 .dem** → 放入仓库（gitignore 已排除，放 `demos/` 即可），跑 `csa run <你的.dem> --config configs/content_prod.yaml` 产出有真实价值的雷达视频
-2. **验证 batch 5+ demo** → 用 5+ 个真实 .dem 跑 `csa batch configs/batch_example.yaml --parallel 4`
-3. **补地图底图** → `cs_analyzer/maps/data/de_mirage.png` + yaml 坐标映射（B/C 通道需要）
-4. **同步 ARCHITECTURE.md** → 对齐实际代码结构（§5.6 列出的漂移点）
-5. **可选**：装 ffprobe 根治探测、provider 补充真实队名映射、content 渲染质量可调（当前硬编码 high_quality）
+1. **全面人工验收（当前阶段）**：Web 平台浏览器点验（`csa serve` → `http://127.0.0.1:8000`，Demo 列表 → ⚡女帝⚡ 场 → 选手详情雷达/偏好/回放、跨场聚合页）；`output/coverage/coverage.html` 覆盖度报告；`git diff` + `git diff --cached` 审核 Phase 2/3 未提交改动。验收后按用户拍板 provenance 分批提交。
+2. **LTG-1 M3 已取消**（用户决定），不再做终极合成视频；2D 回放系统是核心交付物。
+3. **补地图底图** → `cs_analyzer/maps/data/de_mirage.png` + yaml 坐标映射（Web 热力图/回放底图更专业）。
+4. **同步 ARCHITECTURE.md** → 对齐实际代码结构（§5.6 列出的漂移点 + 新增 web/coverage/aggregate）。
+5. **可选**：装 ffprobe 根治探测、provider 补充真实队名映射。
 
 ## 8. 已验证里程碑（本阶段成果）
 
+- **LTG-2 本地 Web 平台（deepseek-v4-pro 本轮，待人工验收）**：FastAPI + Jinja2 全中文服务端渲染。`cs_analyzer/web/`（app.py 路由 / store.py demo 索引 / tasks.py 线程任务管理器 / 7 模板 / static），`csa serve` 命令。阶段1 单场复盘（列表/上传后台解析/详情统计+雷达/选手偏好+回放按需渲染），阶段2 跨场聚合（Rating 矩阵/T胜率/趋势）。雷达图用 matplotlib 静态 PNG（radar_static.py）替代慢速 manim。uvicorn 实跑 `http://127.0.0.1:8000`，113 测试全绿。
+- **STG-1 回放打磨（deepseek-v4-pro 本轮）**：重叠类回合/结束淡出（ReplayConfig 加 `overlay_fade_seconds`，单player overlay + 团队 _fade_hold + alpha 重置），射击标记 z-order 降到轨迹下（3），HUD 侧别徽章 T黄/CT蓝 反馈。ffmpeg 帧分析验证淡出（单player 22k→12.8k 亮像素，团队逐回合边界升-降-升）。**已 git reset --soft 撤下提交，改动保留待审核**。
+- **LTG-3 解析覆盖度报告（deepseek-v4-pro 本轮）**：`cs_analyzer/coverage.py` + `csa coverage` → `output/coverage/coverage.html`（总览矩阵/逐 demo 明细/调查结论/已知限制）。Team 0 根因查明：demoparser2 库层 pawn 解析限制（全位置 NaN、逐广播特定、不可重建），7/60 玩家位次。**已提交 dcb9d4f**。
 - **统一渲染配方框架（deepseek-v4-pro 本轮）**：`cs_analyzer/recipe.py`（Recipe 模型 + flatten_style/apply_style/render_recipe）+ `configs/recipes.yaml`（8 个声明式配方）+ `csa recipe <demo> <名> [--override style.yaml]` 统一入口。`ReplayConfig` 细粒度化（特效逐项开关 show_*/各类颜色/半径/时长、轨迹、HUD 元素、选手标记/光环、团队色板 t_palette/ct_palette），渲染器全部读配置（effects.py 去掉硬编码颜色）。样式覆盖：`canvas/trail/marker/hud/team/effects`。
 - **团队回放渲染器（deepseek-v4-pro 本轮）**：`cs_analyzer/render/team_animation.py`——10 人同时回放，分色（**T 黄系 / CT 蓝系**）、尸体 ☠、击杀连线、全员投掷物；支持 team/team-highlights/team-highlight(高亮单人白环★)/team-overlap-round/team-overlap-full。重叠类全部时间驱动 + 真实特效（抛掷物/烟雾/击杀动画），openings 用本地偏移对齐。
 - **回放通用处理**：`round_freeze_end` 去准备时间；单人存活窗口裁剪去死亡时间；团队尸体☠继续播；死亡 ☠ 标记（mathtext）。PARSER_VERSION 已至 1.4.0。

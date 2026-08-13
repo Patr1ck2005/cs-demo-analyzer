@@ -176,7 +176,8 @@ def test_effect_attach_adds_circles_to_axes() -> None:
     fig, ax = plt.subplots()
     mgr.attach(ax)
     n_patches = len(ax.patches)
-    expected = 8 + 5 + 5 + 8 + 4 + 6  # smoke+flash+he+fire+molly+jump_rings
+    # smoke(8*5 layers) + flash + he + fire + molly + jump_rings
+    expected = 40 + 5 + 5 + 8 + 4 + 6
     assert n_patches >= expected
     plt.close(fig)
 

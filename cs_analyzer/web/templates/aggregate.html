@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}跨场聚合{% endblock %}
+{% block content %}
+<h1>跨场聚合分析</h1>
+<div class="sub">{{ result.total_demos }} 部 demo · {{ result.total_players }} 名选手（按 SteamID 跨场匹配）</div>
+
+{% if charts.player_matrix %}
+<h2>选手跨场 Rating 矩阵</h2>
+<div class="card"><img src="/media/aggregate/{{ charts.player_matrix }}" alt="Rating 矩阵" style="max-width:100%"></div>
+{% endif %}
+{% if charts.team_win %}
+<h2>团队胜率</h2>
+<div class="card"><img src="/media/aggregate/{{ charts.team_win }}" alt="胜率" style="max-width:100%"></div>
+{% endif %}
+{% if charts.trends %}
+<h2>T 方得分趋势</h2>
+<div class="card"><img src="/media/aggregate/{{ charts.trends }}" alt="趋势" style="max-width:100%"></div>
+{% endif %}
+
+<h2>选手跨场明细</h2>
+<table>
+  <thead>
+    <tr><th>选手</th><th>场次</th><th>总击杀</th><th>总回合</th>
+        <th>场均KPR</th><th>场均ADR</th><th>场均Rating</th><th>场均KAST%</th></tr>
+  </thead>
+  <tbody>
+  {% for p in result.players %}
+    <tr>
+      <td>{{ p.name }}</td><td>{{ p.demo_count }}</td><td>{{ p.total_kills }}</td><td>{{ p.total_rounds }}</td>
+      <td>{{ '%.2f'|format(p.avg_kpr) }}</td><td>{{ '%.1f'|format(p.avg_adr) }}</td>
+      <td>{{ '%.2f'|format(p.avg_rating) }}</td><td>{{ '%.0f'|format(p.avg_kast) }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="sub">暂无跨场数据</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

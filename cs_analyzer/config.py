@@ -123,12 +123,17 @@ class ReplayConfig(BaseModel):
     round_clock_seconds: float = 115.0  # CS2 round timer for HUD countdown
     max_frames: int = 6000  # hard cap on output frames
     overlay_hold_seconds: float = 3.0  # hold the full overlay at the end
+    overlay_fade_seconds: float = 1.0  # fade overlay paths out before round/end transitions
+    round_end_hold_seconds: float = 1.2  # pause per round-end so the final kill reads
+    show_winner_banner: bool = True  # show "T/CT 获胜" banner during the round-end hold
 
-    # ---- team color families (T = yellows, CT = blues) ----
-    t_color: str = "#FF6B6B"
-    ct_color: str = "#4ECDC4"
-    t_palette: list[str] = ["#FFD54F", "#FFB300", "#FFCA28", "#FF8F00", "#FFC107"]
-    ct_palette: list[str] = ["#29B6F6", "#0288D1", "#4FC3F7", "#01579B", "#81D4FA"]
+    # ---- team color families (T = warm hues, CT = cool hues) ----
+    # Within-family hue spread (not just lightness) so teammates stay
+    # distinguishable, while the overall warm/cool contrast reads at a glance.
+    t_color: str = "#FFB300"
+    ct_color: str = "#29B6F6"
+    t_palette: list[str] = ["#FFD54F", "#FFB300", "#FF8F00", "#FF7043", "#F4511E"]
+    ct_palette: list[str] = ["#81D4FA", "#29B6F6", "#00BCD4", "#0288D1", "#1565C0"]
 
     # ---- trail ----
     trail_enabled: bool = True
@@ -193,6 +198,7 @@ class ReplayConfig(BaseModel):
     kill_color: str = "#FFD700"
     victim_color: str = "#FF6666"
     kill_line_color: str = "#FFD700"
+    dead_line_color: str = "#7A7A7A"  # 10-player overlay: path of a dead player turns gray
 
     # ---- effect visuals ----
     smoke_max_radius: float = 120.0

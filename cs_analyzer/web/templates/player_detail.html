@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ player.name }}{% endblock %}
+{% block content %}
+<div class="sub"><a href="/demo/{{ demo.hash }}">← 返回 demo</a></div>
+
+<div class="card">
+  <h1>{{ player.name }}
+    <span class="badge {{ 't' if player.team_label=='T' else 'ct' if player.team_label=='CT' else 't0' }}">{{ player.team_label }}</span>
+    <span class="badge {{ 'ok' if player.replayable else 'no' }}">{{ '可回放' if player.replayable else '无位置数据' }}</span>
+  </h1>
+  <div class="sub">{{ demo.filename }} · {{ demo.map_name }}</div>
+  <table>
+    <tr><th>K</th><td>{{ player.K }}</td><th>D</th><td>{{ player.D }}</td><th>A</th><td>{{ player.A }}</td></tr>
+    <tr><th>ADR</th><td>{{ player.ADR }}</td><th>KPR</th><td>{{ player.KPR }}</td><th>HS%</th><td>{{ player['HS%'] }}</td></tr>
+    <tr><th>Rating</th><td>{{ player.Rating }}</td><th>RWS</th><td>{{ player.RWS }}</td><th>KAST%</th><td>{{ player.KAST }}</td></tr>
+  </table>
+</div>
+
+{% if player.radar_img %}
+<h2>属性雷达图</h2>
+<div class="grid">
+  <div class="card"><img src="{{ player.radar_img }}" alt="{{ player.name }} 雷达图"></div>
+</div>
+{% endif %}
+
+{% if charts %}
+<h2>偏好分析</h2>
+<div class="grid">
+  <div class="card"><img src="{{ charts.heatmap }}" alt="位置热力图"></div>
+  <div class="card"><img src="{{ charts.utility }}" alt="道具落点"></div>
+  <div class="card"><img src="{{ charts.style }}" alt="风格"></div>
+</div>
+{% endif %}
+
+{% if pref %}
+<div class="card">
+  <h2>偏好指标</h2>
+  <table>
+    <tr><th>道具分布</th><td>{% for k, v in pref.utility_counts.items() %}{{ k }} = {{ v }}　{% endfor %}</td></tr>
+    <tr><th>首交战时机</th>
+      <td>{{ pref.engagement_fraction }}
+        （{{ '激进' if pref.engagement_fraction < 0.4 else '均衡' if pref.engagement_fraction < 0.6 else '被动' }}）
+        共 {{ pref.engagement_rounds }} 回合</td></tr>
+    <tr><th>平均准星仰角</th><td>{{ pref.avg_pitch }}°（{{ pref.pitch_samples }} 采样）</td></tr>
+    <tr><th>位置采样数</th><td>{{ pref.position_count }}</td></tr>
+  </table>
+</div>
+{% endif %}
+
+<h2>回放</h2>
+<div class="card">
+  {% for r in replays %}
+  <div class="replay-card">
+    <strong>{{ r.label }}</strong>
+    <span class="badge {{ 't' if r.kind=='team' else 'ct' }}">{{ '团队' if r.kind=='team' else '单人' }}</span>
+    {% if r.exists %}
+    <video controls src="{{ r.url }}"></video>
+    {% endif %}
+    <div style="margin-top:8px">
+      <button class="btn"
+              onclick="startReplay('{{ demo.hash }}', '{{ r.recipe }}', '{{ '' if r.kind=='team' else player.steamid }}', this)">
+        {{ '重新生成' if r.exists else '生成回放' }}
+      </button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

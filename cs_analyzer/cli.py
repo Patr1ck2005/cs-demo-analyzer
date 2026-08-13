@@ -427,6 +427,22 @@ def coverage(
 
 
 @app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
+    port: int = typer.Option(8000, "--port", help="Bind port"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Run the local web platform (LTG-2, FastAPI + Jinja2)."""
+    _setup_logging(verbose)
+    import uvicorn
+
+    from cs_analyzer.web.app import app as web_app
+
+    console.print(f"[green]CsDemoAnalyzer web[/green] http://{host}:{port}")
+    uvicorn.run(web_app, host=host, port=port)
+
+
+@app.command()
 def info(
     demo: Path = typer.Argument(..., help="Path to .dem file"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Demo 列表{% endblock %}
+{% block content %}
+<h1>Demo 复盘平台</h1>
+<div class="sub">上传 CS2 对局 .dem，本地解析与分析，浏览器查看统计 / 雷达 / 偏好 / 回放。</div>
+
+<div class="card">
+  <h2>上传新 Demo</h2>
+  <form class="upload" action="/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".dem" required>
+    <button class="btn" type="submit">上传并解析</button>
+  </form>
+</div>
+
+<h2>已解析 Demo（{{ total }}）</h2>
+<table>
+  <thead>
+    <tr><th>文件</th><th>地图</th><th>平台</th><th>回合</th><th>玩家</th></tr>
+  </thead>
+  <tbody>
+  {% for d in demos %}
+    <tr>
+      <td><a href="/demo/{{ d.demo_hash }}">{{ d.filename }}</a></td>
+      <td>{{ d.map_name }}</td>
+      <td>{{ d.provider }}</td>
+      <td>{{ d.num_rounds }}</td>
+      <td>{{ d.players|length }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="sub">还没有解析的 demo，上传一个 .dem 开始。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

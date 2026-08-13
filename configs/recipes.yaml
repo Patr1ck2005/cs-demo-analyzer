@@ -41,8 +41,8 @@ t-full:
   mode: team
   speed: 10
   style:
-    team: {t_palette: ["#FFD54F", "#FFB300", "#FFCA28", "#FF8F00", "#FFC107"],
-           ct_palette: ["#29B6F6", "#0288D1", "#4FC3F7", "#01579B", "#81D4FA"]}
+    team: {t_palette: ["#FFD54F", "#FFB300", "#FF8F00", "#FF7043", "#F4511E"],
+           ct_palette: ["#81D4FA", "#29B6F6", "#00BCD4", "#0288D1", "#1565C0"]}
     effects: {show_smoke: true, show_fire: true, show_kills: true}
 
 t-highlights:

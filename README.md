@@ -18,6 +18,12 @@ Local-first CS2 demo analysis toolkit. Parses `.dem` files into typed intermedia
 - Ratings: RWS (Round Win Shares), HLTV Rating 2.0 approximation, KAST, Impact
 - Player preference: position heatmap data, utility placement, peek aggressiveness, crosshair placement
 
+**P3 - Local Web Platform (LTG-2)**
+- FastAPI + Jinja2 all-Chinese server-rendered UI (`csa serve`)
+- Single-match review: upload demo -> stats / static radar / preference charts / on-demand replay
+- Cross-match aggregation: player rating matrix, T/CT win rates, score trends (matched by steamid)
+- Parse-coverage report (`csa coverage`): which demos/players are fully replayable + Team 0 investigation
+
 ## Installation
 
 ```bash
@@ -51,6 +57,12 @@ csa action-map path/to/demo.dem --player "PlayerName" --output output/action_map
 # Render a 2D replay recipe (e.g. 10-player full record)
 csa recipe path/to/demo.dem t-full
 
+# Parse-coverage HTML report (which demos/players are fully replayable)
+csa coverage "demos/*.dem" --out output/coverage/coverage.html
+
+# Run the local web platform (open http://127.0.0.1:8000 in a browser)
+csa serve
+
 # Full pipeline: parse + analyze + render + export
 csa run path/to/demo.dem
 
@@ -70,6 +82,8 @@ csa batch configs/batch_example.yaml --parallel 4
 | `csa replay <demo> [--player X] [--mode overlap-full\|openings\|highlights\|team\|team-highlight\|team-overlap-round\|team-overlap-full] [--speed N] [--rounds a,b] [--composite]` | 2D replay video (single or 10-player) |
 | `csa recipe <demo> <name> [--player X] [--override style.yaml] [--list]` | Render a declarative recipe (fine-grained customization) |
 | `csa export <demo> --format video\|report` | Export final video or HTML report |
+| `csa coverage [DEMOS...] [--out html]` | Scan parse coverage -> HTML report (Team 0 / replayability) |
+| `csa serve [--host X --port Y]` | Run the local web platform (FastAPI, browser UI) |
 | `csa run <demo>` | Full pipeline (parse + analyze + render + export) |
 | `csa batch <config.yaml>` | Batch process multiple demos |
 

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}CsDemoAnalyzer{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="topbar">
+  <span class="brand">🎯 CsDemoAnalyzer</span>
+  <a href="/">Demo 列表</a>
+  <a href="/aggregate">跨场聚合</a>
+</nav>
+<main>
+{% block content %}{% endblock %}
+</main>
+<script src="/static/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
