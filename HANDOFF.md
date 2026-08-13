@@ -68,7 +68,7 @@ bd80ec1 docs: add ARCHITECTURE.md with layered design and migration plan
 5. **`statistics_script.py` 遗留**：`radar_data/statistics_script.py` 依赖外部 `match_data.json` 的老流程仍在，新架构从 .dem 直接算，两者并存。`examples/render_radar_from_csv.py` 是 CSV 输入的兼容适配层。
 6. **ARCHITECTURE.md 与代码漂移**：ARCHITECTURE 是早期规划，代码演进后未同步。实际：`parser/` 是单文件 `providers.py`+`manager.py`（非 `providers/` 5 子文件）；model 是 `types.py`+`parsed_demo.py`+`io.py`（非 demo/player/events/ticks.py）；analysis 只有 `basic_stats/ratings/preference` 三个模块（economy/clutch/refrag 等未实现）；无 `export/image.py`、`render/styles.py`。以代码为准，ARCHITECTURE 仅作意图参考。已更新 §1 实现状态表 + §5 结构树。
 7. **WMPVP/完美平台 SourceTV demo 解析**（已修复）：此类 demo 无 `player_info` 表、`list_game_events()` 不列 `round_start/round_end`。backend 已改为全事件尝试 + 从 `player_spawn` 重建玩家 + 兼容字符串 winner（"T"/"CT"）+ round_start 精确边界。**已知限制**：个别玩家 team_num 全空 → 标记 "Team 0"（RWS=0，不影响雷达图属性）。缓存加了 `parser_version` 失效标记，改解析逻辑需同步 bump `cache.PARSER_VERSION`。
-8. **个别玩家 tick 位置缺失**（2D 回放）：real_demo_1 中 2 名玩家（庄小蔥、陈平啦4）demoparser2 未跟踪其 per-tick 位置/队伍（同 §7 的 Team 0 玩家），`csa replay` 会拒绝并提示换人。其余 8 名玩家数据完整。若需回放此类玩家，需调查 demoparser2 对该 demo 实体的跟踪问题。
+8. **个别玩家 tick 位置缺失（Team 0 / pawn 未解析）**：某些 WMPVP SourceTV demo 中个别玩家（如 de_ancient 的 庄小葵/陈平安4，de_inferno 的 斯文酱qaq 等）demoparser2 完全无法解析其 pawn 实体——ticks 表有行但 X/Y/team_num 全 NaN，且**所有事件的位置字段同样全 NaN**（事件计数正常）。这是 demoparser2 库层限制、逐广播特定（同一 steamid 在另一 demo 可正常回放），无法从事件重建位置。`csa replay` 对这类玩家拒绝并提示换人；事件类统计仍完整。判定逻辑：`cs_analyzer/coverage.py` + `scripts/probe_team0.py`；完整结论见 `output/coverage/coverage.html`。
 
 ## 6. 关键入口
 

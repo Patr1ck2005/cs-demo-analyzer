@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ report.title }}</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #1a222c; --panel2: #223040; --text: #dbe4ee;
+    --muted: #8fa3b8; --ok: #34d399; --warn: #fbbf24; --err: #f87171;
+    --t: #fbbf24; --ct: #60a5fa; --t0: #f87171; --line: #2c3b4d;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: "Microsoft YaHei", "Segoe UI", sans-serif; margin: 0; padding: 24px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .summary { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; flex: 1 1 180px; }
+  .card .num { font-size: 28px; font-weight: 700; }
+  .card .lbl { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: 1px; }
+  .badge.ok { background: rgba(52,211,153,.15); color: var(--ok); }
+  .badge.err { background: rgba(248,113,113,.15); color: var(--err); }
+  .badge.t0 { background: rgba(248,113,113,.15); color: var(--err); }
+  .badge.rep { background: rgba(96,165,250,.15); color: var(--ct); }
+  .badge.no-rep { background: rgba(139,163,184,.15); color: var(--muted); }
+  .badge.t { background: rgba(251,191,36,.15); color: var(--t); }
+  .badge.ct { background: rgba(96,165,250,.15); color: var(--ct); }
+  h2 { font-size: 18px; margin: 26px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  tr:hover td { background: var(--panel2); }
+  .demo-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
+  .demo-card .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .demo-card .head .title { font-size: 16px; font-weight: 700; }
+  .demo-card .head .meta { color: var(--muted); font-size: 12px; }
+  .players { margin-top: 8px; }
+  .players table { font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; font-size: 11px; color: var(--muted); }
+  .chip.hot { color: var(--text); border-color: var(--ok); }
+  .concl { background: var(--panel); border-left: 3px solid var(--warn); border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 6px 0; font-size: 13px; }
+  details { margin-top: 6px; }
+  summary { cursor: pointer; color: var(--ct); font-size: 13px; }
+  a { color: var(--ct); }
+</style>
+</head>
+<body>
+  <h1>{{ report.title }}</h1>
+  <div class="sub">CsDemoAnalyzer · 生成于 {{ report.generated }} · 覆盖 {{ report.demos|length }} 部 demo</div>
+
+  <div class="summary">
+    <div class="card"><div class="num" style="color:var(--text)">{{ report.demos|length }}</div><div class="lbl">扫描 demo</div></div>
+    <div class="card"><div class="num" style="color:var(--ok)">{{ report.ok_demos }}</div><div class="lbl">解析成功</div></div>
+    <div class="card"><div class="num" style="color:var(--err)">{{ report.error_demos }}</div><div class="lbl">解析失败</div></div>
+    <div class="card"><div class="num" style="color:var(--t)">{{ report.total_team_zero }}</div><div class="lbl">Team 0 玩家（无队伍/无位置）</div></div>
+    <div class="card"><div class="num" style="color:var(--ct)">{{ report.total_replayable }}</div><div class="lbl">可回放玩家（有位置数据）</div></div>
+  </div>
+
+  {% if report.conclusions %}
+  <h2>调查结论（Team 0 / 数据缺失玩家）</h2>
+  {% for c in report.conclusions %}
+  <div class="concl">{{ c }}</div>
+  {% endfor %}
+  {% endif %}
+
+  {% if report.known_limits %}
+  <h2>已知限制</h2>
+  <ul style="font-size:13px;color:var(--muted)">
+    {% for l in report.known_limits %}<li>{{ l }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+
+  <h2>总览矩阵</h2>
+  <table>
+    <thead>
+      <tr><th>Demo</th><th>地图</th><th>平台</th><th>回合</th><th>比分</th><th>玩家</th><th>Team0</th><th>可回放</th><th>事件表</th><th>状态</th></tr>
+    </thead>
+    <tbody>
+    {% for d in report.demos %}
+      <tr>
+        <td>{{ d.path.split('\\')[-1] }}</td>
+        <td>{{ d.map_name }}</td>
+        <td>{{ d.provider }}</td>
+        <td>{{ d.regular_rounds }}</td>
+        <td>T {{ d.t_score }} : {{ d.ct_score }} CT</td>
+        <td>{{ d.players|length }}</td>
+        <td><span class="badge {{ 't0' if d.team_zero_players else 'ok' }}">{{ d.team_zero_players|length }}</span></td>
+        <td><span class="badge {{ 'rep' if d.replayable_players else 'no-rep' }}">{{ d.replayable_players|length }}</span></td>
+        <td>{{ d.event_tables|length }}</td>
+        <td><span class="badge {{ 'ok' if d.status=='ok' else 'err' }}">{{ d.status }}</span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>逐 demo 明细</h2>
+  {% for d in report.demos %}
+  <div class="demo-card">
+    <div class="head">
+      <span class="title">{{ d.path.split('\\')[-1] }}</span>
+      <span class="meta">{{ d.map_name }} · {{ d.provider }} · {{ d.regular_rounds }} 回合 · T {{ d.t_score }} : {{ d.ct_score }} CT</span>
+      <span class="badge {{ 'ok' if d.status=='ok' else 'err' }}">{{ d.status }}</span>
+      {% if d.cache_hit %}<span class="badge ok">缓存命中</span>{% endif %}
+      <span class="meta">{{ '%.1fs'|format(d.parse_seconds) }}</span>
+    </div>
+    {% if d.error %}
+      <div class="concl" style="border-color:var(--err)">解析失败：{{ d.error }}</div>
+    {% else %}
+      <div class="players">
+        <table>
+          <thead><tr><th>玩家</th><th>SteamID</th><th>阵营</th><th>位置数据</th><th>覆盖比例</th><th>回放</th></tr></thead>
+          <tbody>
+          {% for p in d.players %}
+            <tr>
+              <td>{{ p.name }}</td>
+              <td style="color:var(--muted)">{{ p.steamid }}</td>
+              <td><span class="badge {{ 't' if p.team_label=='T' else 'ct' if p.team_label=='CT' else 't0' }}">{{ p.team_label }}</span>{% if p.team_zero %}<span class="badge t0">Team0</span>{% endif %}</td>
+              <td>{{ '有' if p.has_position else '无' }}</td>
+              <td>{{ '%.0f%%'|format(p.position_ratio*100) }}</td>
+              <td><span class="badge {{ 'rep' if p.replayable else 'no-rep' }}">{{ '可回放' if p.replayable else '不可回放' }}</span></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <details>
+        <summary>事件表（{{ d.event_tables|length }} 类）</summary>
+        <div class="chips">
+          {% for e in d.event_tables %}<span class="chip">{{ e }}</span>{% endfor %}
+        </div>
+      </details>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+</body>
+</html>

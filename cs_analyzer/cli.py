@@ -384,6 +384,46 @@ def recipe(
 
 
 @app.command()
+def coverage(
+    demos: list[Path] = typer.Argument(
+        None, help=".dem files or glob patterns to scan (default: demos/*.dem)"
+    ),
+    out: Path | None = typer.Option(None, "--out", help="Output HTML path"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Force re-parse (bypass cache)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Scan parse coverage of demos and write an HTML report (LTG-3)."""
+    _setup_logging(verbose)
+    from cs_analyzer.coverage import render_coverage_report, scan_demos
+
+    import glob as _glob
+
+    def expand(arg: Path) -> list[Path]:
+        if any(ch in str(arg) for ch in "*?["):
+            return [Path(p) for p in sorted(_glob.glob(str(arg)))]
+        return [arg]
+
+    if demos:
+        paths: list[Path] = []
+        for arg in demos:
+            paths.extend(expand(arg))
+    else:
+        paths = [Path(p) for p in sorted(_glob.glob("demos/*.dem"))]
+    if not paths:
+        console.print("[red]No demos matched. Pass .dem files/globs or run from the repo root.[/red]")
+        raise typer.Exit(1)
+    console.print(f"Scanning {len(paths)} demos ...")
+    demos = scan_demos(paths, use_cache=not no_cache)
+    for d in demos:
+        status = "[green]OK[/green]" if d.status == "ok" else "[red]ERR[/red]"
+        console.print(
+            f"  {status} {d.path.split(chr(92))[-1]:40s} {d.map_name:12s} "
+            f"{len(d.players):2d}p T0={len(d.team_zero_players)} "
+            f"replayable={len(d.replayable_players)}"
+        )
+    output_path = out or (Path("output") / "coverage" / "coverage.html")
+    result = render_coverage_report(demos, output_path)
+    console.print(f"[green]Coverage report[/green] -> {result}")
 
 
 @app.command()
