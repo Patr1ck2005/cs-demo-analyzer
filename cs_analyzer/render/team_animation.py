@@ -32,15 +32,6 @@ _BREAK_DISTANCE = 300.0
 _SKULL = "$☠$"
 
 
-def _trail_segments(wx, wy, break_distance: float = _BREAK_DISTANCE) -> list[tuple[tuple[float, float], tuple[float, float]]]:
-    segs: list[tuple[tuple[float, float], tuple[float, float]]] = []
-    for i in range(len(wx) - 1):
-        if abs(wx[i + 1] - wx[i]) + abs(wy[i + 1] - wy[i]) > break_distance:
-            continue  # teleport (respawn / round jump): never connect
-        segs.append(((wx[i], wy[i]), (wx[i + 1], wy[i + 1])))
-    return segs
-
-
 class TeamReplayRenderer:
     def __init__(self, config: ReplayConfig, demo: ParsedDemo) -> None:
         self.config = config
@@ -545,7 +536,7 @@ class TeamReplayRenderer:
                 if di == i and not al:
                     corpse_marks[di].set_data([dpx], [dpy])
                     corpse_marks[di].set_alpha(1.0)
-            # trail (alive only)
+            # trail (alive only) — vectorized segment build + pixel conversion
             tc = trail_cols[i]
             if al:
                 lo = int(np.searchsorted(tl.ticks, tick - window_ticks, side="left"))
@@ -553,19 +544,23 @@ class TeamReplayRenderer:
                 if hi - lo >= 2:
                     idx = np.arange(lo, hi)
                     wx, wy = tl.xs[idx], tl.ys[idx]
-                    segs = _trail_segments(wx, wy)
-                    if segs:
-                        psegs = [
-                            (self.map.world_to_pixel(x0, y0), self.map.world_to_pixel(x1, y1))
-                            for (x0, y0), (x1, y1) in segs
-                        ]
+                    dist = np.abs(np.diff(wx)) + np.abs(np.diff(wy))
+                    keep = np.nonzero(dist <= _BREAK_DISTANCE)[0]  # drop teleport pairs
+                    if keep.size:
+                        xs0, ys0 = wx[keep], wy[keep]
+                        xs1, ys1 = wx[keep + 1], wy[keep + 1]
+                        px0, py0 = self.map.world_to_pixel_array(xs0, ys0)
+                        px1, py1 = self.map.world_to_pixel_array(xs1, ys1)
+                        psegs = np.stack((np.stack((px0, py0), axis=-1),
+                                          np.stack((px1, py1), axis=-1)), axis=1)
                         base = np.asarray(color)
-                        rgba = np.tile(base, (len(psegs), 1))
-                        rgba[:, 3] = np.linspace(0.25, 1.0, len(psegs))
+                        n = psegs.shape[0]
+                        rgba = np.tile(base, (n, 1))
+                        rgba[:, 3] = np.linspace(0.25, 1.0, n)
                         tc.set_segments(psegs)
                         tc.set_color(rgba)
-                        lw = (np.linspace(self.config.trail_width_min * 2, self.config.trail_width_max * 2, len(psegs)) if hi_i
-                              else np.linspace(self.config.trail_width_min, self.config.trail_width_max, len(psegs)))
+                        lw = (np.linspace(self.config.trail_width_min * 2, self.config.trail_width_max * 2, n) if hi_i
+                              else np.linspace(self.config.trail_width_min, self.config.trail_width_max, n))
                         tc.set_linewidths(lw)
                         tc.set_visible(True)
                     else:

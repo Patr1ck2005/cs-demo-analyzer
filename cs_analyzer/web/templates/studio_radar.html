@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}导出雷达图 · {{ demo.map_name }}{% endblock %}
+{% block content %}
+<h1>导出雷达图视频</h1>
+<div class="sub">{{ demo.filename }} · {{ demo.map_name }} · T {{ demo.t_score }} : {{ demo.ct_score }} CT</div>
+
+<div class="card">
+  <h2>雷达图配置</h2>
+  <label>标题 <input id="rc-title" type="text" placeholder="对局日期 / 标题"></label>
+  <label>副标题 <input id="rc-subtitle" type="text" placeholder="可选"></label>
+  <label>属性（逗号分隔，需在 KPR/Survivals/ADR/Headshot%/FirstKillsPerRound/Rating Pro 中选择）
+    <input id="rc-attrs" type="text" value="KPR,Survivals,ADR,Headshot%,FirstKillsPerRound,Rating Pro">
+  </label>
+  <label>质量
+    <select id="rc-quality">
+      <option value="low_quality">low（最快）</option>
+      <option value="medium_quality" selected>medium（推荐）</option>
+    </select>
+  </label>
+  <p class="sub">manim 渲染较慢（medium 约 1-2 分钟），渲染在后台进行。</p>
+  <button class="btn" id="btn-radar">开始后台渲染</button>
+  <span class="sub" id="st-status"></span>
+</div>
+<div id="st-result" style="display:none">
+  <h2>渲染完成</h2>
+  <video id="st-video" controls></video>
+  <p><a id="st-download" class="btn" download>下载视频</a></p>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/studio.js"></script>{% endblock %}

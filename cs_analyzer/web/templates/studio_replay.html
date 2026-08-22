@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}导出 2D 回放 · {{ demo.map_name }}{% endblock %}
+{% block content %}
+<h1>导出 2D 回放视频</h1>
+<div class="sub">{{ demo.filename }} · {{ demo.map_name }} · T {{ demo.t_score }} : {{ demo.ct_score }} CT</div>
+
+<div class="card">
+  <h2>配方</h2>
+  <div class="viewer-controls">
+    <select id="rc-recipe">
+      {% for r in recipes %}
+      <option value="{{ r.name }}">{{ r.title }}（{{ '单人' if r.kind == 'single' else '10人' }}）</option>
+      {% endfor %}
+    </select>
+    <input id="rc-player" placeholder="单人配方时填玩家名 / steamid（团队忽略）" style="flex:1">
+  </div>
+</div>
+
+<form id="frm-studio-replay" class="grid studio-grid">
+  <div class="card"><h2>画布 canvas</h2>
+    <label>宽度 <input data-sec="canvas" name="width" type="number" value="1280"></label>
+    <label>高度 <input data-sec="canvas" name="height" type="number" value="720"></label>
+    <label>帧率 fps <input data-sec="canvas" name="fps" type="number" value="30"></label>
+    <label>背景色 <input data-sec="canvas" name="bg" type="text" value="#1a1a1a"></label>
+  </div>
+  <div class="card"><h2>轨迹 trail</h2>
+    <label>轨迹秒数 <input data-sec="trail" name="seconds" data-num="1" type="number" step="0.1" value="1.5"></label>
+    <label>最小宽度 <input data-sec="trail" name="width_min" data-num="1" type="number" step="0.1" value="1.2"></label>
+    <label>最大宽度 <input data-sec="trail" name="width_max" data-num="1" type="number" step="0.1" value="3.5"></label>
+  </div>
+  <div class="card"><h2>标记 marker</h2>
+    <label>标记大小 <input data-sec="marker" name="size" data-num="1" type="number" value="9"></label>
+    <label><input data-sec="marker" name="halo" type="checkbox" checked> 高亮光环</label>
+  </div>
+  <div class="card"><h2>HUD（默认全开）</h2>
+    <label><input data-sec="hud" name="show_score" type="checkbox" checked> 比分</label>
+    <label><input data-sec="hud" name="show_round" type="checkbox" checked> 回合</label>
+    <label><input data-sec="hud" name="show_clock" type="checkbox" checked> 时钟</label>
+    <label><input data-sec="hud" name="show_feed" type="checkbox" checked> 击杀流</label>
+    <label><input data-sec="hud" name="show_legend" type="checkbox" checked> 玩家图例</label>
+  </div>
+  <div class="card"><h2>团队配色 team</h2>
+    <label>T 色板（逗号分隔）<input data-sec="team" name="t_palette" data-list="1" type="text" value="#FFD54F,#FFB300,#FF8F00,#FF7043,#F4511E"></label>
+    <label>CT 色板（逗号分隔）<input data-sec="team" name="ct_palette" data-list="1" type="text" value="#81D4FA,#29B6F6,#00BCD4,#0288D1,#1565C0"></label>
+  </div>
+  <div class="card"><h2>特效（默认全开）</h2>
+    <div class="pill-row">
+      <label><input data-sec="effects" name="show_smoke" type="checkbox" checked> 烟雾</label>
+      <label><input data-sec="effects" name="show_fire" type="checkbox" checked> 燃烧</label>
+      <label><input data-sec="effects" name="show_molly" type="checkbox" checked> 燃烧瓶</label>
+      <label><input data-sec="effects" name="show_flash" type="checkbox" checked> 闪光</label>
+      <label><input data-sec="effects" name="show_he" type="checkbox" checked> HE</label>
+      <label><input data-sec="effects" name="show_kills" type="checkbox" checked> 击杀</label>
+      <label><input data-sec="effects" name="show_jumps" type="checkbox" checked> 跳跃</label>
+      <label><input data-sec="effects" name="show_shots" type="checkbox" checked> 射击</label>
+    </div>
+    <label>烟雾半径 <input data-sec="effects" name="smoke_max_radius" data-num="1" type="number" value="120"></label>
+    <label>火焰半径 <input data-sec="effects" name="fire_radius" data-num="1" type="number" value="50"></label>
+  </div>
+  <div class="card"><h2>回合结束 round_end</h2>
+    <label>暂停秒数 <input data-sec="round_end" name="hold_seconds" data-num="1" type="number" step="0.1" value="1.2"></label>
+    <label>淡出秒数 <input data-sec="round_end" name="fade_seconds" data-num="1" type="number" step="0.1" value="1.0"></label>
+    <label><input data-sec="round_end" name="show_banner" type="checkbox" checked> 胜者横幅</label>
+  </div>
+</form>
+
+<div class="card">
+  <button class="btn" id="btn-render">开始后台渲染</button>
+  <span class="sub" id="st-status"></span>
+</div>
+<div id="st-result" style="display:none">
+  <h2>渲染完成</h2>
+  <video id="st-video" controls></video>
+  <p><a id="st-download" class="btn" download>下载视频</a></p>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/studio.js"></script>{% endblock %}

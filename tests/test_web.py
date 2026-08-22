@@ -37,7 +37,160 @@ def test_index(web_client) -> None:
     c, _, _ = web_client
     r = c.get("/")
     assert r.status_code == 200
-    assert "Demo 复盘平台" in r.text
+    assert "CS2 Demo 分析器" in r.text
+    for token in ("定量分析视角", "空间-时间回放视角", "跨场聚合", "视频导出"):
+        assert token in r.text
+
+
+# ---------- Phase B: 2D map viewer + export studio ----------
+
+
+def test_viewer_page(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get(f"/demo/{h}/viewer")
+    assert r.status_code == 200
+    for token in ("2D 地图回放", "预渲染整局回放"):
+        assert token in r.text
+
+
+def test_replay_map_missing(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get(f"/api/demo/{h}/replay-map")
+    assert r.status_code == 200
+    assert r.json()["status"] == "missing"
+
+
+def test_replay_map_start_job(web_client, monkeypatch) -> None:
+    c, h, _ = web_client
+    captured: dict = {}
+
+    def fake_submit(fn, **kwargs):
+        captured["kwargs"] = kwargs
+        return "vjob"
+
+    monkeypatch.setattr(web_app.tasks.tasks, "submit", fake_submit)
+    r = c.post(f"/api/demo/{h}/replay-map", data={"speed": "10"})
+    assert r.status_code == 200
+    assert r.json()["job_id"] == "vjob"
+    assert captured["kwargs"]["speed"] == 10.0
+
+
+def test_viewer_segments_structure() -> None:
+    from cs_analyzer.config import ReplayConfig
+    from cs_analyzer.web import replay_map
+
+    demo = build_parsed_demo()  # rounds [0,2560] and [2560,5120]
+    cfg = ReplayConfig(fps=10, round_end_hold_seconds=1.0)
+    segs = replay_map.build_viewer_segments(demo, cfg, speed=10.0)
+    assert len(segs) == 2
+    s1 = segs[0]
+    assert s1["round"] == 1
+    assert s1["start_tick"] == 0 and s1["end_tick"] == 2560
+    assert s1["n_frames"] == 40  # 2560 ticks / (64*10/10) = 40
+    assert s1["hold_frames"] == 10  # 10 fps * 1.0s
+    assert s1["video_end"] - s1["video_start"] == 50
+    assert segs[1]["video_start"] == 50
+    assert segs[0]["winner_side"] == "CT"
+
+
+def test_viewer_events_extraction() -> None:
+    from cs_analyzer.web import replay_map
+
+    demo = build_parsed_demo(
+        events={
+            "player_death": pd.DataFrame(
+                {"tick": [1000, 2000], "attacker_name": ["Bob", "Alice"],
+                 "user_name": ["Alice", "Bob"], "weapon": ["ak47", "usp"]}
+            ),
+            "smokegrenade_detonate": pd.DataFrame({"tick": [1500], "x": [10.0], "y": [20.0]}),
+        }
+    )
+    ev = replay_map.build_viewer_events(demo)
+    assert [k["victim"] for k in ev["kills"]] == ["Alice", "Bob"]
+    assert ev["kills"][0]["attacker"] == "Bob"
+    assert len(ev["utilities"]) == 1
+    assert ev["utilities"][0]["kind"] == "烟雾"
+    assert len(ev["rounds"]) == 2
+
+
+def test_viewer_events_sanitizes_nan() -> None:
+    """Team 0 players carry NaN positions/names in raw events; the viewer payload
+    must stay finite so it serializes as strict JSON."""
+    import json
+
+    from cs_analyzer.web import replay_map
+
+    demo = build_parsed_demo(
+        events={
+            "player_death": pd.DataFrame(
+                {"tick": [1000], "attacker_name": [float("nan")],
+                 "user_name": ["Alice"], "weapon": ["knife"]}
+            ),
+            "smokegrenade_detonate": pd.DataFrame(
+                {"tick": [1500], "x": [float("nan")], "y": [5.0]}
+            ),
+        }
+    )
+    ev = replay_map.build_viewer_events(demo)
+    assert ev["kills"][0]["attacker"] == ""
+    assert ev["utilities"][0]["x"] == 0.0
+    json.dumps(ev, allow_nan=False)  # must not raise
+
+
+def test_studio_landing(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/studio")
+    assert r.status_code == 200
+    assert "视频导出工作室" in r.text
+
+
+def test_studio_replay_page(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get(f"/studio/replay/{h}")
+    assert r.status_code == 200
+    assert "导出 2D 回放视频" in r.text
+    assert "配方" in r.text
+
+
+def test_studio_radar_page(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get(f"/studio/radar/{h}")
+    assert r.status_code == 200
+    assert "导出雷达图视频" in r.text
+
+
+def test_api_studio_replay(web_client, monkeypatch) -> None:
+    c, h, _ = web_client
+    captured: dict = {}
+
+    def fake_submit(fn, **kwargs):
+        captured["kwargs"] = kwargs
+        return "sjob"
+
+    monkeypatch.setattr(web_app.tasks.tasks, "submit", fake_submit)
+    r = c.post(
+        "/api/studio/replay",
+        json={"demo_hash": h, "recipe": "s-openings", "override": {"canvas": {"width": 640}}},
+    )
+    assert r.status_code == 200
+    assert r.json()["job_id"] == "sjob"
+    assert captured["kwargs"]["recipe"] == "s-openings"
+    assert captured["kwargs"]["override"]["canvas"]["width"] == 640
+
+
+def test_api_studio_radar(web_client, monkeypatch) -> None:
+    c, h, _ = web_client
+    captured: dict = {}
+
+    def fake_submit(fn, **kwargs):
+        captured["kwargs"] = kwargs
+        return "rjob"
+
+    monkeypatch.setattr(web_app.tasks.tasks, "submit", fake_submit)
+    r = c.post("/api/studio/radar", json={"demo_hash": h, "radar": {"title": "对局"}})
+    assert r.status_code == 200
+    assert r.json()["job_id"] == "rjob"
+    assert captured["kwargs"]["radar"]["title"] == "对局"
 
 
 def test_demo_detail(web_client) -> None:

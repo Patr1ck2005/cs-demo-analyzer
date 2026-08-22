@@ -9,7 +9,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import Body, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,7 +19,7 @@ from cs_analyzer.analysis.aggregate import compute_aggregate
 from cs_analyzer.cache import DemoCache
 from cs_analyzer.config import AnalysisConfig, RadarChartConfig, load_settings
 from cs_analyzer.model.parsed_demo import ParsedDemo
-from cs_analyzer.web import store, tasks
+from cs_analyzer.web import replay_map, store, tasks
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,170 @@ def aggregate(request: Request):
     )
 
 
+# ---- 2D map replay viewer (B2) ----
+
+@app.get("/demo/{demo_hash}/viewer", response_class=HTMLResponse)
+def demo_viewer(request: Request, demo_hash: str):
+    demo = _load(demo_hash)
+    if demo is None:
+        return TEMPLATES.TemplateResponse(
+            request, "error.html", {"message": f"未找到 demo {demo_hash[:12]}"}
+        )
+    meta = demo.metadata
+    reg = demo.regular_rounds
+    return TEMPLATES.TemplateResponse(
+        request, "replay_viewer.html",
+        {
+            "demo": {
+                "hash": meta.demo_hash,
+                "filename": Path(meta.demo_path).name,
+                "map_name": meta.map_name,
+                "t_score": reg[-1].t_score if reg else 0,
+                "ct_score": reg[-1].ct_score if reg else 0,
+                "num_rounds": len(reg),
+            },
+            "ready": replay_map.is_ready(demo_hash, OUT_DIR),
+        },
+    )
+
+
+@app.get("/api/demo/{demo_hash}/replay-map")
+def replay_map_status(demo_hash: str):
+    if not replay_map.is_ready(demo_hash, OUT_DIR):
+        return JSONResponse({"status": "missing"})
+    data = replay_map.load_map(demo_hash, OUT_DIR)
+    data["status"] = "ready"
+    data["video_url"] = f"/media/{demo_hash}/viewer/replay.mp4"
+    return JSONResponse(data)
+
+
+@app.post("/api/demo/{demo_hash}/replay-map")
+def start_replay_map(demo_hash: str, speed: float = Form(10.0)):
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    if speed <= 0 or speed > 60:
+        return JSONResponse({"error": "speed 应在 1-60 之间"}, status_code=400)
+    job_id = tasks.tasks.submit(
+        replay_map.render_viewer_job, demo_hash=demo_hash, demo=demo,
+        out_dir=OUT_DIR, speed=speed,
+    )
+    return JSONResponse({"job_id": job_id})
+
+
+# ---- video export studio (B3) ----
+
+@app.get("/studio", response_class=HTMLResponse)
+def studio(request: Request):
+    demos = store.list_demos(_cache().cache_dir)
+    return TEMPLATES.TemplateResponse(request, "studio.html", {"demos": demos})
+
+
+@app.get("/studio/replay/{demo_hash}", response_class=HTMLResponse)
+def studio_replay_page(request: Request, demo_hash: str):
+    demo = _load(demo_hash)
+    if demo is None:
+        return TEMPLATES.TemplateResponse(
+            request, "error.html", {"message": f"未找到 demo {demo_hash[:12]}"}
+        )
+    from cs_analyzer.recipe import load_recipes
+
+    recipes = load_recipes(Path("configs/recipes.yaml"))
+    recs = [{"name": n, "title": r.title, "kind": r.kind} for n, r in recipes.items()]
+    return TEMPLATES.TemplateResponse(
+        request, "studio_replay.html", {"demo": _demo_meta(demo), "recipes": recs}
+    )
+
+
+@app.get("/studio/radar/{demo_hash}", response_class=HTMLResponse)
+def studio_radar_page(request: Request, demo_hash: str):
+    demo = _load(demo_hash)
+    if demo is None:
+        return TEMPLATES.TemplateResponse(
+            request, "error.html", {"message": f"未找到 demo {demo_hash[:12]}"}
+        )
+    return TEMPLATES.TemplateResponse(request, "studio_radar.html", {"demo": _demo_meta(demo)})
+
+
+@app.post("/api/studio/replay")
+async def api_studio_replay(payload: dict = Body(...)):
+    demo_hash = payload.get("demo_hash", "")
+    recipe = payload.get("recipe", "")
+    player = payload.get("player", "") or ""
+    override = payload.get("override") or {}
+    if not demo_hash or not recipe:
+        return JSONResponse({"error": "缺少 demo 或配方"}, status_code=400)
+    if _load(demo_hash) is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    job_id = tasks.tasks.submit(
+        _studio_replay_job, demo_hash=demo_hash, recipe=recipe, player=player, override=override
+    )
+    return JSONResponse({"job_id": job_id})
+
+
+@app.post("/api/studio/radar")
+async def api_studio_radar(payload: dict = Body(...)):
+    demo_hash = payload.get("demo_hash", "")
+    if not demo_hash or _load(demo_hash) is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    quality = payload.get("quality") or "medium_quality"
+    job_id = tasks.tasks.submit(
+        _studio_radar_job, demo_hash=demo_hash, radar=payload.get("radar") or {}, quality=quality
+    )
+    return JSONResponse({"job_id": job_id})
+
+
+def _studio_replay_job(demo_hash: str, recipe: str, player: str, override: dict) -> str:
+    demo = _load(demo_hash)
+    if demo is None:
+        raise ValueError("demo not found")
+    from cs_analyzer.recipe import load_recipes, render_recipe
+
+    recipes = load_recipes(Path("configs/recipes.yaml"))
+    rec = recipes[recipe]
+    out = OUT_DIR / demo_hash / "studio" / f"{recipe}_{player or 'team'}.mp4"
+    render_recipe(demo, rec, out, player=player, overrides=override or None)
+    return f"/media/{demo_hash}/studio/{out.name}"
+
+
+def _studio_radar_job(demo_hash: str, radar: dict, quality: str) -> str:
+    demo = _load(demo_hash)
+    if demo is None:
+        raise ValueError("demo not found")
+    analysis = _analyze(demo)
+    from cs_analyzer.render.base import merge_for_radar
+    from cs_analyzer.render.radar_chart import RadarChartRenderer
+
+    base_cfg = _radar_config()
+    known = {k: v for k, v in radar.items() if v not in (None, "")}
+    if "attributes" in known and isinstance(known["attributes"], str):
+        known["attributes"] = [a.strip() for a in known["attributes"].split(",") if a.strip()]
+    cfg = base_cfg.model_copy(update=known)
+    players = merge_for_radar(analysis["basic"], analysis["ratings"], cfg.attributes)
+    out = OUT_DIR / demo_hash / "studio" / "radar.mp4"
+    produced = RadarChartRenderer(cfg, players).render(
+        out, quality=quality, transparent=False, format="mp4"
+    )
+    target = OUT_DIR / demo_hash / "studio" / "radar.mp4"
+    if Path(produced) != target:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(produced, target)
+    return f"/media/{demo_hash}/studio/radar.mp4"
+
+
+def _demo_meta(demo: ParsedDemo) -> dict:
+    meta = demo.metadata
+    reg = demo.regular_rounds
+    return {
+        "hash": meta.demo_hash,
+        "filename": Path(meta.demo_path).name,
+        "map_name": meta.map_name,
+        "t_score": reg[-1].t_score if reg else 0,
+        "ct_score": reg[-1].ct_score if reg else 0,
+        "num_rounds": len(reg),
+    }
+
+
 # ---- replay ----
 
 REPLAY_RECIPES = {
@@ -224,6 +388,9 @@ def _demo_context(demo: ParsedDemo, analysis: dict) -> dict:
     basic = analysis["basic"]
     ratings = analysis["ratings"]
     radar_cfg = _radar_config()
+    from cs_analyzer.coverage import _player_position_stats
+
+    pos_stats = _player_position_stats(demo)  # one pass, not once per player
     players = []
     for bs in basic.players:
         rt = ratings.by_steamid(bs.steamid) if ratings else None
@@ -243,7 +410,7 @@ def _demo_context(demo: ParsedDemo, analysis: dict) -> dict:
                 "RWS": round(rt.RWS, 1) if rt else 0.0,
                 "KAST": round(rt.KAST, 0) if rt else 0,
                 "radar_img": radar_img,
-                "replayable": _replayable(demo, bs.steamid),
+                "replayable": pos_stats.get(bs.steamid, (False, 0.0))[0],
             }
         )
     players.sort(key=lambda p: p["Rating"], reverse=True)
@@ -383,7 +550,8 @@ def _player_radar_png(demo, steamid, basic, ratings, radar_cfg) -> str:
     if p is None:
         return ""
     out = OUT_DIR / demo.metadata.demo_hash / "radar" / f"{steamid}.png"
-    render_radar_static(p, radar_cfg, out)
+    if not out.exists():  # render once, then reuse on disk (this was a ~8s page cost)
+        render_radar_static(p, radar_cfg, out)
     return f"/media/{demo.metadata.demo_hash}/radar/{steamid}.png"
 
 
@@ -404,9 +572,12 @@ def _preference_pngs(demo, pref, steamid) -> dict:
     h = OUT_DIR / demo.metadata.demo_hash / "pref" / f"{steamid}_heatmap.png"
     u = OUT_DIR / demo.metadata.demo_hash / "pref" / f"{steamid}_utility.png"
     s = OUT_DIR / demo.metadata.demo_hash / "pref" / f"{steamid}_style.png"
-    render_heatmap(pp, map_res, h)
-    render_utility_map(pp, map_res, u)
-    render_style_panel(pp, s)
+    if not h.exists():
+        render_heatmap(pp, map_res, h)
+    if not u.exists():
+        render_utility_map(pp, map_res, u)
+    if not s.exists():
+        render_style_panel(pp, s)
     base = f"/media/{demo.metadata.demo_hash}/pref/{steamid}"
     return {"heatmap": f"{base}_heatmap.png", "utility": f"{base}_utility.png", "style": f"{base}_style.png"}
 

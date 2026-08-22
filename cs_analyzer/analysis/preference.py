@@ -81,15 +81,16 @@ class PreferenceModule(AnalysisModule):
         for player in demo.players:
             pref = PlayerPreference(steamid=player.steamid, name=player.name, team=player.team)
 
-            pref.position_samples = self._sample_positions(ticks, player.steamid, rounds)
+            arr = self._player_arrays(ticks, player.steamid)
+            pref.position_samples = self._sample_positions(arr, rounds)
             pref.utility_positions, pref.utility_counts = self._utility_placement(
-                utility_events, player.steamid, ticks
+                utility_events, player.steamid
             )
             pref.avg_first_engagement_fraction, pref.engagement_rounds = self._peek_style(
                 deaths_df, player.steamid, rounds
             )
-            pref.avg_pitch, pref.pitch_samples = self._crosshair_placement(ticks, player.steamid, rounds)
-            pref.avg_t_side_position = self._t_side_position(ticks, player.steamid, rounds, demo)
+            pref.avg_pitch, pref.pitch_samples = self._crosshair_placement(arr)
+            pref.avg_t_side_position = self._t_side_position(arr, rounds, player.steamid, demo)
 
             players.append(pref)
 
@@ -98,26 +99,46 @@ class PreferenceModule(AnalysisModule):
         )
 
     @staticmethod
-    def _sample_positions(ticks: pd.DataFrame, steamid: str, rounds: list) -> list[tuple[float, float]]:
-        """Sample (X, Y) positions at phase fractions of each round."""
-        if ticks.empty or "X" not in ticks.columns:
+    def _player_arrays(ticks: pd.DataFrame, steamid: str) -> dict:
+        """One per-player slice of the tick table as sorted numpy arrays.
+
+        Avoids the old per-lookup full-frame boolean mask (the analysis was
+        spending ~45s on 131k-row scans per sample).
+        """
+        if ticks is None or ticks.empty:
+            return {"tick": np.array([]), "X": np.array([]), "Y": np.array([]),
+                    "alive": np.array([]), "pitch": np.array([])}
+        sub = ticks[ticks["steamid"] == steamid].sort_values("tick")
+        arr = {
+            "tick": sub["tick"].to_numpy() if not sub.empty else np.array([], dtype=int),
+            "X": sub["X"].to_numpy(dtype=float) if "X" in sub.columns else np.array([]),
+            "Y": sub["Y"].to_numpy(dtype=float) if "Y" in sub.columns else np.array([]),
+        }
+        arr["alive"] = sub["is_alive"].to_numpy() if "is_alive" in sub.columns else np.array([])
+        arr["pitch"] = sub["pitch"].to_numpy(dtype=float) if "pitch" in sub.columns else np.array([])
+        return arr
+
+    @staticmethod
+    def _sample_positions(arr: dict, rounds: list) -> list[tuple[float, float]]:
+        """Sample (X, Y) positions at phase fractions of each round (searchsorted)."""
+        t = arr["tick"]
+        if t.size == 0 or arr["X"].size == 0:
             return []
         samples: list[tuple[float, float]] = []
         for rnd in rounds:
             duration = rnd.end_tick - rnd.start_tick
             for phase in PHASE_SAMPLES:
-                target_tick = rnd.start_tick + int(duration * phase)
-                mask = (ticks["steamid"] == steamid) & (ticks["tick"] == target_tick)
-                row = ticks[mask]
-                if not row.empty and pd.notna(row.iloc[0]["X"]):
-                    samples.append((float(row.iloc[0]["X"]), float(row.iloc[0]["Y"])))
+                i = int(np.searchsorted(t, rnd.start_tick + int(duration * phase)))
+                if i < t.size and t[i] == rnd.start_tick + int(duration * phase):
+                    x, y = arr["X"][i], arr["Y"][i]
+                    if np.isfinite(x):
+                        samples.append((float(x), float(y)))
         return samples
 
     @staticmethod
     def _utility_placement(
         utility_events: dict[str, pd.DataFrame | None],
         steamid: str,
-        ticks: pd.DataFrame,
     ) -> tuple[dict[str, list[tuple[float, float]]], dict[str, int]]:
         """Get grenade detonation positions thrown by the player."""
         positions: dict[str, list[tuple[float, float]]] = {}
@@ -185,30 +206,27 @@ class PreferenceModule(AnalysisModule):
         return float(np.mean(fractions)), len(fractions)
 
     @staticmethod
-    def _crosshair_placement(ticks: pd.DataFrame, steamid: str, rounds: list) -> tuple[float, int]:
-        """Average pitch angle (degrees) across sampled ticks.
+    def _crosshair_placement(arr: dict) -> tuple[float, int]:
+        """Average pitch angle (degrees) across alive, finite samples.
 
         CS2 pitch: 0 = level, positive = looking up, negative = looking down.
         Good crosshair placement is typically near 0 (level at head height).
         """
-        if ticks.empty or "pitch" not in ticks.columns:
+        pitch, alive = arr["pitch"], arr["alive"]
+        if pitch.size == 0 or alive.size == 0:
             return 0.0, 0
-        player_ticks = ticks[(ticks["steamid"] == steamid) & (ticks["is_alive"] == True)]  # noqa: E712
-        if player_ticks.empty:
+        sel = pitch[np.isfinite(pitch) & alive.astype(bool)]
+        if sel.size == 0:
             return 0.0, 0
-        pitch = player_ticks["pitch"].dropna()
-        if pitch.empty:
-            return 0.0, 0
-        # Convert radians to degrees (demoparser pitch is in radians)
-        avg_degrees = float(np.degrees(np.mean(pitch)))
-        return avg_degrees, len(pitch)
+        return float(np.degrees(np.mean(sel))), sel.size
 
     @staticmethod
     def _t_side_position(
-        ticks: pd.DataFrame, steamid: str, rounds: list, demo: ParsedDemo
+        arr: dict, rounds: list, steamid: str, demo: ParsedDemo
     ) -> tuple[float, float] | None:
         """Average position at 25% round time on T-side rounds (default vs execute indicator)."""
-        if ticks.empty or "X" not in ticks.columns:
+        t, xs_a, ys_a = arr["tick"], arr["X"], arr["Y"]
+        if t.size == 0 or xs_a.size == 0:
             return None
         meta = demo.metadata
         team = next((p.team for p in demo.players if p.steamid == steamid), None)
@@ -224,20 +242,14 @@ class PreferenceModule(AnalysisModule):
         xs: list[float] = []
         ys: list[float] = []
         for rnd in rounds:
-            side = "T" if starts == "T" else ("CT" if rnd.number <= 12 else "T") if starts == "CT" else "T"
-            if starts == "CT":
-                side = "CT" if rnd.number <= 12 else "T"
-            else:
-                side = "T" if rnd.number <= 12 else "CT"
+            side = ("CT" if rnd.number <= 12 else "T") if starts == "CT" else ("T" if rnd.number <= 12 else "CT")
             if side != "T":
                 continue
-            duration = rnd.end_tick - rnd.start_tick
-            target_tick = rnd.start_tick + int(duration * 0.25)
-            mask = (ticks["steamid"] == steamid) & (ticks["tick"] == target_tick)
-            row = ticks[mask]
-            if not row.empty and pd.notna(row.iloc[0]["X"]):
-                xs.append(float(row.iloc[0]["X"]))
-                ys.append(float(row.iloc[0]["Y"]))
+            target = rnd.start_tick + int((rnd.end_tick - rnd.start_tick) * 0.25)
+            i = int(np.searchsorted(t, target))
+            if i < t.size and t[i] == target and np.isfinite(xs_a[i]):
+                xs.append(float(xs_a[i]))
+                ys.append(float(ys_a[i]))
         if not xs:
             return None
         return float(np.mean(xs)), float(np.mean(ys))

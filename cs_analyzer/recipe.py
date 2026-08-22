@@ -35,6 +35,9 @@ _STYLE_MAP: dict[str, dict[str, str]] = {
             "show_legend": "hud_show_legend"},
     "team": {"t_palette": "t_palette", "ct_palette": "ct_palette",
              "t_color": "t_color", "ct_color": "ct_color"},
+    "round_end": {"hold_seconds": "round_end_hold_seconds",
+                  "fade_seconds": "overlay_fade_seconds",
+                  "show_banner": "show_winner_banner"},
 }
 
 

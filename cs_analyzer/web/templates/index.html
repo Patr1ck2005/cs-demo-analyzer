@@ -1,8 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Demo 列表{% endblock %}
+{% block title %}Demo 分析器{% endblock %}
 {% block content %}
-<h1>Demo 复盘平台</h1>
-<div class="sub">上传 CS2 对局 .dem，本地解析与分析，浏览器查看统计 / 雷达 / 偏好 / 回放。</div>
+<h1>CS2 Demo 分析器</h1>
+<div class="sub">基于对局 .dem 的高级分析工具。两个分析视角：<b>定量</b>（数据/雷达/聚合）与 <b>空间-时间</b>（2D 地图回放时间轴）。视频只是分析视角的导出分享。</div>
+
+<div class="grid views">
+  <div class="view-card">
+    <div class="view-icon">📊</div>
+    <div class="view-title">定量分析视角</div>
+    <div class="view-desc">选手数据（击杀/ADR/Rating）、六边形雷达、偏好热力图、跨场聚合矩阵。</div>
+    <a class="btn" href="/aggregate">跨场聚合</a>
+  </div>
+  <div class="view-card">
+    <div class="view-icon">🗺️</div>
+    <div class="view-title">空间-时间回放视角</div>
+    <div class="view-desc">2D 地图 + 可拖动时间轴，查看整局 10 人走位/击杀/道具发生的时间与位置。</div>
+    <span class="sub">选择一个 demo 进入回放器（首次需预渲染）</span>
+  </div>
+</div>
 
 <div class="card">
   <h2>上传新 Demo</h2>
@@ -15,7 +30,7 @@
 <h2>已解析 Demo（{{ total }}）</h2>
 <table>
   <thead>
-    <tr><th>文件</th><th>地图</th><th>平台</th><th>回合</th><th>玩家</th></tr>
+    <tr><th>文件</th><th>地图</th><th>平台</th><th>回合</th><th>玩家</th><th>定量分析</th><th>2D 回放器</th></tr>
   </thead>
   <tbody>
   {% for d in demos %}
@@ -25,9 +40,11 @@
       <td>{{ d.provider }}</td>
       <td>{{ d.num_rounds }}</td>
       <td>{{ d.players|length }}</td>
+      <td><a class="badge ok" href="/demo/{{ d.demo_hash }}">查看</a></td>
+      <td><a class="badge t" href="/demo/{{ d.demo_hash }}/viewer">回放</a></td>
     </tr>
   {% else %}
-    <tr><td colspan="5" class="sub">还没有解析的 demo，上传一个 .dem 开始。</td></tr>
+    <tr><td colspan="7" class="sub">还没有解析的 demo，上传一个 .dem 开始。</td></tr>
   {% endfor %}
   </tbody>
 </table>
