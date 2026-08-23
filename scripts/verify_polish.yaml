@@ -1,2 +1,0 @@
-# Low-res verification config for STG-1 polish rendering (fast).
-canvas: {width: 640, height: 360, fps: 10, bg: "#141414"}

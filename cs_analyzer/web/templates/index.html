@@ -1,52 +1,95 @@
 {% extends "base.html" %}
-{% block title %}Demo 分析器{% endblock %}
+{% block title %}Demo 库{% endblock %}
 {% block content %}
-<h1>CS2 Demo 分析器</h1>
-<div class="sub">基于对局 .dem 的高级分析工具。两个分析视角：<b>定量</b>（数据/雷达/聚合）与 <b>空间-时间</b>（2D 地图回放时间轴）。视频只是分析视角的导出分享。</div>
+<div class="page-head">
+  <div>
+    <h1>Demo 库</h1>
+    <div class="page-meta">基于对局 .dem 的高级分析：定量数据 + 实时 2D 回放。共 {{ total }} 个 demo。</div>
+  </div>
+</div>
 
-<div class="grid views">
-  <div class="view-card">
-    <div class="view-icon">📊</div>
-    <div class="view-title">定量分析视角</div>
-    <div class="view-desc">选手数据（击杀/ADR/Rating）、六边形雷达、偏好热力图、跨场聚合矩阵、解析覆盖度报告。</div>
-    <a class="btn" href="/aggregate">跨场聚合</a>
-    <a class="btn btn-ghost" href="/coverage">覆盖度报告</a>
-  </div>
-  <div class="view-card">
-    <div class="view-icon">🗺️</div>
-    <div class="view-title">空间-时间回放视角</div>
-    <div class="view-desc">2D 地图实时回放 + 观赛面板：10 人走位/朝向/血量/枪械，任意拖拽，职业赛事观赛体验。</div>
-    <span class="sub">选择一个 demo 进入回放器（即时打开）</span>
-  </div>
+<div class="stat-row">
+  <div class="stat-card"><div class="stat-label">Demo</div><div class="stat-value">{{ total }}</div></div>
+  <div class="stat-card"><div class="stat-label">地图</div><div class="stat-value">{{ map_count }}</div></div>
+  <div class="stat-card"><div class="stat-label">总回合</div><div class="stat-value">{{ round_count }}</div></div>
 </div>
 
 <div class="card">
   <h2>上传新 Demo</h2>
-  <form class="upload" action="/upload" method="post" enctype="multipart/form-data">
-    <input type="file" name="file" accept=".dem" required>
-    <button class="btn" type="submit">上传并解析</button>
+  <form class="upload-drop" action="/upload" method="post" enctype="multipart/form-data"
+        id="upload-form">
+    <label class="dropzone" id="dropzone">
+      <input type="file" name="file" accept=".dem" required id="file-input">
+      <div class="empty-title">拖拽 .dem 到这里，或点击选择文件</div>
+      <div class="sub" style="margin:4px 0 0">上传后自动解析并入库</div>
+    </label>
+    <div style="margin-top:10px"><button class="btn" type="submit">上传并解析</button></div>
   </form>
 </div>
 
-<h2>已解析 Demo（{{ total }}）</h2>
+<div class="section-header"><h2>已解析 Demo</h2></div>
+{% if demos %}
+<div class="table-wrap">
 <table>
   <thead>
-    <tr><th>文件</th><th>地图</th><th>平台</th><th>回合</th><th>玩家</th><th>定量分析</th><th>2D 回放器</th></tr>
+    <tr><th>文件</th><th>地图</th><th>平台</th><th class="num">回合</th><th class="num">玩家</th><th>入口</th></tr>
   </thead>
   <tbody>
   {% for d in demos %}
-    <tr>
+    <tr class="row-link" data-href="/demo/{{ d.demo_hash }}">
       <td><a href="/demo/{{ d.demo_hash }}">{{ d.filename }}</a></td>
       <td>{{ d.map_name }}</td>
       <td>{{ d.provider }}</td>
-      <td>{{ d.num_rounds }}</td>
-      <td>{{ d.players|length }}</td>
-      <td><a class="btn btn-sm" href="/demo/{{ d.demo_hash }}">查看</a></td>
-      <td><a class="badge ct" href="/demo/{{ d.demo_hash }}/viewer">实时回放 ▶</a></td>
+      <td class="num">{{ d.num_rounds }}</td>
+      <td class="num">{{ d.players|length }}</td>
+      <td>
+        <a class="btn btn-sm" href="/demo/{{ d.demo_hash }}">分析</a>
+        <a class="badge ct" href="/demo/{{ d.demo_hash }}/viewer">实时回放 ▶</a>
+      </td>
     </tr>
-  {% else %}
-    <tr><td colspan="7" class="sub">还没有解析的 demo，上传一个 .dem 开始。</td></tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-title">还没有解析的 demo</div>
+  <div>上传一个 .dem 开始，或把文件放进 demos/ 目录后重启服务。</div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+// dropzone: click-to-browse + drag&drop; row click-through
+(function () {
+  const dz = document.getElementById('dropzone');
+  const input = document.getElementById('file-input');
+  if (dz && input) {
+    dz.addEventListener('click', (e) => { if (e.target !== input) input.click(); });
+    input.addEventListener('change', () => {
+      if (input.files.length) {
+        dz.querySelector('.empty-title').textContent = input.files[0].name;
+      }
+    });
+    ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => {
+      e.preventDefault(); dz.classList.add('dragover');
+    }));
+    ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => {
+      e.preventDefault(); dz.classList.remove('dragover');
+    }));
+    dz.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files.length) {
+        input.files = e.dataTransfer.files;
+        dz.querySelector('.empty-title').textContent = e.dataTransfer.files[0].name;
+      }
+    });
+  }
+  document.querySelectorAll('tr.row-link').forEach((tr) => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a') || e.target.closest('button')) return;
+      location.href = tr.dataset.href;
+    });
+  });
+})();
+</script>
 {% endblock %}

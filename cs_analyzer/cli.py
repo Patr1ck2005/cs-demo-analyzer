@@ -1,13 +1,14 @@
 """CsDemoAnalyzer CLI.
 
 Commands:
-  parse   - parse a .dem file (with cache)
-  analyze - run analysis modules
-  render  - render radar chart
-  export  - export video / report
-  run     - full pipeline (parse + analyze + render + export)
-  batch   - batch process multiple demos
-  info    - show demo metadata
+  parse    - parse a .dem file (with cache)
+  analyze  - run analysis modules
+  coverage - scan parse coverage, write HTML report
+  serve    - run the local web platform (analysis + real-time 2D replay)
+  info     - show demo metadata
+
+(The legacy matplotlib/manim video pipeline was retired in Phase E; see
+docs/video_pipeline_archive.md.)
 """
 from __future__ import annotations
 
@@ -18,13 +19,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from cs_analyzer.batch import BatchRunner
 from cs_analyzer.cache import DemoCache
-from cs_analyzer.config import ActionMapConfig, Settings, load_settings
-from cs_analyzer.export import ReportExporter, VideoExporter
+from cs_analyzer.config import Settings, load_settings
 from cs_analyzer.parser import ParseManager
-from cs_analyzer.render import ActionMapRenderer, merge_for_radar
-from cs_analyzer.render.radar_chart import RadarChartRenderer
 from cs_analyzer.analysis import AnalysisRunner
 
 app = typer.Typer(
@@ -42,18 +39,6 @@ def _setup_logging(verbose: bool) -> None:
 
 def _load_settings(config: Path | None) -> Settings:
     return load_settings(config) if config else load_settings()
-
-
-def _pick_team_highlight_rounds(renderer, k: int = 3) -> list[int]:
-    """Rounds with the most total kills (across all players), for team highlights."""
-    counts: dict[int, int] = {}
-    for tl in renderer.timelines:
-        for kk in tl.kills:
-            rnd = renderer.demo.data.round_at_tick(kk.tick)
-            if rnd is not None:
-                counts[rnd.number] = counts.get(rnd.number, 0) + 1
-    top = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:k]
-    return [n for n, _ in top]
 
 
 @app.command()
@@ -124,266 +109,6 @@ def analyze(
 
 
 @app.command()
-def render(
-    demo: Path = typer.Argument(..., help="Path to .dem file"),
-    config: Path | None = typer.Option(None, "--config", "-c"),
-    output: Path | None = typer.Option(None, "--output", "-o", help="Output file path"),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
-) -> None:
-    """Render radar chart from a demo."""
-    _setup_logging(verbose)
-    settings = _load_settings(config)
-    if settings.render.radar_chart is None:
-        console.print("[red]No radar_chart config. Set render.radar_chart in config.[/red]")
-        raise typer.Exit(1)
-
-    manager = ParseManager(cache=DemoCache(settings.cache_dir))
-    demo_data = manager.parse(demo)
-    runner = AnalysisRunner(settings.analysis)
-    results = runner.run(demo_data)
-
-    basic = results.get("basic_stats")
-    ratings = results.get("ratings")
-    if basic is None or ratings is None:
-        console.print("[red]basic_stats and ratings modules are required for radar chart.[/red]")
-        raise typer.Exit(1)
-
-    players = merge_for_radar(basic, ratings, settings.render.radar_chart.attributes)
-    output_path = output or (settings.render.output_dir / demo.stem / "radar_chart.mov")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    renderer = RadarChartRenderer(settings.render.radar_chart, players)
-    produced = renderer.render(output_path)
-    console.print(f"[green]Rendered[/green] -> {produced}")
-
-
-@app.command()
-def export(
-    demo: Path = typer.Argument(..., help="Path to .dem file"),
-    config: Path | None = typer.Option(None, "--config", "-c"),
-    fmt: str = typer.Option("video", "--format", "-f", help="video | report | json"),
-    input_video: Path | None = typer.Option(None, "--input", help="Input video for video export"),
-    output: Path | None = typer.Option(None, "--output", "-o"),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
-) -> None:
-    """Export final video or analysis report."""
-    _setup_logging(verbose)
-    settings = _load_settings(config)
-
-    if fmt == "video":
-        if input_video is None:
-            console.print("[red]--input required for video export[/red]")
-            raise typer.Exit(1)
-        output_path = output or (settings.render.output_dir / demo.stem / "final.mp4")
-        exporter = VideoExporter(settings.export.video)
-        result = exporter.export(input_video, output_path)
-        console.print(f"[green]Exported[/green] -> {result}")
-    elif fmt in ("report", "json"):
-        manager = ParseManager(cache=DemoCache(settings.cache_dir))
-        demo_data = manager.parse(demo)
-        runner = AnalysisRunner(settings.analysis)
-        results = runner.run(demo_data)
-        ext = ".html" if fmt == "report" else ".json"
-        output_path = output or (settings.render.output_dir / demo.stem / f"report{ext}")
-        exporter = ReportExporter(results.get("basic_stats"), results.get("ratings"))
-        result = exporter.export(None, output_path)
-        console.print(f"[green]Exported[/green] -> {result}")
-
-
-@app.command()
-def run(
-    demo: Path = typer.Argument(..., help="Path to .dem file"),
-    config: Path | None = typer.Option(None, "--config", "-c"),
-    skip_video: bool = typer.Option(False, "--skip-video", help="Skip ffmpeg video export"),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
-) -> None:
-    """Full pipeline: parse + analyze + render + export."""
-    _setup_logging(verbose)
-    settings = _load_settings(config)
-    runner = BatchRunner(settings)
-    results = runner.run([demo], render_radar=True, export_video=not skip_video, export_report=True, parallel=1)
-    for r in results:
-        if r.success:
-            console.print(f"[green]Done[/green] {r.demo_path.name}:")
-            for p in r.output_paths:
-                console.print(f"  -> {p}")
-        else:
-            console.print(f"[red]Failed[/red] {r.demo_path.name}: {r.error}")
-
-
-@app.command()
-def batch(
-    config_file: Path = typer.Argument(..., help="Batch config YAML file"),
-    config: Path | None = typer.Option(None, "--config", "-c", help="Global settings config"),
-    parallel: int = typer.Option(1, "--parallel", "-n", help="Number of parallel parse workers"),
-    skip_video: bool = typer.Option(False, "--skip-video"),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
-) -> None:
-    """Batch process multiple demos listed in a YAML config."""
-    _setup_logging(verbose)
-    settings = _load_settings(config)
-
-    import yaml
-    with open(config_file, encoding="utf-8") as f:
-        batch_data = yaml.safe_load(f) or {}
-    demos = [Path(d["path"]) for d in batch_data.get("demos", [])]
-
-    if not demos:
-        console.print("[red]No demos found in batch config.[/red]")
-        raise typer.Exit(1)
-
-    console.print(f"Processing {len(demos)} demos (parallel={parallel})")
-    runner = BatchRunner(settings)
-    results = runner.run(demos, render_radar=True, export_video=not skip_video, export_report=True, parallel=parallel)
-
-    succeeded = sum(1 for r in results if r.success)
-    console.print(f"\n[bold]Summary: {succeeded}/{len(results)} succeeded[/bold]")
-    for r in results:
-        status = "[green]OK[/green]" if r.success else "[red]FAIL[/red]"
-        console.print(f"  {status} {r.demo_path.name}")
-
-
-@app.command("action-map")
-def action_map(
-    demo: Path = typer.Argument(..., help="Path to .dem file"),
-    player: str = typer.Option(..., "--player", help="Player name or steamid"),
-    rounds: str | None = typer.Option(None, "--rounds", help="Comma-separated round numbers (default: all)"),
-    output: Path | None = typer.Option(None, "--output", "-o"),
-    config: Path | None = typer.Option(None, "--config", "-c"),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
-) -> None:
-    """Render 2D action map (player movement trajectories across rounds)."""
-    _setup_logging(verbose)
-    settings = _load_settings(config)
-    manager = ParseManager(cache=DemoCache(settings.cache_dir))
-    demo_data = manager.parse(demo)
-
-    player_obj = demo_data.player(player)
-    if player_obj is None:
-        console.print(f"[red]Player '{player}' not found. Available: {[p.name for p in demo_data.players]}[/red]")
-        raise typer.Exit(1)
-
-    round_list = [int(r) for r in rounds.split(",")] if rounds else None
-    cfg = settings.render.action_map or ActionMapConfig()
-    renderer = ActionMapRenderer(cfg, demo_data)
-    output_path = output or (settings.render.output_dir / demo.stem / f"action_map_{player_obj.name}.png")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    result = renderer.render_player(player_obj.steamid, round_list, output_path)
-    console.print(f"[green]Action map[/green] -> {result}")
-
-
-@app.command()
-def replay(
-    demo: Path = typer.Argument(..., help="Path to .dem file"),
-    player: str | None = typer.Option(None, "--player", help="Player name or steamid (single-player modes / team-highlight)"),
-    mode: str = typer.Option(
-        "all", "--mode",
-        help="single: overlap-full | openings | highlights; team: team | team-highlights | "
-             "team-highlight(--player) | team-overlap-round | team-overlap-full",
-    ),
-    speed: float | None = typer.Option(None, "--speed", help="Time multiplier (overrides mode default)"),
-    rounds: str | None = typer.Option(None, "--rounds", help="Comma-separated round numbers (highlights mode)"),
-    opening: float | None = typer.Option(None, "--opening", help="Opening seconds per round (montage mode)"),
-    composite: bool = typer.Option(False, "--composite", help="Add background + music (export.video config)"),
-    output: Path | None = typer.Option(None, "--output", "-o"),
-    config: Path | None = typer.Option(None, "--config", "-c"),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
-) -> None:
-    """Render a 2D replay video of a player's actions on the map."""
-    _setup_logging(verbose)
-    settings = _load_settings(config)
-    manager = ParseManager(cache=DemoCache(settings.cache_dir))
-    demo_data = manager.parse(demo)
-
-    cfg = settings.render.replay
-    round_list = [int(r) for r in rounds.split(",")] if rounds else None
-    pid = player or "team"
-    output_path = output or (settings.render.output_dir / demo.stem / f"replay_{mode}_{pid}.mp4")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if mode in ("team", "team-highlights", "team-highlight", "team-overlap-round", "team-overlap-full"):
-        from cs_analyzer.render.team_animation import TeamReplayRenderer
-
-        renderer = TeamReplayRenderer(cfg, demo_data)
-        if mode in ("team-highlights", "team-highlight") and round_list is None:
-            round_list = _pick_team_highlight_rounds(renderer, k=3)
-        if mode == "team-overlap-round":
-            result = renderer.render_overlay(output_path, per_round=True,
-                                             speed=speed if speed is not None else cfg.speed_team)
-        elif mode == "team-overlap-full":
-            result = renderer.render_overlay(output_path, per_round=False,
-                                             speed=speed if speed is not None else cfg.speed_full)
-        elif mode == "team-highlight":
-            if not player:
-                raise typer.BadParameter("--player is required for --mode team-highlight")
-            result = renderer.render(
-                output_path, rounds=round_list,
-                speed=speed if speed is not None else cfg.speed_team,
-                highlight_steamid=player,
-            )
-        else:
-            result = renderer.render(
-                output_path, rounds=round_list,
-                speed=speed if speed is not None else cfg.speed_team,
-            )
-    else:
-        if not player:
-            raise typer.BadParameter(f"--player is required for --mode {mode}")
-        from cs_analyzer.render.replay_animation import ReplayAnimationRenderer
-
-        renderer = ReplayAnimationRenderer(cfg, demo_data)
-        result = renderer.render_player(
-            player, output_path, mode=mode, speed=speed, rounds=round_list, opening=opening,
-        )
-    if composite:
-        from cs_analyzer.export import VideoExporter
-
-        final = output_path.with_stem(f"{output_path.stem}_final")
-        exporter = VideoExporter(settings.export.video)
-        result = exporter.export(result, final)
-    console.print(f"[green]Replay[/green] -> {result}")
-
-
-@app.command("recipe")
-def recipe(
-    demo: Path = typer.Argument(..., help="Path to .dem file"),
-    name: str | None = typer.Argument(None, help="Recipe name from configs/recipes.yaml"),
-    player: str | None = typer.Option(None, "--player", help="Player name or steamid (single / team-highlight)"),
-    config: Path | None = typer.Option(None, "--config", "-c", help="Recipe YAML (default configs/recipes.yaml)"),
-    override: Path | None = typer.Option(None, "--override", "-o", help="Extra style-override YAML on top of the recipe"),
-    out: Path | None = typer.Option(None, "--out", help="Output .mp4 path"),
-    list_only: bool = typer.Option(False, "--list", help="List available recipes"),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
-) -> None:
-    """Render a named recipe (unified fine-grained customization)."""
-    _setup_logging(verbose)
-    from cs_analyzer.recipe import load_recipes, render_recipe
-
-    recipe_path = config or Path("configs/recipes.yaml")
-    recipes = load_recipes(recipe_path)
-    if list_only or name is None:
-        for rname, r in sorted(recipes.items()):
-            console.print(f"[bold]{rname}[/bold]  {r.title}  ({r.kind}/{r.mode})")
-        return
-    if name not in recipes:
-        raise typer.BadParameter(f"unknown recipe '{name}'. Available: {sorted(recipes)}")
-
-    settings = _load_settings(None)
-    manager = ParseManager(cache=DemoCache(settings.cache_dir))
-    demo_data = manager.parse(demo)
-    rec = recipes[name]
-    overrides = None
-    if override:
-        import yaml
-        with open(override, encoding="utf-8") as f:
-            overrides = yaml.safe_load(f) or {}
-    output_path = out or (settings.render.output_dir / demo.stem / f"recipe_{name}.mp4")
-    result = render_recipe(demo_data, rec, output_path, player=player, overrides=overrides)
-    console.print(f"[green]Recipe[/green] {name} -> {result}")
-
-
-@app.command()
 def coverage(
     demos: list[Path] = typer.Argument(
         None, help=".dem files or glob patterns to scan (default: demos/*.dem)"
@@ -392,7 +117,7 @@ def coverage(
     no_cache: bool = typer.Option(False, "--no-cache", help="Force re-parse (bypass cache)"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Scan parse coverage of demos and write an HTML report (LTG-3)."""
+    """Scan parse coverage of demos and write an HTML report."""
     _setup_logging(verbose)
     from cs_analyzer.coverage import render_coverage_report, scan_demos
 
@@ -413,8 +138,8 @@ def coverage(
         console.print("[red]No demos matched. Pass .dem files/globs or run from the repo root.[/red]")
         raise typer.Exit(1)
     console.print(f"Scanning {len(paths)} demos ...")
-    demos = scan_demos(paths, use_cache=not no_cache)
-    for d in demos:
+    demo_rows = scan_demos(paths, use_cache=not no_cache)
+    for d in demo_rows:
         status = "[green]OK[/green]" if d.status == "ok" else "[red]ERR[/red]"
         console.print(
             f"  {status} {d.path.split(chr(92))[-1]:40s} {d.map_name:12s} "
@@ -422,7 +147,7 @@ def coverage(
             f"replayable={len(d.replayable_players)}"
         )
     output_path = out or (Path("output") / "coverage" / "coverage.html")
-    result = render_coverage_report(demos, output_path)
+    result = render_coverage_report(demo_rows, output_path)
     console.print(f"[green]Coverage report[/green] -> {result}")
 
 
@@ -432,7 +157,7 @@ def serve(
     port: int = typer.Option(8000, "--port", help="Bind port"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Run the local web platform (LTG-2, FastAPI + Jinja2)."""
+    """Run the local web platform (FastAPI + Jinja2)."""
     _setup_logging(verbose)
     import uvicorn
 

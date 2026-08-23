@@ -13,12 +13,15 @@
     <div class="ob-scoreboard">
       <span class="ob-round-label" id="round-label">回合 -</span>
       <span class="ob-timer" id="round-timer">1:55</span>
+      <span class="ob-bomb" id="bomb-timer" hidden></span>
       <div class="round-strip" id="round-strip" hidden></div>
     </div>
     <div class="ob-map-wrap">
       <canvas id="map-layer"></canvas>
       <canvas id="fx-layer"></canvas>
       <canvas id="main-layer"></canvas>
+      <ul class="kill-feed" id="kill-feed"></ul>
+      <div class="ob-toolbar" id="ob-toolbar"></div>
     </div>
     <div class="tl-wrap">
       <canvas id="tl-canvas"></canvas>
@@ -36,7 +39,6 @@
       </select>
       <select id="sel-round"><option value="">跳转到回合…</option></select>
       <span class="sub" id="cur-tick"></span>
-      <a class="sub" href="/studio/replay/{{ demo.hash }}">导出视频 → 工作室</a>
     </div>
   </section>
 
@@ -51,4 +53,8 @@
   <div class="sub" id="load-error-msg"></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/viewer_canvas.js"></script>{% endblock %}
+{% block scripts %}
+<script src="/static/js/viewer_camera.js"></script>
+<script src="/static/js/viewer_overlays.js"></script>
+<script src="/static/viewer_canvas.js"></script>
+{% endblock %}

@@ -16,6 +16,10 @@
   const CT_PALETTE = ['#81d4fa', '#3d9bff', '#00bcd4', '#0288d1', '#1565c0'];
   const YAW_FAN_DEG = 35;
   const BREAK_DIST = 300;
+  // v2 payload: side snapshot codes 0=T / 1=CT / 2=unknown; weapons interned
+  const SIDE_NAME = ['T', 'CT', ''];
+  // zone lifetime defaults (game seconds) when the payload has no real duration
+  const DEFAULT_DUR_S = { smoke: 18, flash: 2, he: 1, fire: 7 };
 
   const $ = (id) => document.getElementById(id);
   const statusEl = $('load-status');
@@ -24,30 +28,57 @@
   let D = null;            // viewer-data payload
   let mapImg = null;       // Image
   let totalTicks = 1;      // timeline span
+  const TOGGLE_DEFAULTS = { trails: true, kills: true, nades: true, shots: false, blinds: true, bombs: true };
   const state = {
     playing: false,
     tick: 0,
     speed: 1,
     lastTs: 0,
     holdUntil: 0,          // wall-clock ms pause at round end
+    toggles: Object.assign({}, TOGGLE_DEFAULTS),  // overlay switches (persisted)
+    lastLinkedRound: null, // last round written to the deep-link URL
   };
+  try { // restore persisted overlay toggles
+    const saved = JSON.parse(localStorage.getItem('csa-viewer-toggles') || '{}');
+    Object.assign(state.toggles, saved);
+  } catch (e) { /* fresh profile */ }
   const DPR = Math.min(window.devicePixelRatio || 1, 2);
 
   // per-player render state
-  let players = [];        // {steamid,name,color,rows:{t,x,y,yaw,hp,armor,alive,side,w}}
-  let killsByTick = [];
+  let players = [];        // {steamid,name,sideFirst,color,rows:{t,x,y,yaw,hp,armor,alive,side,w}}
+  let killTicks = [];      // every kill (timeline dots; coords-independent)
+  let killMarks = [];      // kills with attacker+victim coordinates (map lines)
+  let layersData = null;   // lazy /viewer-layers payload (shots/economy)
+
+  // ---- camera (Phase E M4): wheel zoom-to-cursor + drag pan ----
+  const cam = window.ViewerCam ? ViewerCam.create() : { cx: 0, cy: 0, zoom: 1 };
+  // world units -> map pixels conversion factor (replaces the old scale/4 fudge)
+  function pxPerWorldUnit() {
+    const b = D.map.bounds;
+    return D.map.width / Math.max(b.max_x - b.min_x, 1);
+  }
+
+  function camScale() {
+    return (drawMapLayer.geom ? drawMapLayer.geom.scale : 1) * cam.zoom;
+  }
+
+  function toScreen(wx, wy) {
+    // world coords -> map pixel space -> screen space through the camera
+    const b = D.map.bounds;
+    const px = ((wx - b.min_x) / (b.max_x - b.min_x)) * D.map.width;
+    const py = (1 - (wy - b.min_y) / (b.max_y - b.min_y)) * D.map.height;
+    const wrap = document.querySelector('.ob-map-wrap');
+    if (cam.cx == null) { cam.cx = D.map.width / 2; cam.cy = D.map.height / 2; }
+    const S = camScale();
+    return [
+      wrap.clientWidth / 2 + (px - cam.cx) * S,
+      wrap.clientHeight / 2 + (py - cam.cy) * S,
+    ];
+  }
 
   function segOfTick(tick) {
     for (const s of D.segments) if (tick >= s.start_tick && tick <= s.end_tick) return s;
     return null;
-  }
-
-  function worldToPixel(x, y) {
-    const b = D.map.bounds;
-    return [
-      ((x - b.min_x) / (b.max_x - b.min_x)) * D.map.width,
-      (1 - (y - b.min_y) / (b.max_y - b.min_y)) * D.map.height,
-    ];
   }
 
   function playerStateAt(p, tick) {
@@ -63,7 +94,9 @@
     const j = Math.min(i + 1, t.length - 1);
     const out = {
       x: p.rows.x[i], y: p.rows.y[i], yaw: p.rows.yaw[i], hp: p.rows.hp[i],
-      armor: p.rows.armor[i], alive: p.rows.alive[i], side: p.rows.side[i], w: p.rows.w[i],
+      armor: p.rows.armor[i], alive: p.rows.alive[i],
+      side: SIDE_NAME[p.rows.side[i]] || '',
+      w: (D.weapon_table || [])[p.rows.w[i]] || '',
       i, j,
     };
     if (j > i && p.rows.alive[i] && p.rows.alive[j] && out.alive) {
@@ -103,24 +136,29 @@
     const ctx = setupCanvas($('map-layer'), w, h);
     ctx.fillStyle = '#07090d';
     ctx.fillRect(0, 0, w, h);
-    // geometry must exist before any frame runs (map image loads async)
-    const iw = mapImg ? mapImg.width : 1024, ih = mapImg ? mapImg.height : 1024;
+    // geometry must exist before any frame runs (map image loads async);
+    // fall back to 1024 dims until the bitmap is decodable
+    const iw = (mapImg && mapImg.naturalWidth) || 1024;
+    const ih = (mapImg && mapImg.naturalHeight) || 1024;
     const scale = Math.min(w / iw, h / ih);
-    drawMapLayer.geom = { ox: (w - iw * scale) / 2, oy: (h - ih * scale) / 2, scale };
+    drawMapLayer.geom = { scale };
     if (!mapImg) return;
+    // camera transform: screen = viewCenter + (mapPx - camCenter) * scale * zoom
+    if (window.ViewerCam) ViewerCam.resolve(cam, iw, ih);
+    const S = scale * cam.zoom;
+    const sx0 = w / 2 + (0 - cam.cx) * S;
+    const sy0 = h / 2 + (0 - cam.cy) * S;
     ctx.globalAlpha = 0.92;
-    ctx.drawImage(mapImg, drawMapLayer.geom.ox, drawMapLayer.geom.oy, iw * scale, ih * scale);
+    ctx.drawImage(mapImg, sx0, sy0, iw * S, ih * S);
     ctx.globalAlpha = 1;
   }
 
-  function toScreen(wx, wy) {
-    // world coords -> map pixel space -> screen space (contain-fit + offset)
-    const b = D.map.bounds;
-    const px = ((wx - b.min_x) / (b.max_x - b.min_x)) * D.map.width;
-    const py = (1 - (wy - b.min_y) / (b.max_y - b.min_y)) * D.map.height;
-    const g = drawMapLayer.geom;
-    if (!g) return [px, py]; // map layer not laid out yet; first frame draws raw
-    return [g.ox + px * g.scale, g.oy + py * g.scale];
+  function playerPosAt(sid, tick) {
+    const p = players.find((x) => x.steamid === sid);
+    if (!p) return null;
+    const st = playerStateAt(p, tick);
+    if (!st.x && !st.y) return null;
+    return [st.x, st.y];
   }
 
   function drawFxLayer(tick) {
@@ -128,77 +166,28 @@
     const w = wrap.clientWidth, h = wrap.clientHeight;
     const ctx = setupCanvas($('fx-layer'), w, h);
     ctx.clearRect(0, 0, w, h);
-    if (!D) return;
-    const TICK = D.tick_rate;
-    const u = (D.events.utilities || []);
-    for (const e of u) {
-      const age = tick - e.tick;
-      if (age < 0) continue;
-      const kind = e.kind;
-      let durS, radius, color, baseA;
-      if (kind === '烟雾') { durS = 18; radius = 120; color = C.smoke; baseA = 0.32; }
-      else if (kind === '闪光') { durS = 2; radius = 130; color = C.flash; baseA = 0.55; }
-      else if (kind === 'HE') { durS = 1; radius = 85; color = 'rgba(255,136,0,'; baseA = 0.7; }
-      else { durS = 7; radius = 50; color = C.fire; baseA = 0.45; }   // 燃烧瓶/molly
-      const durT = durS * TICK;
-      if (age > durT) continue;
-      const [sx, sy] = toScreen(e.x, e.y);
-      const prog = age / durT;
-      if (kind === '烟雾') {
-        const grow = Math.min(age / (1.0 * TICK), 1);
-        const r = radius * grow * (drawMapLayer.geom.scale / 4);
-        const a = baseA * (prog > 0.85 ? (1 - prog) / 0.15 : 1);
-        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
-        ctx.fillStyle = color + a.toFixed(3) + ')'; ctx.fill();
-      } else if (kind === 'HE') {
-        const r = radius * (0.4 + 0.6 * prog) * (drawMapLayer.geom.scale / 4);
-        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = color + (baseA * (1 - prog)).toFixed(3) + ')';
-        ctx.lineWidth = 2.5; ctx.stroke();
-      } else if (kind === '闪光') {
-        const r = radius * 0.7 * (drawMapLayer.geom.scale / 4);
-        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
-        ctx.fillStyle = color + (baseA * (1 - prog)).toFixed(3) + ')'; ctx.fill();
-      } else { // fire zone flicker
-        const r = radius * (drawMapLayer.geom.scale / 4);
-        const flick = 0.75 + 0.25 * Math.sin(tick / 3 + e.x);
-        const fade = prog > 0.8 ? (1 - prog) / 0.2 : 1;
-        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
-        ctx.fillStyle = color + (baseA * flick * fade).toFixed(3) + ')'; ctx.fill();
-      }
-    }
-    // kill connections (1.2s)
-    for (const k of killsByTick) {
-      const age = tick - k.tick;
-      const durT = 1.2 * TICK;
-      if (age < 0 || age > durT) continue;
-      const a = 0.9 * (1 - age / durT);
-      const [ax, ay] = toScreen(k.ax, k.ay);
-      const [vx, vy] = toScreen(k.vx, k.vy);
-      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(vx, vy);
-      ctx.strokeStyle = C.kill; ctx.globalAlpha = a; ctx.lineWidth = 1.4; ctx.stroke();
-      star(ctx, ax, ay, 5); skull(ctx, vx, vy);
-      ctx.globalAlpha = 1;
-    }
+    if (!D || !window.ViewerOverlays) return;
+    // advanced overlays (ported effect templates) live in viewer_overlays.js
+    ViewerOverlays.draw({
+      ctx,
+      tick,
+      TICK: D.tick_rate,
+      events: D.events || {},
+      layers: layersData || {},
+      toggles: state.toggles,
+      toScreen,
+      worldDist: (dWorld) => dWorld * pxPerWorldUnit() * camScale(),
+      posAt: playerPosAt,
+    });
   }
 
+  // glyph wrappers shared with the main layer (implementations in viewer_overlays.js)
   function star(ctx, x, y, r) {
-    ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const rr = i % 2 ? r * 0.45 : r;
-      const a = (Math.PI / 5) * i - Math.PI / 2;
-      const px = x + rr * Math.cos(a), py = y + rr * Math.sin(a);
-      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fillStyle = C.kill; ctx.fill();
+    if (window.ViewerOverlays) ViewerOverlays.star(ctx, x, y, r);
   }
 
   function skull(ctx, x, y) {
-    ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2);
-    ctx.fillStyle = C.err; ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(x - 2, y - 1.2, 1.2, 1.2); ctx.fillRect(x + 0.8, y - 1.2, 1.2, 1.2);
+    if (window.ViewerOverlays) ViewerOverlays.skull(ctx, x, y);
   }
 
   function drawMainLayer(tick) {
@@ -207,6 +196,8 @@
     const ctx = setupCanvas($('main-layer'), w, h);
     if (!D) return;
     const windowT = 1.2 * D.tick_rate;
+    // zoom-aware marker scale: readable when magnified, unchanged at fit (z=1)
+    const ms = 1 / Math.sqrt(cam.zoom || 1);
     for (const p of players) {
       const st = playerStateAt(p, tick);
       if (!st.alive) {
@@ -221,7 +212,7 @@
       const rows = p.rows;
       let i0 = st.i;
       while (i0 > 0 && rows.t[st.i] - rows.t[i0] < windowT) i0--;
-      ctx.lineWidth = 2.2;
+      ctx.lineWidth = 2.2 * ms;
       let prev = null;
       for (let i = i0; i <= st.j && i < rows.t.length; i++) {
         if (!rows.alive[i]) break;
@@ -240,16 +231,15 @@
       // (Verified: 12613 moving samples, yaw vs atan2(vy,vx) circ error -0.8 deg.)
       const dx = Math.cos(yawRad), dy = -Math.sin(yawRad);
       const half = (YAW_FAN_DEG * Math.PI) / 360;
-      const R = 16;
+      const R = 16 * ms;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.arc(sx, sy, R, Math.atan2(dy, dx) - half, Math.atan2(dy, dx) + half);
       ctx.closePath();
       ctx.fillStyle = hexA(p.color, 0.35); ctx.fill();
-      ctx.beginPath(); ctx.arc(sx, sy, 5.5, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(sx, sy, 5.5 * ms, 0, Math.PI * 2);
       ctx.fillStyle = p.color; ctx.fill();
-      ctx.lineWidth = 1.2; ctx.strokeStyle = '#000'; ctx.stroke();
-      if (state.hoverName === null) continue;
+      ctx.lineWidth = 1.2 * ms; ctx.strokeStyle = '#000'; ctx.stroke();
     }
   }
 
@@ -277,11 +267,13 @@
       ctx.textAlign = 'center';
       ctx.fillText('R' + s.round, (x0 + x1) / 2, h / 2 + 3.5);
     }
-    // kill dots
-    ctx.fillStyle = C.err;
-    for (const k of killsByTick) {
+    // kill dots colored by the killer's side (slight jitter avoids overlap)
+    const sideCol = { T: C.t, CT: C.ct };
+    for (const k of D.events.kills || []) {
       const px = xOf(k.tick);
-      ctx.beginPath(); ctx.arc(px, 8, 2.2, 0, Math.PI * 2); ctx.fill();
+      const killer = players.find((p) => p.steamid === k.att);
+      ctx.fillStyle = sideCol[killer && killer.sideFirst] || C.err;
+      ctx.beginPath(); ctx.arc(px, 7 + ((k.tick >> 3) % 3) * 3, 2.2, 0, Math.PI * 2); ctx.fill();
     }
     // playhead
     const px = xOf(state.tick);
@@ -320,22 +312,55 @@
       drawFxLayer(state.tick);
       drawTimeline();
       updateHudTexts();
+      syncDeepLink();
       schedulePanelFlush(ts);
     } catch (err) {
       console.error('viewer frame error:', err);
     }
   }
 
+  /** Keep ?round=N&t=S and the round selector in step with playback. */
+  function syncDeepLink() {
+    const seg = segOfTick(state.tick);
+    if (!seg || seg.round === state.lastLinkedRound) return;
+    state.lastLinkedRound = seg.round;
+    const sel = $('sel-round');
+    if (sel && sel.value !== String(seg.round)) sel.value = String(seg.round);
+    const t = Math.max(0, Math.round((state.tick - seg.start_tick) / D.tick_rate));
+    try {
+      history.replaceState(null, '', `/demo/${HASH}/viewer?round=${seg.round}&t=${t}`);
+    } catch (e) { /* sandboxed contexts */ }
+  }
+
   function updateHudTexts() {
     const seg = segOfTick(state.tick);
     const rl = $('round-label'), timer = $('round-timer'), cur = $('cur-tick');
     cur.textContent = 'tick ' + Math.round(state.tick);
-    if (!seg) { rl.textContent = '回合 -'; timer.textContent = '-'; setScores(null); return; }
+    if (!seg) { rl.textContent = '回合 -'; timer.textContent = '-'; setScores(null); setBombTimer(null); return; }
     rl.textContent = '回合 ' + seg.round;
     const remain = Math.max(D.round_clock_seconds - (state.tick - seg.start_tick) / D.tick_rate, 0);
     const mm = Math.floor(remain / 60), ss = Math.floor(remain % 60);
     timer.textContent = mm + ':' + String(ss).padStart(2, '0');
     setScores(seg);
+    setBombTimer(seg);
+  }
+
+  /** Bomb countdown beside the round clock once the bomb is down (40s fuse). */
+  function setBombTimer(seg) {
+    const el = document.getElementById('bomb-timer');
+    if (!el) return;
+    let planted = null;
+    if (seg) {
+      for (const b of (D.events.bombs || [])) {
+        if (b.type === 'plant' && b.tick >= seg.start_tick && b.tick <= state.tick) planted = b;
+        if (planted && (b.type === 'defuse' || b.type === 'explode') &&
+            b.tick > planted.tick && b.tick <= state.tick) { planted = null; break; }
+      }
+    }
+    if (!planted) { el.hidden = true; return; }
+    const left = Math.max(0, 40 - (state.tick - planted.tick) / D.tick_rate);
+    el.hidden = false;
+    el.textContent = '💣 ' + Math.floor(left / 60) + ':' + String(Math.ceil(left % 60)).padStart(2, '0');
   }
 
   function setScores(seg) {
@@ -405,6 +430,36 @@
     if (ts - lastFlush < 100) return;
     lastFlush = ts;
     flushPanels();
+    updateKillFeed();
+  }
+
+  // ---- kill feed widget (rolling 12s window, newest first, capped at 5) ----
+  let lastFeedSig = '';
+  function updateKillFeed() {
+    const ul = document.getElementById('kill-feed');
+    if (!ul || !D) return;
+    const windowT = 12 * D.tick_rate;
+    const recent = (D.events.kills || []).filter((k) => k.tick <= state.tick && k.tick > state.tick - windowT);
+    const shown = recent.slice(-5).reverse();
+    const sig = shown.map((k) => k.tick + ':' + k.att + '>' + k.vic).join('|');
+    if (sig === lastFeedSig) return;
+    lastFeedSig = sig;
+    ul.innerHTML = '';
+    for (const k of shown) {
+      const li = document.createElement('li');
+      const ak = players.find((p) => p.steamid === k.att);
+      const vk = players.find((p) => p.steamid === k.vic);
+      const sideCls = (p) => (p ? (p.sideFirst === 'T' ? ' t-text' : p.sideFirst === 'CT' ? ' ct-text' : '') : '');
+      li.innerHTML =
+        '<span class="kf-a' + sideCls(ak) + '"></span>' +
+        '<span class="kf-w"></span><span class="kf-x">✖</span>' +
+        '<span class="kf-v' + sideCls(vk) + '"></span>';
+      li.querySelector('.kf-a').textContent = k.an || '?';
+      li.querySelector('.kf-w').textContent = (D.weapon_table || [])[k.wi] || '';
+      li.querySelector('.kf-v').textContent = k.vn || '?';
+      if (k.hs) { const b = document.createElement('span'); b.className = 'kf-hs'; b.textContent = 'HS'; li.appendChild(b); }
+      ul.appendChild(li);
+    }
   }
 
   function flushPanels() {
@@ -470,16 +525,34 @@
       // drive panels, but marker hue stays stable per player across halves)
       const sideCount = { T: 0, CT: 0 };
       players = D.players.map((rows) => {
-        const firstSide = rows.side.find((s) => s) || 'CT';
+        const firstCode = rows.side.find((s) => s !== 2);
+        const firstSide = SIDE_NAME[firstCode] || 'CT';
         const pal = firstSide === 'T' ? T_PALETTE : CT_PALETTE;
         const idx = sideCount[firstSide]++;
-        return { steamid: rows.steamid, name: (D.roster.find(r => r.steamid === rows.steamid) || {}).name || rows.steamid, rows, color: pal[idx % pal.length] };
+        return { steamid: rows.steamid, name: (D.roster.find(r => r.steamid === rows.steamid) || {}).name || rows.steamid, sideFirst: firstSide, rows, color: pal[idx % pal.length] };
       });
 
-      killsByTick = (D.events.kills || [])
-        .map((k) => ({ ...k }))
-        .filter((k) => Number.isFinite(k.x) && Number.isFinite(k.y))
+      killTicks = (D.events.kills || []).map((k) => k.tick).sort((a, b) => a - b);
+      killMarks = (D.events.kills || [])
+        .filter((k) => Number.isFinite(k.ax) && Number.isFinite(k.vx))
         .sort((a, b) => a.tick - b.tick);
+
+      // real team names from the demo header, when present
+      if (D.teams) {
+        if (D.teams.t) document.querySelector('.ob-team--t .ob-side-name').textContent = D.teams.t;
+        if (D.teams.ct) document.querySelector('.ob-team--ct .ob-side-name').textContent = D.teams.ct;
+      }
+
+      // deep link ?round=N&t=S (seconds into the round)
+      const q = new URLSearchParams(location.search);
+      const qRound = Number(q.get('round'));
+      if (qRound) {
+        const seg = D.segments.find((s) => s.round === qRound);
+        if (seg) {
+          state.tick = Math.min(seg.start_tick + Math.max(0, Number(q.get('t')) || 0) * D.tick_rate,
+                                seg.end_tick);
+        }
+      }
 
       mapImg = new Image();
       mapImg.onload = () => { drawMapLayer(); };
@@ -499,10 +572,20 @@
         const s = D.segments.find((x) => x.round === Number(sel.value));
         if (s) { state.tick = s.start_tick; state.playing = false; $('btn-play').textContent = '播放'; }
       });
+      if (qRound) sel.value = String(qRound); // deep link keeps the selector in sync
+
+      // heavy overlay layers (shots/economy): fetch shortly after first paint
+      setTimeout(() => {
+        fetch('/api/demo/' + HASH + '/viewer-layers?with=shots,economy')
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+          .then((j) => { layersData = j; })
+          .catch(() => { /* toggle stays inert; base overlays unaffected */ });
+      }, 1500);
 
       wireControls();
+      buildToolbar();
       drawMapLayer(); // lay out map geometry before any frame reads it
-      window.__viewerDebug = { state, players, D, playerStateAt }; // dev probe
+      window.__viewerDebug = { state, players, D, playerStateAt, cam }; // dev probe
       requestAnimationFrame((ts) => { state.lastTs = ts; frame(ts); });
     } catch (e) {
       statusEl.textContent = '';
@@ -518,6 +601,43 @@
       btnPlay.textContent = state.playing ? '暂停' : '播放';
     });
     $('sel-speed').addEventListener('change', (e) => { state.speed = Number(e.target.value); });
+
+    // ---- camera: wheel zoom-to-cursor + drag pan + reset (R / dblclick) ----
+    const wrap = document.querySelector('.ob-map-wrap');
+    const camView = () => ({ w: wrap.clientWidth, h: wrap.clientHeight });
+    const redrawMap = () => drawMapLayer();
+    wrap.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (!drawMapLayer.geom) return;
+      const rect = wrap.getBoundingClientRect();
+      const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      ViewerCam.zoomAt(cam, cursor, Math.exp(-e.deltaY * 0.0015), camView(),
+        drawMapLayer.geom.scale, D.map.width, D.map.height, 1, 8);
+      redrawMap();
+    }, { passive: false });
+    const pan = { on: false, x: 0, y: 0, moved: false };
+    wrap.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      pan.on = true; pan.moved = false; pan.x = e.clientX; pan.y = e.clientY;
+      wrap.setPointerCapture(e.pointerId);
+    });
+    wrap.addEventListener('pointermove', (e) => {
+      if (!pan.on) return;
+      const dx = e.clientX - pan.x, dy = e.clientY - pan.y;
+      if (!pan.moved && Math.hypot(dx, dy) < 4) return; // click vs drag threshold
+      pan.moved = true;
+      pan.x = e.clientX; pan.y = e.clientY;
+      if (!drawMapLayer.geom) return;
+      ViewerCam.panBy(cam, dx, dy, camView(), drawMapLayer.geom.scale,
+        D.map.width, D.map.height);
+      redrawMap();
+    });
+    wrap.addEventListener('pointerup', () => { pan.on = false; });
+    const resetCam = () => { ViewerCam.reset(cam); redrawMap(); };
+    wrap.addEventListener('dblclick', resetCam);
+    document.getElementById('btn-cam-reset')?.addEventListener('click', resetCam);
+
+    // ---- timeline scrub + hover tooltip ----
     const tl = $('tl-canvas');
     const tip = $('tl-tip');
     const dragging = { on: false };
@@ -536,14 +656,39 @@
       tip.style.left = (e.clientX - r.left) + 'px';
     });
     tl.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+
     window.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
       if (e.code === 'Space') { e.preventDefault(); btnPlay.click(); }
       else if (e.code === 'ArrowLeft') state.tick = Math.max(0, state.tick - (e.shiftKey ? 30 : 5) * D.tick_rate);
       else if (e.code === 'ArrowRight') state.tick = Math.min(totalTicks, state.tick + (e.shiftKey ? 30 : 5) * D.tick_rate);
+      else if (e.code === 'KeyR') resetCam();
       else if (/^[1-8]$/.test(e.key)) { state.speed = Number(e.key); $('sel-speed').value = e.key; }
     });
     window.addEventListener('resize', () => { drawMapLayer(); });
+  }
+
+  // ---- overlay toolbar: chip toggles bound to state.toggles + localStorage ----
+  function buildToolbar() {
+    const bar = document.getElementById('ob-toolbar');
+    if (!bar) return;
+    const labels = [
+      ['trails', '轨迹'], ['kills', '击杀线'], ['nades', '道具'],
+      ['shots', '枪线'], ['blinds', '闪光'], ['bombs', '炸弹'],
+    ];
+    bar.innerHTML = '';
+    for (const [key, label] of labels) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip' + (state.toggles[key] ? ' on' : '');
+      chip.textContent = label;
+      chip.addEventListener('click', () => {
+        state.toggles[key] = !state.toggles[key];
+        chip.classList.toggle('on', state.toggles[key]);
+        try { localStorage.setItem('csa-viewer-toggles', JSON.stringify(state.toggles)); } catch (e) {}
+      });
+      bar.appendChild(chip);
+    }
   }
 
   load();

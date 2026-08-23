@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}出错了{% endblock %}
 {% block content %}
-<div class="sub"><a href="/">← 返回首页</a></div>
-<h1>出错了</h1>
-<div class="card">{{ message }}</div>
+<div class="empty-state" style="margin-top:48px">
+  <div class="empty-title">出错了</div>
+  <div>{{ message }}</div>
+  <div style="margin-top:16px"><a class="btn" href="/">← 返回 Demo 库</a></div>
+</div>
 {% endblock %}

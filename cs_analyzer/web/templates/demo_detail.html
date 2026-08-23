@@ -1,60 +1,73 @@
 {% extends "base.html" %}
 {% block title %}{{ demo.filename }}{% endblock %}
 {% block content %}
-<div class="sub"><a href="/">← 返回列表</a></div>
-
-<h1>{{ demo.filename }}</h1>
-<div class="card">
-  <div class="score"><span class="t">{{ demo.t_score }}</span> T &nbsp;:&nbsp;
-    <span class="ct">{{ demo.ct_score }}</span> CT</div>
-  <div class="sub">{{ demo.map_name }} · {{ demo.provider }} · {{ demo.num_rounds }} 回合</div>
-  <div style="margin-top:10px">
-    <a class="btn" href="/demo/{{ demo.hash }}/viewer">🗺️ 实时回放器</a>
+<div class="page-head">
+  <div>
+    <div class="sub" style="margin-bottom:2px"><a href="/">← 返回 Demo 库</a></div>
+    <h1>{{ demo.filename }}</h1>
+    <div class="page-meta">{{ demo.map_name }} · {{ demo.provider }} · {{ demo.num_rounds }} 回合</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-primary" href="/demo/{{ demo.hash }}/viewer">▶ 进入实时回放</a>
   </div>
 </div>
 
-<h2>选手统计（{{ players|length }}）</h2>
+<div class="card score-hero">
+  <div class="score">
+    <span class="t">{{ demo.t_score }}</span>
+    <span style="color:var(--faint)"> T &nbsp;:&nbsp; CT </span>
+    <span class="ct">{{ demo.ct_score }}</span>
+  </div>
+</div>
+
+<nav class="toolbar" style="margin-bottom:16px">
+  <a class="chip on" href="#sec-players">选手</a>
+  <a class="chip on" href="#sec-rounds">回合</a>
+  <a class="chip on" href="#sec-kills">击杀流</a>
+</nav>
+
+<div class="section-header" id="sec-players"><h2>选手统计（{{ players|length }}）</h2></div>
+<div class="table-wrap">
 <table>
   <thead>
-    <tr><th>选手</th><th>阵营</th><th>K</th><th>D</th><th>A</th><th>ADR</th>
-        <th>KPR</th><th>Rating</th><th>RWS</th><th>KAST%</th><th>回放</th></tr>
+    <tr><th class="sortable">选手</th><th class="sortable">阵营</th>
+        <th class="sortable num">K</th><th class="sortable num">D</th><th class="sortable num">A</th>
+        <th class="sortable num">ADR</th><th class="sortable num">KPR</th>
+        <th class="sortable num">Rating</th><th class="sortable num">RWS</th>
+        <th class="sortable num">KAST%</th><th>回放</th></tr>
   </thead>
   <tbody>
   {% for p in players %}
-    <tr>
+    <tr class="row-link" data-href="/demo/{{ demo.hash }}/player/{{ p.steamid }}">
       <td><a href="/demo/{{ demo.hash }}/player/{{ p.steamid }}">{{ p.name }}</a></td>
       <td><span class="badge {{ 't' if p.team_label=='T' else 'ct' if p.team_label=='CT' else 't0' }}">{{ p.team_label }}</span></td>
-      <td>{{ p.K }}</td><td>{{ p.D }}</td><td>{{ p.A }}</td>
-      <td>{{ p.ADR }}</td><td>{{ p.KPR }}</td><td>{{ p.Rating }}</td>
-      <td>{{ p.RWS }}</td><td>{{ p.KAST }}</td>
+      <td class="num">{{ p.K }}</td><td class="num">{{ p.D }}</td><td class="num">{{ p.A }}</td>
+      <td class="num">{{ p.ADR }}</td><td class="num">{{ p.KPR }}</td><td class="num">{{ p.Rating }}</td>
+      <td class="num">{{ p.RWS }}</td><td class="num">{{ p.KAST }}</td>
       <td><span class="badge {{ 'ok' if p.replayable else 'no' }}">{{ '可回放' if p.replayable else '无位置' }}</span></td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
-
-<h2>雷达图</h2>
-<div class="grid">
-  {% for p in players %}
-  {% if p.radar_img %}
-  <div class="card">
-    <a href="/demo/{{ demo.hash }}/player/{{ p.steamid }}">
-      <img src="{{ p.radar_img }}" alt="{{ p.name }} 雷达图">
-    </a>
-  </div>
-  {% endif %}
-  {% endfor %}
 </div>
 
-<h2>回合时间线</h2>
+<div class="section-header"><h2>属性雷达</h2>
+  <div class="section-actions sub" style="margin:0">悬停查看原始值 · 点击图例切换选手</div></div>
+<div class="card" style="padding:8px">
+  <div id="radar-chart" style="height:420px"></div>
+</div>
+
+<div class="section-header" id="sec-rounds"><h2>回合时间线</h2>
+  <div class="section-actions sub" style="margin:0">点击回合 → 回放器定位</div></div>
 <div class="pill-row">
   {% for r in rounds %}
-    <a class="badge {{ 't' if r.winner_side=='T' else 'ct' }}" href="#kill-r{{ r.number }}"
-       title="跳到 R{{ r.number }} 击杀组">R{{ r.number }} {{ r.winner_side }}</a>
+    <a class="badge {{ 't' if r.winner_side=='T' else 'ct' }}"
+       href="/demo/{{ demo.hash }}/viewer?round={{ r.number }}&t=0"
+       title="回放器定位到第 {{ r.number }} 回合">R{{ r.number }} {{ r.winner_side }}</a>
   {% endfor %}
 </div>
 
-<h2>击杀流</h2>
+<div class="section-header" id="sec-kills"><h2>击杀流</h2></div>
 {% for g in kills %}
 <details class="kill-group" id="kill-r{{ g.round }}">
   <summary>R{{ g.round }} · {{ g.kills|length }} 杀
@@ -67,6 +80,30 @@
   </div>
 </details>
 {% else %}
-<div class="card sub">无击杀事件</div>
+<div class="empty-state"><div class="empty-title">无击杀事件</div></div>
 {% endfor %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/echarts-theme-csa.js"></script>
+<script src="/static/charts.js"></script>
+<script src="/static/table_sort.js"></script>
+<script>
+(async function () {
+  try {
+    const r = await fetch('/api/demo/{{ demo.hash }}/charts.json');
+    if (!r.ok) return;
+    const payload = await r.json();
+    if (payload.series && payload.series.length) {
+      CSACharts.mount('radar-chart', CSACharts.radarOption(payload, 10));
+    }
+  } catch (e) { /* radar stays empty on fetch failure */ }
+})();
+document.querySelectorAll('tr.row-link').forEach((tr) => {
+  tr.addEventListener('click', (e) => {
+    if (e.target.closest('a') || e.target.closest('button')) return;
+    location.href = tr.dataset.href;
+  });
+});
+</script>
 {% endblock %}

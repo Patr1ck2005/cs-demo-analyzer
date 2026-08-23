@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cs-demo-analyzer"
 version = "0.1.0"
-description = "Local-first CS2 demo analysis toolkit with radar chart, 2D action maps, and preference analysis"
+description = "Local-first CS2 demo analysis toolkit with quantitative stats and a real-time 2D replay viewer"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Wang Keren" }]
-keywords = ["csgo", "cs2", "demo", "analyzer", "radar-chart", "manim"]
+keywords = ["cs2", "demo", "analyzer", "replay", "radar-chart"]
 classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -27,17 +27,12 @@ dependencies = [
     "pandas>=2.1",
     "pyarrow>=14.0",
     "numpy>=1.24",
-    "Pillow>=10.0",
     "pyyaml>=6.0",
     "jinja2>=3.1",
-    "matplotlib>=3.7",
     "fastapi>=0.110",
 ]
 
 [project.optional-dependencies]
-render = [
-    "manim>=0.18",
-]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -51,7 +46,7 @@ csa = "cs_analyzer.cli:app"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["cs_analyzer*"]
-exclude = ["tests*", "tutorial*", "enve*", "media*", "radar_data*", "bg*", "music*"]
+exclude = ["tests*", "tutorial*", "enve*", "media*"]
 
 [tool.ruff]
 line-length = 120

@@ -1,79 +1,105 @@
 {% extends "base.html" %}
-{% block title %}{{ player.name }}{% endblock %}
+{% block title %}{{ player.name }} · {{ demo.filename }}{% endblock %}
 {% block content %}
-<div class="sub"><a href="/demo/{{ demo.hash }}">← 返回 demo</a></div>
-
-<div class="card">
-  <h1>{{ player.name }}</h1>
-  <div style="margin:2px 0 6px">
-    <span class="badge {{ 't' if player.team_label=='T' else 'ct' if player.team_label=='CT' else 't0' }}">{{ player.team_label }}</span>
-    <span class="badge {{ 'ok' if player.replayable else 'no' }}">{{ '可回放' if player.replayable else '无位置数据' }}</span>
+<div class="page-head">
+  <div>
+    <div class="sub" style="margin-bottom:2px"><a href="/demo/{{ demo.hash }}">← 返回 {{ demo.filename }}</a></div>
+    <h1>{{ player.name }}</h1>
+    <div class="page-meta">
+      <span class="badge {{ 't' if player.team_label=='T' else 'ct' if player.team_label=='CT' else 't0' }}">{{ player.team_label }}</span>
+      <span class="badge {{ 'ok' if player.replayable else 'no' }}">{{ '可回放' if player.replayable else '无位置数据' }}</span>
+      <span style="margin-left:6px">{{ demo.filename }} · {{ demo.map_name }}</span>
+    </div>
   </div>
-  <div class="sub">{{ demo.filename }} · {{ demo.map_name }}</div>
-  <table>
-    <tr><th>K</th><td>{{ player.K }}</td><th>D</th><td>{{ player.D }}</td><th>A</th><td>{{ player.A }}</td></tr>
-    <tr><th>ADR</th><td>{{ player.ADR }}</td><th>KPR</th><td>{{ player.KPR }}</td><th>HS%</th><td>{{ player['HS%'] }}</td></tr>
-    <tr><th>Rating</th><td>{{ player.Rating }}</td><th>RWS</th><td>{{ player.RWS }}</td><th>KAST%</th><td>{{ player.KAST }}</td></tr>
-  </table>
+  <div class="page-actions">
+    <a class="btn btn-primary" href="/demo/{{ demo.hash }}/viewer">▶ 团队实时回放</a>
+  </div>
 </div>
 
-{% if player.radar_img %}
-<h2>属性雷达图</h2>
-<div class="grid">
-  <div class="card"><img src="{{ player.radar_img }}" alt="{{ player.name }} 雷达图"></div>
+<div class="stat-row">
+  <div class="stat-card"><div class="stat-label">K / D / A</div>
+    <div class="stat-value">{{ player.K }} / {{ player.D }} / {{ player.A }}</div></div>
+  <div class="stat-card"><div class="stat-label">ADR</div><div class="stat-value">{{ player.ADR }}</div></div>
+  <div class="stat-card"><div class="stat-label">KPR</div><div class="stat-value">{{ player.KPR }}</div></div>
+  <div class="stat-card"><div class="stat-label">HS%</div><div class="stat-value">{{ player['HS%'] }}</div></div>
+  <div class="stat-card"><div class="stat-label">Rating</div>
+    <div class="stat-value {{ 'pos' if player.Rating >= 1.0 else 'neg' }}">{{ player.Rating }}</div></div>
+  <div class="stat-card"><div class="stat-label">RWS</div><div class="stat-value">{{ player.RWS }}</div></div>
+  <div class="stat-card"><div class="stat-label">KAST%</div><div class="stat-value">{{ player.KAST }}</div></div>
 </div>
-{% endif %}
 
-{% if charts %}
-<h2>偏好分析</h2>
+<div class="section-header"><h2>属性雷达</h2></div>
+<div class="card" style="padding:8px">
+  <div id="player-radar" style="height:360px"></div>
+</div>
+
+{% if pref %}
+<div class="section-header"><h2>偏好分析</h2></div>
 <div class="grid">
-  <div class="card"><img src="{{ charts.heatmap }}" alt="位置热力图"></div>
-  <div class="card"><img src="{{ charts.utility }}" alt="道具落点"></div>
-  <div class="card"><img src="{{ charts.style }}" alt="风格"></div>
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">位置热力</h2>
+    <div class="map-chart" id="heatmap-chart"></div>
+  </div>
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">道具落点</h2>
+    <div class="map-chart" id="utility-chart"></div>
+  </div>
 </div>
 {% endif %}
 
 {% if pref %}
-<div class="card">
-  <h2>偏好指标</h2>
-  <table>
-    <tr><th>道具分布</th><td>{% for k, v in pref.utility_counts.items() %}{{ k }} = {{ v }}　{% endfor %}</td></tr>
-    <tr><th>首交战时机</th>
-      <td>{{ pref.engagement_fraction }}
-        （{{ '激进' if pref.engagement_fraction < 0.4 else '均衡' if pref.engagement_fraction < 0.6 else '被动' }}）
-        共 {{ pref.engagement_rounds }} 回合</td></tr>
-    <tr><th>平均准星仰角</th><td>{{ pref.avg_pitch }}°（{{ pref.pitch_samples }} 采样）</td></tr>
-    <tr><th>位置采样数</th><td>{{ pref.position_count }}</td></tr>
-  </table>
+<div class="section-header"><h2>偏好指标</h2></div>
+<div class="table-wrap">
+<table>
+  <tr><th>道具分布</th><td>{% for k, v in pref.utility_counts.items() %}{{ k }} = {{ v }}　{% endfor %}</td></tr>
+  <tr><th>首交战时机</th>
+    <td>{{ pref.engagement_fraction }}
+      （{{ '激进' if pref.engagement_fraction < 0.4 else '均衡' if pref.engagement_fraction < 0.6 else '被动' }}）
+      共 {{ pref.engagement_rounds }} 回合</td></tr>
+  <tr><th>平均准星仰角</th><td>{{ pref.avg_pitch }}°（{{ pref.pitch_samples }} 采样）</td></tr>
+  <tr><th>位置采样数</th><td>{{ pref.position_count }}</td></tr>
+</table>
 </div>
 {% endif %}
 
-<h2>回放</h2>
 {% if not player.replayable %}
+<div class="section-header"><h2>回放</h2></div>
 <div class="card">
   <span class="badge t0">无位置数据</span>
-  <div class="sub" style="margin-top:6px">该玩家的 pawn 实体在解析时缺失（逐广播特定，无法从事件重建），单人回放/位置类分析不可用；统计与击杀数据仍完整。<a href="/demo/{{ demo.hash }}/viewer">团队视角回放仍可用 →</a></div>
+  <div class="sub" style="margin:6px 0 0">该玩家的 pawn 实体在解析时缺失（逐广播特定，无法从事件重建），单人回放/位置类分析不可用；统计与击杀数据仍完整。<a href="/demo/{{ demo.hash }}/viewer">团队视角回放仍可用 →</a></div>
 </div>
 {% endif %}
-<div class="card">
-  {% for r in replays %}
-  <div class="replay-card">
-    <strong>{{ r.label }}</strong>
-    <span class="badge {{ 't' if r.kind=='team' else 'ct' }}">{{ '团队' if r.kind=='team' else '单人' }}</span>
-    {% if r.exists %}
-    <video controls src="{{ r.url }}"></video>
-    {% endif %}
-    <div style="margin-top:8px">
-      {% if r.disabled %}
-      <button class="btn" disabled title="该玩家无位置数据，单人回放不可用">不可用（无位置数据）</button>
-      {% else %}
-      <button class="btn"
-              onclick="startReplay('{{ demo.hash }}', '{{ r.recipe }}', '{{ '' if r.kind=='team' else player.steamid }}', this)">
-        {{ '重新生成' if r.exists else '生成回放' }}
-      </button>
-      {% endif %}
-    </div>
-  </div>
-  {% endfor %}
-</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/echarts-theme-csa.js"></script>
+<script src="/static/charts.js"></script>
+<script>
+(async function () {
+  const hash = '{{ demo.hash }}';
+  const sid = '{{ player.steamid }}';
+  try {
+    // demo-wide radar, this player highlighted first
+    const r = await fetch(`/api/demo/${hash}/charts.json`);
+    if (r.ok) {
+      const payload = await r.json();
+      const mine = payload.series.findIndex((s) => s.steamid === sid);
+      if (mine > 0) {
+        const s = payload.series.splice(mine, 1)[0];
+        payload.series.unshift(s);
+      }
+      if (payload.series.length) {
+        CSACharts.mount('player-radar', CSACharts.radarOption(payload, 6));
+      }
+    }
+    // map-position charts
+    const r2 = await fetch(`/api/demo/${hash}/player/${sid}/charts.json`);
+    if (r2.ok) {
+      const pp = await r2.json();
+      CSACharts.mountMapChart('heatmap-chart', 'heatmap', pp);
+      CSACharts.mountMapChart('utility-chart', 'utility', pp);
+    }
+  } catch (e) { /* sections stay empty on fetch failure */ }
+})();
+</script>
 {% endblock %}

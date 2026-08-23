@@ -21,9 +21,7 @@ PAGES = [
     ("aggregate", "/aggregate", 1200),
     ("demo_detail", f"/demo/{H}", 800),
     ("player_detail", f"/demo/{H}/player/76561199829611601", 1200),
-    ("studio", "/studio", None),
-    ("studio_replay", f"/studio/replay/{H}", 1400),
-    ("studio_radar", f"/studio/radar/{H}", None),
+    ("coverage", "/coverage", 800),
     ("viewer", f"/demo/{H}/viewer", None),
 ]
 

@@ -1,38 +1,67 @@
 {% extends "base.html" %}
 {% block title %}跨场聚合{% endblock %}
 {% block content %}
-<h1>跨场聚合分析</h1>
-<div class="sub">{{ result.total_demos }} 部 demo · {{ result.total_players }} 名选手（按 SteamID 跨场匹配）</div>
+<div class="page-head">
+  <div>
+    <h1>跨场聚合</h1>
+    <div class="page-meta">{{ result.total_demos }} 部 demo · {{ result.total_players }} 名选手（按 SteamID 跨场匹配）</div>
+  </div>
+</div>
 
-{% if charts.player_matrix %}
-<h2>选手跨场 Rating 矩阵</h2>
-<div class="card"><img src="/media/aggregate/{{ charts.player_matrix }}" alt="Rating 矩阵" style="max-width:100%"></div>
-{% endif %}
-{% if charts.team_win %}
-<h2>团队胜率</h2>
-<div class="card"><img src="/media/aggregate/{{ charts.team_win }}" alt="胜率" style="max-width:100%"></div>
-{% endif %}
-{% if charts.trends %}
-<h2>T 方得分趋势</h2>
-<div class="card"><img src="/media/aggregate/{{ charts.trends }}" alt="趋势" style="max-width:100%"></div>
+{% if result.total_demos %}
+<div class="section-header"><h2>选手跨场 Rating 矩阵</h2></div>
+<div class="card" style="padding:8px"><div id="matrix-chart" style="height:380px"></div></div>
+
+<div class="grid">
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">场均数据对比</h2>
+    <div id="bars-chart" style="height:320px"></div>
+  </div>
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">逐 demo T 方得分趋势</h2>
+    <div id="trends-chart" style="height:320px"></div>
+  </div>
+</div>
 {% endif %}
 
-<h2>选手跨场明细</h2>
+<div class="section-header"><h2>选手跨场明细</h2></div>
+<div class="table-wrap">
 <table>
   <thead>
-    <tr><th>选手</th><th>场次</th><th>总击杀</th><th>总回合</th>
-        <th>场均KPR</th><th>场均ADR</th><th>场均Rating</th><th>场均KAST%</th></tr>
+    <tr><th class="sortable">选手</th><th class="sortable num">场次</th><th class="sortable num">总击杀</th><th class="sortable num">总回合</th>
+        <th class="sortable num">场均KPR</th><th class="sortable num">场均ADR</th><th class="sortable num">场均Rating</th><th class="sortable num">场均KAST%</th></tr>
   </thead>
   <tbody>
   {% for p in result.players %}
     <tr>
-      <td>{{ p.name }}</td><td>{{ p.demo_count }}</td><td>{{ p.total_kills }}</td><td>{{ p.total_rounds }}</td>
-      <td>{{ '%.2f'|format(p.avg_kpr) }}</td><td>{{ '%.1f'|format(p.avg_adr) }}</td>
-      <td>{{ '%.2f'|format(p.avg_rating) }}</td><td>{{ '%.0f'|format(p.avg_kast) }}</td>
+      <td>{{ p.name }}</td><td class="num">{{ p.demo_count }}</td><td class="num">{{ p.total_kills }}</td><td class="num">{{ p.total_rounds }}</td>
+      <td class="num">{{ '%.2f'|format(p.avg_kpr) }}</td><td class="num">{{ '%.1f'|format(p.avg_adr) }}</td>
+      <td class="num">{{ '%.2f'|format(p.avg_rating) }}</td><td class="num">{{ '%.0f'|format(p.avg_kast) }}</td>
     </tr>
   {% else %}
     <tr><td colspan="8" class="sub">暂无跨场数据</td></tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
+{% endblock %}
+{% block scripts %}
+{% if result.total_demos %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/echarts-theme-csa.js"></script>
+<script src="/static/charts.js"></script>
+<script src="/static/table_sort.js"></script>
+<script>
+(async function () {
+  try {
+    const r = await fetch('/api/aggregate/charts.json');
+    if (!r.ok) return;
+    const payload = await r.json();
+    CSACharts.mount('matrix-chart', CSACharts.matrixOption(payload));
+    CSACharts.mount('bars-chart', CSACharts.barsOption(payload));
+    CSACharts.mount('trends-chart', CSACharts.trendsOption(payload));
+  } catch (e) { /* charts stay empty on fetch failure */ }
+})();
+</script>
+{% endif %}
 {% endblock %}

@@ -27,16 +27,17 @@ CsDemoAnalyzer 是一个本地优先的 CS2 demo 分析工具，将 `.dem` 文�
 
 | 设计项 | 状态 |
 | :--- | :--- |
-| 5 层架构 + 9 个 CLI 命令 | ✅ 已实现 |
+| 5 层架构 | ✅ Layer 4 渲染层已退役（Phase E）：视频/静态图渲染全部移至浏览器端（canvas + ECharts） |
+| CLI 命令（5 个） | ✅ parse / analyze / coverage / serve / info（视频命令 render/export/run/batch/action-map/replay/recipe 已随管线删除） |
 | provider 链 | ✅ Valve / Faceit / PerfectWorld（单文件 `providers.py`，非子包） |
 | analysis 模块 | ⚠️ 仅 `basic_stats` / `ratings` / `preference` 三个；economy/clutch/refrag/post_plant 未实现，positioning/utility/peek 合并进 `preference.py` |
-| `export/image.py`、`render/styles.py` | ❌ 不存在（图像导出走 PIL 在渲染层，样式在 config） |
 | maps 数据 | ✅ de_mirage / de_ancient / de_inferno（官方雷达 PNG + yaml bounds，`/maps/{name}` 路由 immutable 缓存） |
 | 解析稳健性 | ✅ 支持无 player_info / 无 round_start 事件的 SourceTV demo（从 spawns 重建玩家、兼容字符串 winner）；T/CT 阵营以正式局逐 tick team_num 多数派为真值（PARSER_VERSION 1.5.1） |
-| 2D 回放系统 | ✅ `cs_analyzer/replay/`（PlayerTimeline）+ `render/replay_animation.py`（手动帧循环 + FFMpegWriter）+ 特效/HUD/中文字体；`csa replay` 四种模式（all/highlights/openings/montage）+ 配方框架（`recipe.py` + `configs/recipes.yaml`） |
-| Web 平台 (LTG-2) | ✅ FastAPI+Jinja2：上传/解析/详情/选手/聚合/视频导出工作室（studio）+ 覆盖度报告 |
-| Canvas 实时回放器 (Phase C) | ✅ `/demo/{hash}/viewer`：`web/viewer_data.py`（8Hz 快照数据包，gzip ~0.8MB）+ `static/viewer_canvas.js` 三层画布（底图/特效/主层）+ 电竞 OB 观赛布局（左右 5 人面板/记分条/tick 域时间轴/倍速 0.25-8×/键盘控制）；视频预渲染 MVP 已被替代（studio 仍可导出视频） |
-| 全站美术 | ✅ 电竞观赛风 token（`style.css` `:root` 深色 neon 蓝 + T 黄/CT 蓝队伍身份色） |
+| 2D 回放系统 | ✅ `cs_analyzer/replay/`（PlayerTimeline：真实道具时长/投掷起点重建）+ `web/viewer_data.py` v2 数据包（击杀坐标/闪光/炸弹/经济分层）+ `static/viewer_canvas.js` 相机（滚轮缩放/拖拽平移）+ `static/js/viewer_overlays.js` 高级覆盖层（道具弧线/枪线/闪光/炸弹/击杀流）；matplotlib 视频管线已删除（`docs/video_pipeline_archive.md` 归档参数规格） |
+| Web 平台 (LTG-2) | ✅ FastAPI+Jinja2：Demo 库（拖拽上传）/详情/选手/跨场聚合/覆盖度报告；图表数据走 JSON 端点（`web/chart_data.py`） |
+| Canvas 实时回放器 (Phase C/E) | ✅ `/demo/{hash}/viewer`：viewer-data v2（8Hz 快照 + 武器驻留 + 事件坐标）+ 三层画布 + OB 观赛布局 + 相机缩放平移 + 覆盖层开关（localStorage 持久化）+ `?round=&t=` 深链 |
+| 定量图表 | ✅ Apache ECharts 5.5 本地 vendor（`static/vendor/`，离线可用）：雷达/评分矩阵/条形/趋势/地图位置散点（雷达 PNG 作 CSS 背景）；matplotlib 依赖已移除 |
+| 全站美术 | ✅ 深色分析工具风设计系统（`style.css` v2：token 体系 + stat-card/data-table/section-header/tab 组件） |
 
 ---
 

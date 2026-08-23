@@ -1,12 +1,21 @@
-"""Viewer-data artifact for the real-time canvas replay (Phase C, M2).
+"""Viewer-data artifacts for the real-time canvas replay (Phase C/E).
 
-One precomputed JSON per demo: roster, tick-domain segments, downsampled
-per-player state snapshots (position/yaw/hp/armor/alive/side/weapon), events
-with world coordinates, and map metadata. The browser interpolates between
-snapshots — zero pre-render wait, instant drag-seek at any speed.
+Two JSON artifacts per demo under output/web/{hash}/viewer/:
 
-Artifact: output/web/{hash}/viewer/viewer_data.json (version-gated like
-replay_map.RENDER_VERSION; stale files are treated as missing).
+- viewer_data.json (VIEWER_DATA_VERSION): base payload the canvas viewer
+  fetches on load — roster, tick-domain segments, downsampled per-player
+  state snapshots (position/yaw/hp/armor/alive/side/weapon-interned), events
+  (kills with coordinates/headshot, utilities with reconstructed throws and
+  real durations, blinds, bomb events), map metadata and real team names.
+  The browser interpolates between snapshots — zero pre-render wait,
+  instant drag-seek at any speed.
+
+- viewer_layers.json (LAYER_VERSION): optional heavy layers served lazily
+  through /api/demo/{h}/viewer-layers?with=shots,economy — per-shot firing
+  points and per-round purchase summaries. Missing layers degrade gracefully
+  client-side (the matching overlay toggles stay disabled).
+
+Stale artifacts are treated as missing via the version gates below.
 """
 from __future__ import annotations
 
@@ -15,18 +24,37 @@ import logging
 from pathlib import Path
 
 from cs_analyzer.model.parsed_demo import ParsedDemo
-from cs_analyzer.replay.timeline import round_freeze_ends
+from cs_analyzer.replay.timeline import TICK_RATE, round_freeze_ends
 
 logger = logging.getLogger(__name__)
 
 TICK_RATE = 64
 SNAPSHOT_STRIDE = 8  # ticks between snapshots (8 Hz; 64/8 exact)
 ROUND_CLOCK_SECONDS = 115.0
-VIEWER_DATA_VERSION = 1
+VIEWER_DATA_VERSION = 2
+LAYER_VERSION = 1
 
 # demoparser2 0.41 exposes no clip/reserve props (probed across all demos,
 # scripts/probe_ammo.py) — ammo ships as null until a parse route exists.
 AMMO_AVAILABLE = False
+
+# side enum used in snapshot arrays (was "T"/"CT"/"" strings in v1)
+SIDE_T, SIDE_CT, SIDE_UNKNOWN = 0, 1, 2
+
+# utility kinds emitted to the client (timeline "molly" collapses into
+# "fire": molotov_detonate never materializes in SourceTV demos, inferno_* is
+# the real signal)
+_UTILITY_EMIT_KINDS = {"smoke": "smoke", "flash": "flash", "he": "he",
+                       "molly": "fire", "fire": "fire"}
+
+# default zone lifetimes (game seconds) when no real duration was matched;
+# mirrors UTILITY_DEFAULT_SECONDS in replay/timeline.py
+_UTILITY_DEFAULT_S = {"smoke": 18.0, "flash": 2.0, "he": 1.0, "fire": 7.0}
+
+_BOMB_TABLES = (("bomb_planted", "plant"), ("bomb_defused", "defuse"),
+                ("bomb_exploded", "explode"))
+
+_GRENADE_ITEM_PREFIXES = ("smoke", "flash", "hegrenade", "molotov", "incendiary", "decoy")
 
 
 def viewer_data_path(demo_hash: str, out_dir: Path) -> Path:
@@ -34,20 +62,31 @@ def viewer_data_path(demo_hash: str, out_dir: Path) -> Path:
 
 
 def load_viewer_data(demo_hash: str, out_dir: Path) -> dict | None:
-    p = viewer_data_path(demo_hash, out_dir)
-    if not p.exists():
-        return None
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if data.get("viewer_version") != VIEWER_DATA_VERSION:
-        return None
-    return data
+    return _load_versioned(viewer_data_path(demo_hash, out_dir), VIEWER_DATA_VERSION, "viewer_version")
 
 
 def is_ready(demo_hash: str, out_dir: Path) -> bool:
     return load_viewer_data(demo_hash, out_dir) is not None
+
+
+def viewer_layers_path(demo_hash: str, out_dir: Path) -> Path:
+    return out_dir / demo_hash / "viewer" / "viewer_layers.json"
+
+
+def load_viewer_layers(demo_hash: str, out_dir: Path) -> dict | None:
+    return _load_versioned(viewer_layers_path(demo_hash, out_dir), LAYER_VERSION, "layer_version")
+
+
+def _load_versioned(path: Path, version: int, key: str) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if data.get(key) != version:
+        return None
+    return data
 
 
 def _short_weapon(name) -> str:
@@ -57,12 +96,88 @@ def _short_weapon(name) -> str:
     return n
 
 
+class _WeaponTable:
+    """String interning: emit each weapon name once, snapshots carry indexes."""
+
+    def __init__(self) -> None:
+        self.names: list[str] = []
+        self._idx: dict[str, int] = {}
+
+    def index(self, name: str) -> int:
+        i = self._idx.get(name)
+        if i is None:
+            i = len(self.names)
+            self._idx[name] = i
+            self.names.append(name)
+        return i
+
+
+def _finite(v) -> float:
+    """Coerce to a finite float (Team 0 players carry all-NaN positions)."""
+    import math
+
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    return f if math.isfinite(f) else 0.0
+
+
+def _finite_or_none(v):
+    """Finite float or None (JSON null) — e.g. suicide/world deaths carry NaN
+    coordinates and the client draws a skull without a kill line."""
+    import math
+
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _text(v) -> str:
+    """Coerce event name fields to a string (raw tables hold NaN for absent
+    names, e.g. suicide / Team 0 attacker)."""
+    import math
+
+    if v is None:
+        return ""
+    if isinstance(v, float) and not math.isfinite(v):
+        return ""
+    return str(v)
+
+
+def pd_forward_fill(arr):
+    """Forward-fill NaNs in a 1-D array (dead rows keep last position).
+
+    Leading NaNs (no finite predecessor) stay NaN.
+    """
+    import numpy as np
+
+    mask = np.isnan(arr)
+    if not mask.any():
+        return arr
+    idx = np.where(~mask, np.arange(len(arr)), 0)
+    np.maximum.accumulate(idx, out=idx)
+    return arr[idx]
+
+
+def _team_names(demo: ParsedDemo) -> dict[str, str]:
+    """Real team names from begin_new_match ("" falls back to T/CT client-side)."""
+    df = demo.events.get("begin_new_match")
+    t = ct = ""
+    if df is not None and not df.empty:
+        row = df.iloc[-1]
+        t = _text(row.get("t_team_name", ""))
+        ct = _text(row.get("ct_team_name", ""))
+    return {"t": t, "ct": ct}
+
+
 def build_viewer_data(demo: ParsedDemo) -> dict:
     """Pure pandas/numpy walk over the cached demo (vectorized, target <10s)."""
     import numpy as np
 
     from cs_analyzer.maps.loader import load_map_or_fallback
-    from cs_analyzer.web.replay_map import build_viewer_events
 
     ticks = demo.ticks
     freeze = round_freeze_ends(demo)
@@ -90,10 +205,10 @@ def build_viewer_data(demo: ParsedDemo) -> dict:
     for seg in segments:
         grid_parts.append(np.arange(seg["start_tick"], seg["end_tick"], SNAPSHOT_STRIDE))
     grid_arr = np.unique(np.concatenate(grid_parts)) if grid_parts else np.array([], dtype=np.int64)
-    n_grid = len(grid_arr)
 
     roster: list[dict] = []
     players: list[dict] = []
+    weapons = _WeaponTable()
     if ticks is not None and not ticks.empty and {"steamid", "X", "Y"} <= set(ticks.columns):
         for p in demo.players:
             sub = ticks[ticks["steamid"] == p.steamid].sort_values("tick")
@@ -134,34 +249,42 @@ def build_viewer_data(demo: ParsedDemo) -> dict:
             px = np.nan_to_num(px, nan=0.0)
             py = np.nan_to_num(py, nan=0.0)
 
-            weapon_names = (
+            weapon_shorts = (
                 sub["active_weapon_name"].map(_short_weapon).to_numpy()
                 if "active_weapon_name" in sub.columns
                 else np.full(len(sub), "", dtype=object)
             )
-            wv = weapon_names[vp]
 
+            side_codes = [SIDE_T if s == 2.0 else SIDE_CT if s == 3.0 else SIDE_UNKNOWN
+                          for s in side_raw.tolist()]
             gticks = grid_arr[valid]
-            roster.append({"steamid": p.steamid, "name": p.name})
+            roster.append({
+                "steamid": p.steamid,
+                "name": p.name,
+                "side_first": next(("T" if c == SIDE_T else "CT" for c in side_codes
+                                    if c != SIDE_UNKNOWN), ""),
+            })
             players.append(
                 {
                     "steamid": p.steamid,
                     "t": gticks.astype(np.int64).tolist(),
                     "x": np.round(px, 1).tolist(),
                     "y": np.round(py, 1).tolist(),
-                    "yaw": (np.round(yaw_v / 5.0) * 5.0).astype(float).tolist(),
+                    "yaw": (np.round(yaw_v / 5.0) * 5.0).astype(np.int32).tolist(),
                     "hp": hp_v.tolist(),
                     "armor": armor_v.tolist(),
-                    "alive": alive_v.tolist(),
-                    "side": [
-                        ("T" if s == 2 else "CT") if s in (2.0, 3.0) else ""
-                        for s in side_raw.tolist()
-                    ],
-                    "w": wv.tolist(),
+                    "alive": alive_v.astype(np.int8).tolist(),
+                    "side": side_codes,
+                    "w": [weapons.index(str(w)) for w in weapon_shorts[vp]],
                 }
             )
 
-    events = build_viewer_events(demo)
+    events = {
+        **_kill_events(demo, weapons),
+        **_utility_events(demo),
+        "blinds": _blind_events(demo),
+        "bombs": _bomb_events(demo, ticks),
+    }
     map_res = load_map_or_fallback(demo.metadata.map_name, ticks)
     b = map_res.bounds
 
@@ -173,6 +296,7 @@ def build_viewer_data(demo: ParsedDemo) -> dict:
         "ammo": AMMO_AVAILABLE,
         "demo_hash": demo.metadata.demo_hash,
         "map_name": demo.metadata.map_name,
+        "teams": _team_names(demo),
         "map": {
             "image_url": f"/maps/{demo.metadata.map_name}.png",
             "width": map_res.image_width,
@@ -184,24 +308,155 @@ def build_viewer_data(demo: ParsedDemo) -> dict:
         },
         "segments": segments,
         "roster": roster,
+        "weapon_table": weapons.names,
         "players": players,
         "events": events,
     }
 
 
-def pd_forward_fill(arr):
-    """Forward-fill NaNs in a 1-D array (dead rows keep last position).
+def _kill_events(demo: ParsedDemo, weapons: _WeaponTable) -> dict:
+    """Kills with world coordinates (attacker_X/Y + user_X/Y), headshot flag
+    and interned weapon index. Names stay in the payload so kills involving
+    Team 0 players (absent from the roster) still render in the feed."""
+    rounds = [
+        {
+            "number": r.number,
+            "winner_side": r.winner_side,
+            "start_tick": r.start_tick,
+            "end_tick": r.end_tick,
+        }
+        for r in demo.regular_rounds
+    ]
+    kills = []
+    df = demo.events.get("player_death")
+    if df is not None and not df.empty:
+        for _, row in df.iterrows():
+            kills.append(
+                {
+                    "tick": int(row.get("tick", 0) or 0),
+                    "ax": _finite_or_none(row.get("attacker_X")),
+                    "ay": _finite_or_none(row.get("attacker_Y")),
+                    "vx": _finite_or_none(row.get("user_X")),
+                    "vy": _finite_or_none(row.get("user_Y")),
+                    "hs": 1 if int(row.get("headshot", 0) or 0) else 0,
+                    "wi": weapons.index(_short_weapon(_text(row.get("weapon", "")))),
+                    "att": _text(row.get("attacker_steamid", "")),
+                    "vic": _text(row.get("user_steamid", "")),
+                    "an": _text(row.get("attacker_name", "")),
+                    "vn": _text(row.get("user_name", "")),
+                }
+            )
+        kills.sort(key=lambda k: k["tick"])
+    return {"rounds": rounds, "kills": kills}
 
-    Leading NaNs (no finite predecessor) stay NaN.
+
+def _utility_events(demo: ParsedDemo) -> dict:
+    """Utilities with reconstructed throw origins and REAL lifetimes.
+
+    Reuses replay/timeline.build_timeline per tracked player: this inherits
+    the *_expired entityid duration matching and the flight-time throw
+    reconstruction verbatim. Position-less players (Team 0) raise inside
+    build_timeline and are skipped (their utility zones would have no owner
+    trail anyway).
     """
-    import numpy as np
+    from cs_analyzer.replay.timeline import build_timeline
 
-    mask = np.isnan(arr)
-    if not mask.any():
-        return arr
-    idx = np.where(~mask, np.arange(len(arr)), 0)
-    np.maximum.accumulate(idx, out=idx)
-    return arr[idx]
+    out: list[dict] = []
+    for p in demo.players:
+        try:
+            tl = build_timeline(demo, p.steamid)
+        except ValueError:
+            continue  # Team 0 / untracked player
+        for kind, evs in tl.utilities.items():
+            emit_kind = _UTILITY_EMIT_KINDS.get(kind, kind)
+            for e in evs:
+                throw_tick = e.throw_tick if e.throw_tick >= 0 else None
+                out.append(
+                    {
+                        "tick": int(e.tick),
+                        "kind": emit_kind,
+                        "x": round(float(e.x), 1),
+                        "y": round(float(e.y), 1),
+                        "tt": throw_tick,
+                        "tx": round(float(e.throw_x), 1) if throw_tick is not None else None,
+                        "ty": round(float(e.throw_y), 1) if throw_tick is not None else None,
+                        # 0 => client uses its per-kind default (unmatched entity)
+                        "dur_s": round(e.duration_ticks / TICK_RATE, 1) if e.duration_ticks else 0.0,
+                        "sid": p.steamid,
+                    }
+                )
+    out.sort(key=lambda u: u["tick"])
+    return {"utilities": out}
+
+
+def _blind_events(demo: ParsedDemo) -> list[dict]:
+    """Flash-assist pairs: who blinded whom and for how long (seconds)."""
+    df = demo.events.get("player_blind")
+    out: list[dict] = []
+    if df is None or df.empty:
+        return out
+    for _, row in df.iterrows():
+        dur = _finite(row.get("blind_duration", 0))
+        if dur <= 0:
+            continue
+        out.append(
+            {
+                "tick": int(row.get("tick", 0) or 0),
+                "dur": round(dur, 1),
+                "att": _text(row.get("attacker_steamid", "")),
+                "vic": _text(row.get("user_steamid", "")),
+            }
+        )
+    out.sort(key=lambda b: b["tick"])
+    return out
+
+
+def _bomb_events(demo: ParsedDemo, ticks) -> list[dict]:
+    """Plant/defuse/explode markers with a three-tier coordinate fallback:
+    event coordinates -> planter position interpolated from tick rows -> null
+    (client renders a site-label chip instead of a map pin)."""
+    out: list[dict] = []
+
+    def planter_xy(sid: str, tick: int):
+        if not sid or ticks is None or ticks.empty:
+            return None, None
+        sub = ticks[ticks["steamid"] == sid].sort_values("tick")
+        if sub.empty or not sub["X"].notna().any():
+            return None, None
+        import numpy as np
+
+        t = sub["tick"].to_numpy(dtype=float)
+        x = float(np.interp(tick, t, sub["X"].to_numpy(dtype=float)))
+        y = float(np.interp(tick, t, sub["Y"].to_numpy(dtype=float)))
+        import math
+
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return None, None
+        return round(x, 1), round(y, 1)
+
+    for table, type_code in _BOMB_TABLES:
+        df = demo.events.get(table)
+        if df is None or df.empty:
+            continue
+        for _, row in df.iterrows():
+            sid = _text(row.get("user_steamid", "") or row.get("steamid", ""))
+            tick = int(row.get("tick", 0) or 0)
+            x = _finite_or_none(row.get("user_X"))
+            y = _finite_or_none(row.get("user_Y"))
+            if x is None:
+                x, y = planter_xy(sid, tick)
+            out.append(
+                {
+                    "tick": tick,
+                    "type": type_code,
+                    "site": _text(row.get("site", "")) or None,
+                    "x": x,
+                    "y": y,
+                    "sid": sid,
+                }
+            )
+    out.sort(key=lambda b: b["tick"])
+    return out
 
 
 def build_and_save(demo: ParsedDemo, out_dir: Path) -> tuple[Path, int]:
@@ -213,4 +468,99 @@ def build_and_save(demo: ParsedDemo, out_dir: Path) -> tuple[Path, int]:
     path.write_text(text, encoding="utf-8")
     size = len(text.encode("utf-8"))
     logger.info("viewer-data %s: %.2f MB raw", demo.metadata.demo_hash[:12], size / 1e6)
+    return path, size
+
+
+# ---- heavy layers artifact (lazy-loaded overlays) ----
+
+LAYER_KEYS = ("shots", "economy")
+
+
+def build_viewer_layers(demo: ParsedDemo, keys: tuple[str, ...] = LAYER_KEYS) -> dict:
+    """Shots (per-bullet firing points) and per-round economy summaries.
+
+    Kept out of the base payload: ~1600 shot rows and the purchase log would
+    grow every initial page-load for overlays most sessions never open.
+    The layers artifact ships its own weapon_table (self-contained).
+    """
+    weapons = _WeaponTable()
+    payload: dict = {"layer_version": LAYER_VERSION}
+    if "shots" in keys:
+        payload["shots"] = _shot_events(demo, weapons)
+    if "economy" in keys:
+        payload["economy"] = _economy_events(demo, weapons)
+    payload["weapon_table"] = weapons.names
+    return payload
+
+
+def _shot_events(demo: ParsedDemo, weapons: _WeaponTable) -> list[dict]:
+    df = demo.events.get("weapon_fire")
+    out: list[dict] = []
+    if df is None or df.empty:
+        return out
+    for _, row in df.iterrows():
+        x = _finite_or_none(row.get("user_X"))
+        y = _finite_or_none(row.get("user_Y"))
+        if x is None:
+            continue  # Team 0 shooters have no position; skip silently
+        out.append(
+            {
+                "tick": int(row.get("tick", 0) or 0),
+                "x": round(x, 1),
+                "y": round(y, 1),
+                "sid": _text(row.get("user_steamid", "")),
+                "wi": weapons.index(_short_weapon(_text(row.get("weapon", "")))),
+            }
+        )
+    out.sort(key=lambda s: s["tick"])
+    return out
+
+
+_ECON_EMPTY = {"spend": 0, "weapons": [], "nades": 0}
+
+
+def _economy_events(demo: ParsedDemo, weapons: _WeaponTable) -> dict:
+    """Per-round-per-player purchase summary from item_purchase."""
+    df = demo.events.get("item_purchase")
+    rounds: dict[str, dict[str, dict]] = {}
+    if df is None or df.empty:
+        return {"rounds": rounds}
+
+    bounds = [(int(r.start_tick), int(r.end_tick)) for r in demo.regular_rounds]
+
+    def round_at(tick: int) -> int:
+        for i, (start, end) in enumerate(bounds):
+            if start <= tick <= end:
+                return i + 1
+        return 0
+
+    for _, row in df.iterrows():
+        rnd = round_at(int(row.get("tick", 0) or 0))
+        if rnd == 0:
+            continue
+        sid = _text(row.get("steamid", "") or row.get("user_steamid", ""))
+        if not sid:
+            continue
+        item = _short_weapon(_text(row.get("item_name", row.get("weapon", ""))))
+        cost = int(row.get("cost", 0) or 0)
+        bucket = rounds.setdefault(str(rnd), {}).setdefault(
+            sid, {"spend": 0, "weapons": [], "nades": 0}
+        )
+        bucket["spend"] += cost
+        bucket["weapons"].append(weapons.index(item))
+        if item.startswith(_GRENADE_ITEM_PREFIXES):
+            bucket["nades"] += 1
+    return {"rounds": rounds}
+
+
+def build_and_save_layers(demo: ParsedDemo, out_dir: Path,
+                          keys: tuple[str, ...] = LAYER_KEYS) -> tuple[Path, int]:
+    payload = build_viewer_layers(demo, keys)
+    path = viewer_layers_path(demo.metadata.demo_hash, out_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    path.write_text(text, encoding="utf-8")
+    size = len(text.encode("utf-8"))
+    logger.info("viewer-layers %s (%s): %.2f MB raw",
+                demo.metadata.demo_hash[:12], ",".join(keys), size / 1e6)
     return path, size

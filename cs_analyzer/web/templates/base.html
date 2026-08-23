@@ -8,11 +8,10 @@
 </head>
 <body>
 <nav class="topbar">
-  <span class="brand">🎯 CsDemoAnalyzer</span>
+  <span class="brand">CsDemoAnalyzer</span>
   {% set p = request.url.path %}
-  <a href="/" class="{{ 'active' if p == '/' or not p.startswith(('/aggregate', '/studio', '/coverage')) else '' }}">Demo 分析器</a>
-  <a href="/aggregate" class="{{ 'active' if p.startswith('/aggregate') else '' }}">定量·跨场聚合</a>
-  <a href="/studio" class="{{ 'active' if p.startswith('/studio') else '' }}">视频导出</a>
+  <a href="/" class="{{ 'active' if p == '/' or not p.startswith(('/aggregate', '/coverage')) else '' }}">Demo 库</a>
+  <a href="/aggregate" class="{{ 'active' if p.startswith('/aggregate') else '' }}">跨场聚合</a>
   <a href="/coverage" class="{{ 'active' if p.startswith('/coverage') else '' }}">覆盖度</a>
 </nav>
 <main>
