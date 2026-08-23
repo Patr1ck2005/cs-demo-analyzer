@@ -24,6 +24,14 @@ Local-first CS2 demo analysis toolkit. Parses `.dem` files into typed intermedia
 - Cross-match aggregation: player rating matrix, T/CT win rates, score trends (matched by steamid)
 - Parse-coverage report (`csa coverage`): which demos/players are fully replayable + Team 0 investigation
 
+**P4 - Canvas Real-Time Replay Viewer (Phase C)**
+- Esports OB layout: 2D map center, T/CT 5-player panels (name/weapon/HP/armor), scoreboard + round clock
+- Zero prerender wait: viewer-data snapshot pack (8Hz, gzip ~0.8MB) built on first open (<2s)
+- Yaw view cones, movement trails, smoke/fire/flash/HE/kill effects on a 3-layer canvas
+- Tick-domain timeline: drag seek, 0.25-8x speed, keyboard controls (Space/arrows/1-8), click a round block to jump
+- Live team assignment from per-tick team_num (side swaps handled automatically; WMPVP stale-roster bug fixed)
+- Site-wide esports dark theme (T amber / CT blue identity colors)
+
 ## Installation
 
 ```bash

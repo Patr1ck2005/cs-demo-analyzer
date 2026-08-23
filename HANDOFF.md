@@ -4,23 +4,17 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析工具。5 层架构（parser → model → analysis → render → export）已全部落地，9 个 CLI 命令可用，包可导入（`cs_analyzer` 0.1.0），雷达图视频成品已验证产出。
+CsDemoAnalyzer：本地优先 CS2 demo 分析工具。5 层架构（parser → model → analysis → render → export）已全部落地，9 个 CLI 命令入口保留，雷达图视频成品已验证产出。
 
-**主分支 commit 历史**（git log，倒序）：
+**当前形态（2026-08-23, Phase C 完成后）**：产品定位 = **CS2 demo 分析器**（非视频工作室），两个分析视角——定量（统计/雷达/聚合）+ 空间-时间（**Canvas 实时回放器**，电竞 OB 观赛布局）。本地 Web 平台（FastAPI, `csa serve` → `http://127.0.0.1:8000`）是主入口；matplotlib 视频管线冻结迭代（studio 导出仍可用）。149 测试全绿。
+
+**主分支 commit 历史**（git log，倒序，最新 3 条）：
 ```
-37a678d feat: add CSV-to-radar adapter + ffmpeg fallback when ffprobe unavailable
-88f95fc chore: gitignore generated artifacts and update dev_log with completion
-54ade02 docs: add README with usage examples and architecture overview
-0962ba5 feat: add player preference analysis (positioning, utility, peek, crosshair)
-7109dbb feat: add T/CT overlap animation renderer + fix steamid type mismatch
-7b55c20 feat: add 2D action map renderer with multi-round trajectory overlay
-4061e02 feat: add export layer (video + report), batch framework, and typer CLI
-57220ef feat: migrate radar chart to config-driven architecture (Layer 4 render)
-2b97779 feat: add analysis layer (basic_stats + ratings) and fix CS2 winner/team-side mapping
-941de35 feat: add model + parser layers (pydantic models, demoparser2 backend, provider abstraction)
-bd80ec1 docs: add ARCHITECTURE.md with layered design and migration plan
-51a1af4 archive: pre-agent era final state with radar chart work
+6b41e58 feat: web demo analyzer (2D viewer + export studio) + load speedups
+395edb3 feat: web demo analyzer platform + replay/video polish checkpoint
+dcb9d4f feat: add parse coverage scanner + report (LTG-3)
 ```
+（Phase B 加速 + Phase C canvas 实时回放器改动在工作区待提交，见 §7。）
 
 ## 2. 已实现功能（对照验收指标）
 
@@ -96,21 +90,33 @@ python -m cs_analyzer batch configs/batch_example.yaml --parallel 4
 - 分析: `cs_analyzer/analysis/`（basic_stats, ratings, preference, **aggregate** 跨场聚合）
 - 回放: `cs_analyzer/replay/timeline.py`（PlayerTimeline + round_freeze_ends + 存活窗口）
 - 渲染: `cs_analyzer/render/`（radar_chart, action_map, **replay_animation**, **team_animation**, effects, hud, fonts, **radar_static**, **preference_charts**, **aggregate_charts**）
-- Web: `cs_analyzer/web/`（app.py FastAPI 路由, store.py demo 索引, tasks.py 后台任务, templates/, static/）
+- Web: `cs_analyzer/web/`（app.py FastAPI 路由, store.py demo 索引, tasks.py 后台任务, **viewer_data.py** canvas 数据包, replay_map.py 视频预渲染, templates/, static/**viewer_canvas.js**）
+- 地图: `cs_analyzer/maps/loader.py` + `maps/data/`（mirage/ancient/inferno 官方雷达 PNG + yaml bounds）
 - 导出: `cs_analyzer/export/video.py` (ffmpeg), `report.py`
 - 缓存: `cs_analyzer/cache.py`, `batch.py`
 
 ## 7. 下一步建议（按优先级）
 
-1. **全面人工验收（当前阶段）**：Web 平台浏览器点验（`csa serve` → `http://127.0.0.1:8000`，Demo 列表 → ⚡女帝⚡ 场 → 选手详情雷达/偏好/回放、跨场聚合页）；`output/coverage/coverage.html` 覆盖度报告；`git diff` + `git diff --cached` 审核 Phase 2/3 未提交改动。验收后按用户拍板 provenance 分批提交。
-2. **LTG-1 M3 已取消**（用户决定），不再做终极合成视频；2D 回放系统是核心交付物。
-3. **补地图底图** → `cs_analyzer/maps/data/de_mirage.png` + yaml 坐标映射（Web 热力图/回放底图更专业）。
-4. **同步 ARCHITECTURE.md** → 对齐实际代码结构（§5.6 列出的漂移点 + 新增 web/coverage/aggregate）。
-5. **可选**：装 ffprobe 根治探测、provider 补充真实队名映射。
+1. **提交 Phase B 加速 + Phase C + Phase D 全部改动**（当前阶段）：工作区含 canvas 实时回放器（viewer_data.py/viewer_canvas.js/replay_viewer.html 重写/全站电竞风 CSS/T/CT 配色修复 PARSER_VERSION 1.5.1/yaw 朝向修复/字号 token 体系/击杀流分组/coverage 接入 web/测试 150 绿），用户验收后按 provenance 规则提交。
+2. **弹药数据**：demoparser2 0.41.4 无 clip/reserve 路由（`scripts/probe_ammo.py` 已证）。升级 demoparser2 后重探，viewer-data `VIEWER_DATA_VERSION` bump + OB 面板加弹药位。
+3. **更多地图**：`maps/data/` 目前 mirage/ancient/inferno 三图（官方雷达 PNG + radar_info 校准 bounds）。新图从 MurkyYT/cs2-map-icons 取 PNG + radar_info 元数据校准 yaml。
+4. **可选**：装 ffprobe 根治探测、provider 补充真实队名映射、player_detail 旧雷达 PNG 版本键重生成（当前 v1.5.1 键已生效，旧文件自然失效）。
 
 ## 8. 已验证里程碑（本阶段成果）
 
-- **LTG-2 本地 Web 平台（deepseek-v4-pro 本轮，待人工验收）**：FastAPI + Jinja2 全中文服务端渲染。`cs_analyzer/web/`（app.py 路由 / store.py demo 索引 / tasks.py 线程任务管理器 / 7 模板 / static），`csa serve` 命令。阶段1 单场复盘（列表/上传后台解析/详情统计+雷达/选手偏好+回放按需渲染），阶段2 跨场聚合（Rating 矩阵/T胜率/趋势）。雷达图用 matplotlib 静态 PNG（radar_static.py）替代慢速 manim。uvicorn 实跑 `http://127.0.0.1:8000`，113 测试全绿。
+- **Phase D yaw 修复 + 排版/IA 收尾（ox-alpha-free 本轮，待提交）**：
+  - D1 yaw 朝向修复：demoparser2 yaw = Source 约定 0=+X（12613 移动样本圆周误差 -0.8° 实证），viewer_canvas.js 误按 0=+Y → 90° 漂移；修为 `(cos,-sin)`；parquet/JSON 双源 + 窗口长度对照验证闭环（2-tick med 5.6° vs 旧约定 89.9° 对照）。
+  - D2 字号 token：style.css `:root` 建 `--fs-xs 12px`（下限）~ `--fs-xl 30px` + 行高 token，全站硬编码替换（11px 全升 12px），coverage.html 同步。
+  - D3 击杀流重组：按回合 `<details>` 分组默认折叠（全量不截断），回合时间线徽章锚点跳转。
+  - D4 导航理顺：顶栏 active 态 + 覆盖度入口；`GET /coverage` 路由（产物存在即服务/缺失给 csa coverage 提示）；studio 子页补返回链接；demo_detail 补 h1；player_detail 徽章移出 h1；index "查看" 改按钮样式。150 测试全绿，playwright 9 页 console 零错误。
+- **Phase C Canvas 实时回放器（ox-alpha-free 本轮，待提交）**：
+  - M1 T/CT 配色修复：WMPVP player_info/spawns 快照阵营错/过期 → 以正式局逐 tick team_num 多数派为真值（`backend._apply_live_majority`），PARSER_VERSION 1.5.0，探针 0 MISMATCH。
+  - M2 viewer-data 数据包：`web/viewer_data.py`（VIEWER_DATA_VERSION=1）8Hz 向量化快照 + tick 域 segments + 扩展事件 + 地图 meta；`GET /api/demo/{hash}/viewer-data` 现算 <2s、gzip ~0.78MB；弹药 V1=null（0.41.4 无路由，`scripts/probe_ammo.py` 已证）。
+  - M3+M4 canvas 前端：`static/viewer_canvas.js` 三层画布（map/fx/main）+ 单 rAF + 二分插值 + yaw 扇形 + 轨迹渐变 + 特效 + tick 域时间轴（拖拽/倍速/键盘）+ DOM OB 面板（100ms 节流/换边自动换列/HP 三色条）+ 记分条。
+  - M5 全站美术：style.css 电竞观赛风 token（--bg #0b0e14/--accent #4da3ff/--t #ffb02e/--ct #3d9bff/glow），h2 大写字距/tabular-nums/按钮描边+hover glow；matplotlib 胜者横幅 fontsize 52→18（冻结管线一行修）。
+  - M6 验收+清理：playwright 8 页截图 console 零错误；根治 viewer 坐标 bug（世界坐标需经 worldToPixel 两级变换）；删 replay_viewer.js/.viewer-wrap 死代码；index 徽章统一"实时回放 ▶"（无预渲染门槛）；149 测试全绿。
+- **Phase B 加速（deepseek-v4-pro, 已提交 6b41e58）**：详情页 54s→3.7s（PNG 落盘跳过重渲染 + searchsorted 向量化）、viewer 预渲染 6min→3.5min、studio 表单默认全开。
+- **LTG-2 本地 Web 平台（deepseek-v4-pro, 已提交）**：FastAPI + Jinja2 全中文服务端渲染，`csa serve` 命令，单场复盘 + 跨场聚合 + 视频导出工作室（studio）。
 - **STG-1 回放打磨（deepseek-v4-pro 本轮）**：重叠类回合/结束淡出（ReplayConfig 加 `overlay_fade_seconds`，单player overlay + 团队 _fade_hold + alpha 重置），射击标记 z-order 降到轨迹下（3），HUD 侧别徽章 T黄/CT蓝 反馈。ffmpeg 帧分析验证淡出（单player 22k→12.8k 亮像素，团队逐回合边界升-降-升）。**已 git reset --soft 撤下提交，改动保留待审核**。
 - **LTG-3 解析覆盖度报告（deepseek-v4-pro 本轮）**：`cs_analyzer/coverage.py` + `csa coverage` → `output/coverage/coverage.html`（总览矩阵/逐 demo 明细/调查结论/已知限制）。Team 0 根因查明：demoparser2 库层 pawn 解析限制（全位置 NaN、逐广播特定、不可重建），7/60 玩家位次。**已提交 dcb9d4f**。
 - **统一渲染配方框架（deepseek-v4-pro 本轮）**：`cs_analyzer/recipe.py`（Recipe 模型 + flatten_style/apply_style/render_recipe）+ `configs/recipes.yaml`（8 个声明式配方）+ `csa recipe <demo> <名> [--override style.yaml]` 统一入口。`ReplayConfig` 细粒度化（特效逐项开关 show_*/各类颜色/半径/时长、轨迹、HUD 元素、选手标记/光环、团队色板 t_palette/ct_palette），渲染器全部读配置（effects.py 去掉硬编码颜色）。样式覆盖：`canvas/trail/marker/hud/team/effects`。

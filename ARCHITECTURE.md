@@ -31,9 +31,12 @@ CsDemoAnalyzer 是一个本地优先的 CS2 demo 分析工具，将 `.dem` 文�
 | provider 链 | ✅ Valve / Faceit / PerfectWorld（单文件 `providers.py`，非子包） |
 | analysis 模块 | ⚠️ 仅 `basic_stats` / `ratings` / `preference` 三个；economy/clutch/refrag/post_plant 未实现，positioning/utility/peek 合并进 `preference.py` |
 | `export/image.py`、`render/styles.py` | ❌ 不存在（图像导出走 PIL 在渲染层，样式在 config） |
-| maps 数据 | ⚠️ 仅 `de_mirage.yaml`，无 PNG 底图 |
-| 解析稳健性 | ✅ 支持无 player_info / 无 round_start 事件的 SourceTV demo（从 spawns 重建玩家、兼容字符串 winner） |
-| 2D 回放系统 | ✅ `cs_analyzer/replay/`（PlayerTimeline）+ `render/replay_animation.py`（手动帧循环 + FFMpegWriter）+ 特效/HUD/中文字体；`csa replay` 四种模式（all/highlights/openings/montage） |
+| maps 数据 | ✅ de_mirage / de_ancient / de_inferno（官方雷达 PNG + yaml bounds，`/maps/{name}` 路由 immutable 缓存） |
+| 解析稳健性 | ✅ 支持无 player_info / 无 round_start 事件的 SourceTV demo（从 spawns 重建玩家、兼容字符串 winner）；T/CT 阵营以正式局逐 tick team_num 多数派为真值（PARSER_VERSION 1.5.1） |
+| 2D 回放系统 | ✅ `cs_analyzer/replay/`（PlayerTimeline）+ `render/replay_animation.py`（手动帧循环 + FFMpegWriter）+ 特效/HUD/中文字体；`csa replay` 四种模式（all/highlights/openings/montage）+ 配方框架（`recipe.py` + `configs/recipes.yaml`） |
+| Web 平台 (LTG-2) | ✅ FastAPI+Jinja2：上传/解析/详情/选手/聚合/视频导出工作室（studio）+ 覆盖度报告 |
+| Canvas 实时回放器 (Phase C) | ✅ `/demo/{hash}/viewer`：`web/viewer_data.py`（8Hz 快照数据包，gzip ~0.8MB）+ `static/viewer_canvas.js` 三层画布（底图/特效/主层）+ 电竞 OB 观赛布局（左右 5 人面板/记分条/tick 域时间轴/倍速 0.25-8×/键盘控制）；视频预渲染 MVP 已被替代（studio 仍可导出视频） |
+| 全站美术 | ✅ 电竞观赛风 token（`style.css` `:root` 深色 neon 蓝 + T 黄/CT 蓝队伍身份色） |
 
 ---
 
@@ -353,10 +356,21 @@ CsDemoAnalyzer/
 │   │   ├── video.py                   # ffmpeg 合成 (bg + music, NVENC)
 │   │   └── report.py                  # JSON/HTML 报告
 │   │
+│   ├── web/                           # LTG-2 本地 Web 平台 (FastAPI)
+│   │   ├── __init__.py
+│   │   ├── app.py                     # 路由: 首页/上传/demo/选手/聚合/studio/viewer + API
+│   │   ├── store.py                   # demo 索引
+│   │   ├── tasks.py                   # 线程任务管理器 (后台渲染)
+│   │   ├── viewer_data.py             # canvas 回放数据包 (8Hz 快照, VIEWER_DATA_VERSION)
+│   │   ├── replay_map.py              # 视频预渲染 MVP (RENDER_VERSION, studio 用)
+│   │   ├── coverage.py                # 解析覆盖度扫描 + 报告
+│   │   ├── templates/                 # Jinja2 页面 (7 页 + viewer/studio/coverage)
+│   │   └── static/                    # style.css (电竞风 token) / viewer_canvas.js / studio.js / app.js
+│   │
 │   └── maps/                          # 地图资源
 │       ├── __init__.py
 │       ├── loader.py                  # 雷达图加载、坐标映射
-│       └── data/                      # 目前仅 de_mirage.yaml（无 PNG）
+│       └── data/                      # de_mirage/de_ancient/de_inferno .yaml + 官方雷达 .png
 │
 ├── configs/                           # 示例配置
 │   ├── default.yaml
@@ -640,7 +654,7 @@ export:
 ```toml
 [project]
 dependencies = [
-    "demoparser2>=2.0",        # demo 解析
+    "demoparser2>=0.41",       # demo 解析
     "pydantic>=2.0",           # 数据模型
     "pydantic-settings>=2.0",  # 配置
     "typer>=0.9",              # CLI
