@@ -43,6 +43,8 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
+最省事的方式：双击仓库根目录的 **`start_web.bat`**（自动起服务 + 打开浏览器；重复点击只开浏览器不会重复起进程），**`stop_web.bat`** 一键关闭。
+
 ```bash
 # Show demo metadata (quick, no full parse)
 csa info path/to/demo.dem
