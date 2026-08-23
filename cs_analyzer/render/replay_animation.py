@@ -478,8 +478,8 @@ class ReplayAnimationRenderer:
         hud = ReplayHUD(self.config, timeline, self.demo)
         hud.attach(fig, ax)
 
-        winner_banner = fig.text(0.5, 0.5, "", color="white", fontsize=48, weight="bold",
-                                 ha="center", va="center", transform=fig.transFigure, zorder=30)
+        winner_banner = fig.text(0.5, 0.965, "", color="white", fontsize=18, weight="bold",
+                                 ha="center", va="top", transform=fig.transFigure, zorder=30)
         winner_banner.set_visible(False)
 
         ctx = {

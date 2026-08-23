@@ -3,10 +3,14 @@
 {% block content %}
 <div class="sub"><a href="/">← 返回列表</a></div>
 
+<h1>{{ demo.filename }}</h1>
 <div class="card">
   <div class="score"><span class="t">{{ demo.t_score }}</span> T &nbsp;:&nbsp;
     <span class="ct">{{ demo.ct_score }}</span> CT</div>
-  <div class="sub">{{ demo.filename }} · {{ demo.map_name }} · {{ demo.provider }} · {{ demo.num_rounds }} 回合</div>
+  <div class="sub">{{ demo.map_name }} · {{ demo.provider }} · {{ demo.num_rounds }} 回合</div>
+  <div style="margin-top:10px">
+    <a class="btn" href="/demo/{{ demo.hash }}/viewer">🗺️ 实时回放器</a>
+  </div>
 </div>
 
 <h2>选手统计（{{ players|length }}）</h2>
@@ -45,16 +49,24 @@
 <h2>回合时间线</h2>
 <div class="pill-row">
   {% for r in rounds %}
-    <span class="badge {{ 't' if r.winner_side=='T' else 'ct' }}">R{{ r.number }} {{ r.winner_side }}</span>
+    <a class="badge {{ 't' if r.winner_side=='T' else 'ct' }}" href="#kill-r{{ r.number }}"
+       title="跳到 R{{ r.number }} 击杀组">R{{ r.number }} {{ r.winner_side }}</a>
   {% endfor %}
 </div>
 
 <h2>击杀流</h2>
-<div class="card">
-  {% for k in kills %}
-    <div class="kill-line">R{{ k.round }} · {{ k.attacker }} 击杀 {{ k.victim }} ({{ k.weapon }})</div>
-  {% else %}
-    <div class="sub">无击杀事件</div>
-  {% endfor %}
-</div>
+{% for g in kills %}
+<details class="kill-group" id="kill-r{{ g.round }}">
+  <summary>R{{ g.round }} · {{ g.kills|length }} 杀
+    <span class="badge kg-winner {{ 't' if g.winner_side=='T' else 'ct' }}">{{ g.winner_side }} 胜</span>
+  </summary>
+  <div class="kill-body">
+    {% for k in g.kills %}
+      <div class="kill-line">{{ k.attacker }} 击杀 {{ k.victim }} ({{ k.weapon }})</div>
+    {% endfor %}
+  </div>
+</details>
+{% else %}
+<div class="card sub">无击杀事件</div>
+{% endfor %}
 {% endblock %}

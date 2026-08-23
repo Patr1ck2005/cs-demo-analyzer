@@ -1,13 +1,17 @@
-# de_mirage radar map coordinate bounds.
-# World coordinate ranges derived from demo tick data analysis.
-# Radar image: 1024x1024 (standard CS2 radar resolution).
-# Refine these bounds by calibrating known positions if needed.
+# de_mirage radar map coordinate calibration.
+# Image: official CS2 overview radar (de_mirage_radar_psd.png, 1024x1024 RGBA),
+# sourced from MurkyYT/cs2-map-icons (extracted from game VPKs).
+# Bounds derived from the game's official radar_info metadata:
+#   pos_x=-3230, pos_y=1713, scale=5
+# Standard Source mapping px=(x-pos_x)/scale, py=(pos_y-y)/scale is exactly
+# equivalent to the loader's bounds formula with:
+#   min_x=pos_x, max_x=pos_x+scale*W, max_y=pos_y, min_y=pos_y-scale*H
 
 map_name: de_mirage
 image_width: 1024
 image_height: 1024
 bounds:
-  min_x: -2700.0
-  max_x: 1500.0
-  min_y: -2700.0
-  max_y: 900.0
+  min_x: -3230.0
+  max_x: 1890.0
+  min_y: -3407.0
+  max_y: 1713.0

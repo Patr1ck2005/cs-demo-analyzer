@@ -8,14 +8,15 @@
   <div class="view-card">
     <div class="view-icon">📊</div>
     <div class="view-title">定量分析视角</div>
-    <div class="view-desc">选手数据（击杀/ADR/Rating）、六边形雷达、偏好热力图、跨场聚合矩阵。</div>
+    <div class="view-desc">选手数据（击杀/ADR/Rating）、六边形雷达、偏好热力图、跨场聚合矩阵、解析覆盖度报告。</div>
     <a class="btn" href="/aggregate">跨场聚合</a>
+    <a class="btn btn-ghost" href="/coverage">覆盖度报告</a>
   </div>
   <div class="view-card">
     <div class="view-icon">🗺️</div>
     <div class="view-title">空间-时间回放视角</div>
-    <div class="view-desc">2D 地图 + 可拖动时间轴，查看整局 10 人走位/击杀/道具发生的时间与位置。</div>
-    <span class="sub">选择一个 demo 进入回放器（首次需预渲染）</span>
+    <div class="view-desc">2D 地图实时回放 + 观赛面板：10 人走位/朝向/血量/枪械，任意拖拽，职业赛事观赛体验。</div>
+    <span class="sub">选择一个 demo 进入回放器（即时打开）</span>
   </div>
 </div>
 
@@ -40,8 +41,8 @@
       <td>{{ d.provider }}</td>
       <td>{{ d.num_rounds }}</td>
       <td>{{ d.players|length }}</td>
-      <td><a class="badge ok" href="/demo/{{ d.demo_hash }}">查看</a></td>
-      <td><a class="badge t" href="/demo/{{ d.demo_hash }}/viewer">回放</a></td>
+      <td><a class="btn btn-sm" href="/demo/{{ d.demo_hash }}">查看</a></td>
+      <td><a class="badge ct" href="/demo/{{ d.demo_hash }}/viewer">实时回放 ▶</a></td>
     </tr>
   {% else %}
     <tr><td colspan="7" class="sub">还没有解析的 demo，上传一个 .dem 开始。</td></tr>

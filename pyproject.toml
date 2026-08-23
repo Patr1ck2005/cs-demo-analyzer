@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "demoparser2>=2.0",
+    "demoparser2>=0.41",
     "pydantic>=2.5",
     "pydantic-settings>=2.1",
     "typer>=0.9",

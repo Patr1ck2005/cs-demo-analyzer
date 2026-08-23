@@ -1,0 +1,14 @@
+# de_ancient radar map coordinate calibration.
+# Image: official CS2 overview radar (de_ancient_radar_psd.png, 1024x1024 RGBA),
+# sourced from MurkyYT/cs2-map-icons (extracted from game VPKs).
+# Bounds derived from the game's official radar_info metadata:
+#   pos_x=-2953, pos_y=2164, scale=5
+
+map_name: de_ancient
+image_width: 1024
+image_height: 1024
+bounds:
+  min_x: -2953.0
+  max_x: 2167.0
+  min_y: -2956.0
+  max_y: 2164.0

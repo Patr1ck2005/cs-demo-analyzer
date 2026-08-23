@@ -13,9 +13,11 @@ from fastapi import Body, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.gzip import GZipMiddleware
 
 from cs_analyzer.analysis import AnalysisRunner
 from cs_analyzer.analysis.aggregate import compute_aggregate
+from cs_analyzer import cache
 from cs_analyzer.cache import DemoCache
 from cs_analyzer.config import AnalysisConfig, RadarChartConfig, load_settings
 from cs_analyzer.model.parsed_demo import ParsedDemo
@@ -30,6 +32,7 @@ OUT_DIR = Path("output") / "web"
 DEMOS_DIR = Path("demos")
 
 app = FastAPI(title="CsDemoAnalyzer 本地平台", version="0.1.0")
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 _analysis_cache: dict[str, dict] = {}
@@ -162,7 +165,59 @@ def aggregate(request: Request):
     )
 
 
+@app.get("/coverage", response_class=HTMLResponse)
+def coverage_page(request: Request):
+    """Serve the CLI-generated coverage report; explain how to build it if absent."""
+    report = Path("output") / "coverage" / "coverage.html"
+    if report.exists():
+        return FileResponse(report, media_type="text/html",
+                            headers={"Cache-Control": "no-cache"})
+    return TEMPLATES.TemplateResponse(
+        request, "error.html",
+        {"message": "覆盖度报告尚未生成。请先运行: csa coverage \"demos/*.dem\" --out output/coverage/coverage.html"}
+    )
+
+
 # ---- 2D map replay viewer (B2) ----
+
+# ---- real-time canvas viewer data (Phase C) ----
+
+@app.get("/api/demo/{demo_hash}/viewer-data")
+def get_viewer_data(demo_hash: str):
+    """Per-player snapshot payload for the canvas viewer. Serves the cached
+    artifact when version-fresh; otherwise builds it inline (<10s)."""
+    import time as _time
+
+    from cs_analyzer.web import viewer_data
+
+    cached = viewer_data.load_viewer_data(demo_hash, OUT_DIR)
+    if cached is not None:
+        return FileResponse(
+            viewer_data.viewer_data_path(demo_hash, OUT_DIR),
+            media_type="application/json",
+            headers={"Cache-Control": "no-cache"},
+        )
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    t0 = _time.time()
+    path, size = viewer_data.build_and_save(demo, OUT_DIR)
+    logger.info("viewer-data built in %.1fs (%.2f MB)", _time.time() - t0, size / 1e6)
+    return FileResponse(path, media_type="application/json",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/maps/{map_name}")
+def map_image(map_name: str):
+    """Serve official radar PNGs (immutable: images are content-pinned by name)."""
+    from cs_analyzer.maps.loader import MAPS_DATA_DIR
+
+    allowed = {p.stem: p for p in MAPS_DATA_DIR.glob("*.png")}
+    p = allowed.get(map_name.removesuffix(".png"))
+    if p is None:
+        return JSONResponse({"error": "unknown map"}, status_code=404)
+    return FileResponse(p, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
 
 @app.get("/demo/{demo_hash}/viewer", response_class=HTMLResponse)
 def demo_viewer(request: Request, demo_hash: str):
@@ -173,6 +228,8 @@ def demo_viewer(request: Request, demo_hash: str):
         )
     meta = demo.metadata
     reg = demo.regular_rounds
+    from cs_analyzer.web import viewer_data
+
     return TEMPLATES.TemplateResponse(
         request, "replay_viewer.html",
         {
@@ -184,7 +241,7 @@ def demo_viewer(request: Request, demo_hash: str):
                 "ct_score": reg[-1].ct_score if reg else 0,
                 "num_rounds": len(reg),
             },
-            "ready": replay_map.is_ready(demo_hash, OUT_DIR),
+            "data_ready": viewer_data.is_ready(demo_hash, OUT_DIR),
         },
     )
 
@@ -195,7 +252,7 @@ def replay_map_status(demo_hash: str):
         return JSONResponse({"status": "missing"})
     data = replay_map.load_map(demo_hash, OUT_DIR)
     data["status"] = "ready"
-    data["video_url"] = f"/media/{demo_hash}/viewer/replay.mp4"
+    data["video_url"] = f"/media/{demo_hash}/viewer/replay.mp4?v={replay_map.RENDER_VERSION}"
     return JSONResponse(data)
 
 
@@ -232,8 +289,17 @@ def studio_replay_page(request: Request, demo_hash: str):
 
     recipes = load_recipes(Path("configs/recipes.yaml"))
     recs = [{"name": n, "title": r.title, "kind": r.kind} for n, r in recipes.items()]
+    analysis = _analyze(demo)
+    from cs_analyzer.coverage import _player_position_stats
+
+    pos = _player_position_stats(demo)
+    plist = [
+        {"steamid": bs.steamid, "name": bs.name, "replayable": pos.get(bs.steamid, (False, 0.0))[0]}
+        for bs in analysis["basic"].players
+    ]
     return TEMPLATES.TemplateResponse(
-        request, "studio_replay.html", {"demo": _demo_meta(demo), "recipes": recs}
+        request, "studio_replay.html",
+        {"demo": _demo_meta(demo), "recipes": recs, "players": plist},
     )
 
 
@@ -280,10 +346,12 @@ def _studio_replay_job(demo_hash: str, recipe: str, player: str, override: dict)
     if demo is None:
         raise ValueError("demo not found")
     from cs_analyzer.recipe import load_recipes, render_recipe
+    from cs_analyzer.web.replay_map import RENDER_VERSION
 
     recipes = load_recipes(Path("configs/recipes.yaml"))
     rec = recipes[recipe]
-    out = OUT_DIR / demo_hash / "studio" / f"{recipe}_{player or 'team'}.mp4"
+    # RENDER_VERSION in the filename invalidates stale (pre-basemap) artifacts
+    out = OUT_DIR / demo_hash / "studio" / f"v{RENDER_VERSION}_{recipe}_{player or 'team'}.mp4"
     render_recipe(demo, rec, out, player=player, overrides=override or None)
     return f"/media/{demo_hash}/studio/{out.name}"
 
@@ -356,11 +424,12 @@ def _render_recipe_job(demo_hash: str, recipe: str, player: str) -> str:
     if demo is None:
         raise ValueError("demo not found")
     from cs_analyzer.recipe import load_recipes, render_recipe
+    from cs_analyzer.web.replay_map import RENDER_VERSION
 
     recipes = load_recipes(Path("configs/recipes.yaml"))
     rec = recipes[recipe]
     pid = player or "team"
-    out = OUT_DIR / demo_hash / f"replay_{recipe}_{pid}.mp4"
+    out = OUT_DIR / demo_hash / f"v{RENDER_VERSION}_replay_{recipe}_{pid}.mp4"
     result = render_recipe(demo, rec, out, player=player)
     return str(result)
 
@@ -370,7 +439,9 @@ def media(demo_hash: str, rest: str):
     path = OUT_DIR / demo_hash / rest
     if not path.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
-    return FileResponse(path)
+    # revalidate every time: renders regenerate under the same URLs, and a
+    # heuristically-cached old video would hide newly rendered basemaps
+    return FileResponse(path, headers={"Cache-Control": "no-cache"})
 
 
 # ---- helpers ----
@@ -433,7 +504,7 @@ def _demo_context(demo: ParsedDemo, analysis: dict) -> dict:
         },
         "players": players,
         "rounds": rounds,
-        "kills": kills,
+        "kills": _kill_groups(demo, rounds),
         "has_preference": analysis["preference"] is not None,
     }
 
@@ -456,17 +527,23 @@ def _player_context(demo: ParsedDemo, analysis: dict, steamid: str) -> dict | No
     if pref is not None:
         pp = next((p for p in pref.players if p.steamid == steamid), None)
 
+    replayable = _replayable(demo, steamid)
+    from cs_analyzer.web.replay_map import RENDER_VERSION
+
     replays = []
     for recipe, (kind, label) in REPLAY_RECIPES.items():
         pid = steamid if kind == "single" else "team"
-        vpath = OUT_DIR / meta.demo_hash / f"replay_{recipe}_{pid}.mp4"
+        vpath = OUT_DIR / meta.demo_hash / f"v{RENDER_VERSION}_replay_{recipe}_{pid}.mp4"
+        # single-player recipes are impossible without position data; say why
+        disabled = kind == "single" and not replayable
         replays.append(
             {
                 "recipe": recipe,
                 "label": label,
                 "kind": kind,
+                "disabled": disabled,
                 "exists": vpath.exists(),
-                "url": f"/media/{meta.demo_hash}/replay_{recipe}_{pid}.mp4" if vpath.exists() else None,
+                "url": f"/media/{meta.demo_hash}/{vpath.name}" if vpath.exists() else None,
             }
         )
 
@@ -484,7 +561,7 @@ def _player_context(demo: ParsedDemo, analysis: dict, steamid: str) -> dict | No
         "Rating": round(rt.Rating, 2) if rt else 0.0,
         "RWS": round(rt.RWS, 1) if rt else 0.0,
         "KAST": round(rt.KAST, 0) if rt else 0,
-        "replayable": _replayable(demo, steamid),
+        "replayable": replayable,
         "radar_img": radar_img,
     }
     pref_data = None
@@ -533,7 +610,29 @@ def _kill_feed(demo: ParsedDemo) -> list[dict]:
             }
         )
     rows.sort(key=lambda x: x["tick"])
-    return rows[-80:]  # last 80 for readability
+    return rows
+
+
+def _kill_groups(demo: ParsedDemo, rounds: list[dict]) -> list[dict]:
+    """Kill feed grouped by round (D3): [{round, winner_side, kills: [...]}].
+
+    Keeps every kill (no truncation) but collapses each round group in the UI.
+    """
+    kills = _kill_feed(demo)
+    if not kills:
+        return []
+    winner = {r["number"]: r["winner_side"] for r in rounds}
+    groups: dict[int, list[dict]] = {}
+    for k in kills:
+        groups.setdefault(k["round"], []).append(k)
+    return [
+        {
+            "round": rnd,
+            "winner_side": winner.get(rnd, ""),
+            "kills": groups[rnd],
+        }
+        for rnd in sorted(groups)
+    ]
 
 
 def _round_at_tick(demo: ParsedDemo, tick: int) -> int:
@@ -549,10 +648,10 @@ def _player_radar_png(demo, steamid, basic, ratings, radar_cfg) -> str:
     p = next((p for p in players if p.ID == (basic.by_steamid(steamid).name)), None)
     if p is None:
         return ""
-    out = OUT_DIR / demo.metadata.demo_hash / "radar" / f"{steamid}.png"
-    if not out.exists():  # render once, then reuse on disk (this was a ~8s page cost)
+    out = OUT_DIR / demo.metadata.demo_hash / "radar" / f"v{cache.PARSER_VERSION}_{steamid}.png"
+    if not out.exists():  # render once per parser version, then reuse on disk
         render_radar_static(p, radar_cfg, out)
-    return f"/media/{demo.metadata.demo_hash}/radar/{steamid}.png"
+    return f"/media/{demo.metadata.demo_hash}/radar/{out.name}"
 
 
 def _preference_pngs(demo, pref, steamid) -> dict:
@@ -569,16 +668,17 @@ def _preference_pngs(demo, pref, steamid) -> dict:
     if pp is None:
         return {}
     map_res = load_map_or_fallback(demo.metadata.map_name, demo.ticks)
-    h = OUT_DIR / demo.metadata.demo_hash / "pref" / f"{steamid}_heatmap.png"
-    u = OUT_DIR / demo.metadata.demo_hash / "pref" / f"{steamid}_utility.png"
-    s = OUT_DIR / demo.metadata.demo_hash / "pref" / f"{steamid}_style.png"
+    pv = f"v{cache.PARSER_VERSION}"
+    h = OUT_DIR / demo.metadata.demo_hash / "pref" / f"{pv}_{steamid}_heatmap.png"
+    u = OUT_DIR / demo.metadata.demo_hash / "pref" / f"{pv}_{steamid}_utility.png"
+    s = OUT_DIR / demo.metadata.demo_hash / "pref" / f"{pv}_{steamid}_style.png"
     if not h.exists():
         render_heatmap(pp, map_res, h)
     if not u.exists():
         render_utility_map(pp, map_res, u)
     if not s.exists():
         render_style_panel(pp, s)
-    base = f"/media/{demo.metadata.demo_hash}/pref/{steamid}"
+    base = f"/media/{demo.metadata.demo_hash}/pref/{pv}_{steamid}"
     return {"heatmap": f"{base}_heatmap.png", "utility": f"{base}_utility.png", "style": f"{base}_style.png"}
 
 

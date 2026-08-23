@@ -86,7 +86,7 @@ class DemoParserBackend:
         events = self._parse_events(parser)
         ticks = self._parse_ticks(parser)
 
-        data = self._build_demo_data(dem_path, demo_hash, header, player_info, events)
+        data = self._build_demo_data(dem_path, demo_hash, header, player_info, events, ticks)
 
         return ParsedDemo(data=data, events=events, ticks=ticks)
 
@@ -140,12 +140,13 @@ class DemoParserBackend:
         header: dict,
         player_info: pd.DataFrame,
         events: dict[str, pd.DataFrame],
+        ticks: pd.DataFrame | None = None,
     ) -> DemoData:
         map_name = str(header.get("map_name", "unknown"))
         server_name = header.get("server_name")
         client_name = header.get("client_name")
 
-        players = self._build_players(player_info, events)
+        players = self._build_players(player_info, events, ticks)
         rounds = self._build_rounds(events, players)
         team_a, team_b = self._build_teams(players)
 
@@ -169,20 +170,105 @@ class DemoParserBackend:
         )
 
     def _build_players(
-        self, player_info: pd.DataFrame, events: dict[str, pd.DataFrame] | None = None
+        self,
+        player_info: pd.DataFrame,
+        events: dict[str, pd.DataFrame] | None = None,
+        ticks: pd.DataFrame | None = None,
     ) -> list[Player]:
+        # Regulation-round boundaries: warmup/knife-phase spawns happen BEFORE
+        # the first round_start and must never define a player's team.
+        cutoff = self._regulation_start_tick(events)
+        half_end = self._first_half_end_tick(events, cutoff)
         if player_info is not None and not player_info.empty:
             players = self._players_from_player_info(player_info)
             if players:
+                # WMPVP player_info tables have been observed with stale/swapped
+                # team_number columns; live per-tick team_num is ground truth.
+                self._apply_live_majority(players, ticks, cutoff, half_end)
                 return players
         # Fallback: some demos (WMPVP SourceTV) ship no player-info table, so
         # reconstruct the roster from player_spawn events instead.
         spawns = (events or {}).get("player_spawn")
         if spawns is not None and not spawns.empty:
-            players = self._players_from_spawns(spawns)
+            players = self._players_from_spawns(spawns, min_tick=cutoff)
+            self._apply_live_majority(players, ticks, cutoff, half_end)
             self._fill_teams_from_deaths(players, events)
             return players
         return []
+
+    @staticmethod
+    def _regulation_start_tick(events: dict[str, pd.DataFrame] | None) -> int | None:
+        """Tick of the first round_start (warmup happens strictly before it)."""
+        rs = (events or {}).get("round_start")
+        if rs is None or rs.empty or "tick" not in rs.columns:
+            return None
+        t = rs["tick"].dropna()
+        return int(t.min()) if not t.empty else None
+
+    @staticmethod
+    def _first_half_end_tick(events: dict[str, pd.DataFrame] | None, fallback: int | None) -> int | None:
+        """End tick of regulation round 12 (halftime side swap happens after).
+
+        Falls back to the last known round_end when fewer rounds exist, then to
+        `fallback` (first regulation start) so at least round 1 is covered.
+        """
+        re_ = (events or {}).get("round_end")
+        if re_ is None or re_.empty or "tick" not in re_.columns:
+            return fallback
+        ends = re_["tick"].dropna().sort_values()
+        if ends.empty:
+            return fallback
+        return int(ends.iloc[11]) if len(ends) >= 12 else int(ends.iloc[-1])
+
+    def _majority_team(
+        self, ticks: pd.DataFrame | None, steamid: str, start_tick: int | None, end_tick: int | None
+    ) -> int | None:
+        """Majority live team_num for a player over regulation first-half ticks.
+
+        Returns 2 (T) / 3 (CT), or None when there is insufficient evidence
+        (<50 rows). This is ground truth: it tracks halftime swaps by design.
+        """
+        if ticks is None or ticks.empty or "team_num" not in ticks.columns:
+            return None
+        sub = ticks[ticks["steamid"] == steamid]
+        if start_tick is not None:
+            sub = sub[sub["tick"] >= start_tick]
+        if end_tick is not None:
+            sub = sub[sub["tick"] <= end_tick]
+        sub = sub[sub["team_num"].isin((2.0, 3.0))]
+        if len(sub) < 50:
+            return None
+        counts = sub["team_num"].value_counts()
+        if len(counts) > 1 and counts.iloc[0] == counts.iloc[1]:
+            return int(sub["team_num"].iloc[0])  # tie -> earliest observation
+        return int(counts.index[0])
+
+    def _apply_live_majority(
+        self,
+        players: list[Player],
+        ticks: pd.DataFrame | None,
+        start_tick: int | None,
+        end_tick: int | None,
+    ) -> None:
+        """Override roster teams with the live per-tick team_num majority.
+
+        Ground truth on every provider: spawn snapshots AND player_info tables
+        have both been observed stale/swapped (WMPVP SourceTV), while per-tick
+        team_num tracks reality (verified against official spawn geography).
+        """
+        if ticks is None or ticks.empty:
+            return
+        for p in players:
+            maj = self._majority_team(ticks, p.steamid, start_tick, end_tick)
+            if maj is None:
+                continue
+            live_team = f"Team {maj}"
+            if p.team != live_team:
+                logger.warning(
+                    "roster: %s snapshot said %s but live ticks say %s; trusting ticks",
+                    p.steamid, p.team, live_team,
+                )
+                p.team = live_team
 
     @staticmethod
     def _players_from_player_info(player_info: pd.DataFrame) -> list[Player]:
@@ -205,7 +291,7 @@ class DemoParserBackend:
         return players
 
     @staticmethod
-    def _players_from_spawns(spawns: pd.DataFrame) -> list[Player]:
+    def _players_from_spawns(spawns: pd.DataFrame, min_tick: int | None = None) -> list[Player]:
         if "user_steamid" not in spawns.columns:
             return []
         valid = spawns[spawns["user_steamid"].notna()]
@@ -214,6 +300,12 @@ class DemoParserBackend:
         valid = valid[valid["user_steamid"].astype(str).str.strip() != ""]
         if valid.empty:
             return []
+        # Warmup/knife-phase spawns precede the first regulation round and must
+        # not decide anyone's team; prefer post-cutoff rows when available.
+        if min_tick is not None and "tick" in valid.columns:
+            in_round = valid[valid["tick"] >= min_tick]
+            if not in_round.empty:
+                valid = in_round
 
         players: list[Player] = []
         for steamid in valid["user_steamid"].unique():

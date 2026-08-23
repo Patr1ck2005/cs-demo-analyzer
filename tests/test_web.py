@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from cs_analyzer.cache import DemoCache
 from cs_analyzer.web import app as web_app
 
-from .conftest import S_ALICE, build_parsed_demo
+from .conftest import S_ALICE, S_BOB, S_CAROL, build_parsed_demo
 
 
 @pytest.fixture
@@ -24,7 +24,18 @@ def web_client(tmp_path, monkeypatch):
             "team_num": [3.0] * 6,
         }
     )
-    demo = build_parsed_demo(ticks=ticks)
+    events = {
+        "player_death": pd.DataFrame(
+            {"tick": [1000, 2000, 3000],
+             "attacker_name": ["Bob", "Alice", "Bob"],
+             "user_name": ["Alice", "Bob", "Carol"],
+             "attacker_steamid": [S_BOB, S_ALICE, S_BOB],
+             "user_steamid": [S_ALICE, S_BOB, S_CAROL],
+             "assister_steamid": ["", "", ""],
+             "weapon": ["ak47", "usp", "knife"]}
+        )
+    }
+    demo = build_parsed_demo(ticks=ticks, events=events)
     demo_hash = demo.metadata.demo_hash
     cache = DemoCache(tmp_path / "cache")
     cache.save(demo_hash, demo)
@@ -49,14 +60,45 @@ def test_viewer_page(web_client) -> None:
     c, h, _ = web_client
     r = c.get(f"/demo/{h}/viewer")
     assert r.status_code == 200
-    for token in ("2D 地图回放", "预渲染整局回放"):
+    # Phase C: real-time canvas OB layout replaces the pre-rendered video MVP
+    for token in ("ob-layout", "main-layer", "viewer_canvas.js"):
         assert token in r.text
+    assert "frm-prerender" not in r.text
+    assert "<video" not in r.text
 
 
 def test_replay_map_missing(web_client) -> None:
     c, h, _ = web_client
     r = c.get(f"/api/demo/{h}/replay-map")
     assert r.status_code == 200
+    assert r.json()["status"] == "missing"
+
+
+def test_index_shows_viewer_readiness(web_client) -> None:
+    """Phase C: the viewer is real-time for every demo — no prerender gate."""
+    c, h, _ = web_client
+    r = c.get("/")
+    assert "实时回放" in r.text
+    assert "未预渲染" not in r.text
+
+
+def test_replay_map_stale_version_not_ready(web_client) -> None:
+    """A map.json from an older RENDER_VERSION (e.g. pre-basemap) must be
+    reported missing so the UI offers a fresh pre-render."""
+    import json
+
+    from cs_analyzer.web import replay_map
+
+    c, h, _ = web_client
+    out_dir = web_app.OUT_DIR
+    vdir = out_dir / h / "viewer"
+    vdir.mkdir(parents=True, exist_ok=True)
+    (vdir / "replay.mp4").write_bytes(b"x")
+    payload = {"render_version": replay_map.RENDER_VERSION - 1,
+               "fps": 20, "segments": [], "events": {}, "total_frames": 0}
+    (vdir / "map.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert not replay_map.is_ready(h, out_dir)
+    r = c.get(f"/api/demo/{h}/replay-map")
     assert r.json()["status"] == "missing"
 
 
@@ -137,6 +179,31 @@ def test_viewer_events_sanitizes_nan() -> None:
     json.dumps(ev, allow_nan=False)  # must not raise
 
 
+def test_viewer_data_route(web_client) -> None:
+    """GET viewer-data builds (or serves) the canvas payload with gzip."""
+    c, h, _ = web_client
+    r = c.get(f"/api/demo/{h}/viewer-data", headers={"Accept-Encoding": "gzip"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["viewer_version"] >= 1
+    assert "segments" in data and "players" in data and "map" in data
+    # second hit serves from disk
+    r2 = c.get(f"/api/demo/{h}/viewer-data")
+    assert r2.status_code == 200
+
+
+def test_maps_route(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/maps/de_mirage.png")
+    if r.status_code == 200:  # image present in this checkout
+        assert r.headers["cache-control"].startswith("public")
+        assert len(r.content) > 1000
+    r404 = c.get("/maps/not_a_map.png")
+    assert r404.status_code == 404
+    r_trav = c.get("/maps/..%2fapp.py")
+    assert r_trav.status_code in (404, 400)
+
+
 def test_studio_landing(web_client) -> None:
     c, _, _ = web_client
     r = c.get("/studio")
@@ -199,6 +266,26 @@ def test_demo_detail(web_client) -> None:
     assert r.status_code == 200
     for token in ("选手统计", "回合时间线", "击杀流"):
         assert token in r.text
+    # D3: kills grouped by round, collapsed <details> per round
+    assert "kill-group" in r.text
+    assert "<details" in r.text
+
+
+def test_coverage_route(web_client, monkeypatch, tmp_path) -> None:
+    """/coverage serves the CLI artifact when present, else a hint page."""
+    c, _, _ = web_client
+    # cwd without the report -> hint page (HTTP 200 + message, error.html convention)
+    monkeypatch.chdir(tmp_path)
+    r = c.get("/coverage")
+    assert r.status_code == 200
+    assert "csa coverage" in r.text
+    # with the artifact present -> served as file
+    d = tmp_path / "output" / "coverage"
+    d.mkdir(parents=True)
+    (d / "coverage.html").write_text("<html>覆盖度报告 OK</html>", encoding="utf-8")
+    r2 = c.get("/coverage")
+    assert r2.status_code == 200
+    assert "覆盖度报告 OK" in r2.text
 
 
 def test_player_detail(web_client) -> None:
@@ -210,11 +297,36 @@ def test_player_detail(web_client) -> None:
         assert token in r.text
 
 
+def test_player_detail_disables_single_for_untracked(web_client) -> None:
+    """Team 0 / untracked players must see disabled single-replay buttons with
+    an explanation, not clickable buttons that fail after rendering."""
+    from .conftest import S_BOB
+
+    c, h, _ = web_client
+    r = c.get(f"/demo/{h}/player/{S_BOB}")  # Bob has no tick rows
+    assert r.status_code == 200
+    assert "不可用（无位置数据）" in r.text
+    # explanation card present; team recipes still offered
+    assert "团队视角回放仍可用" in r.text
+    assert "startReplay" in r.text
+
+
+def test_demo_detail_links_viewer(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get(f"/demo/{h}")
+    assert r.status_code == 200
+    assert "/demo/" + h + "/viewer" in r.text
+    assert "实时回放器" in r.text
+
+
 def test_media_serves_radar(web_client) -> None:
     c, h, demo = web_client
     sid = demo.players[0].steamid
     c.get(f"/demo/{h}/player/{sid}")  # triggers radar PNG render
-    r = c.get(f"/media/{h}/radar/{sid}.png")
+    # PNGs are versioned by parser version (stale renders must not resurface)
+    from cs_analyzer.cache import PARSER_VERSION
+
+    r = c.get(f"/media/{h}/radar/v{PARSER_VERSION}_{sid}.png")
     assert r.status_code == 200
     assert r.headers.get("content-type") == "image/png"
     assert len(r.content) > 1000

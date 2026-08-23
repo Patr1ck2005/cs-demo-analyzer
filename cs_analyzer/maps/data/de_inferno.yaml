@@ -1,0 +1,14 @@
+# de_inferno radar map coordinate calibration.
+# Image: official CS2 overview radar (de_inferno_radar_psd.png, 1024x1024 RGBA),
+# sourced from MurkyYT/cs2-map-icons (extracted from game VPKs).
+# Bounds derived from the game's official radar_info metadata:
+#   pos_x=-2087, pos_y=3870, scale=4.9
+
+map_name: de_inferno
+image_width: 1024
+image_height: 1024
+bounds:
+  min_x: -2087.0
+  max_x: 2930.6
+  min_y: -1147.6
+  max_y: 3870.0

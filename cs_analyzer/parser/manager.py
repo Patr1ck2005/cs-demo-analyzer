@@ -30,7 +30,7 @@ class ParseManager:
                 "pitch", "yaw",
                 "health", "armor",
                 "velocity", "velocity_X", "velocity_Y", "velocity_Z",
-                "active_weapon", "is_alive",
+                "active_weapon", "active_weapon_name", "is_alive",
                 "is_scoped", "is_walking", "duck_amount",
                 "team_num", "player_name",
             ]

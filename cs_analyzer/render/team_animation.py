@@ -398,8 +398,8 @@ class TeamReplayRenderer:
                               ha="center", va="top", transform=fig.transFigure, zorder=20)
         clock_text = fig.text(0.98, 0.10, "", color="white", fontsize=20, weight="bold",
                               ha="right", va="bottom", transform=fig.transFigure, zorder=20)
-        banner = fig.text(0.5, 0.5, "", color="white", fontsize=52, weight="bold",
-                          ha="center", va="center", transform=fig.transFigure, zorder=30)
+        banner = fig.text(0.5, 0.965, "", color="white", fontsize=18, weight="bold",
+                          ha="center", va="top", transform=fig.transFigure, zorder=30)
         banner.set_visible(False)
         hud_ctx = {"score": score_text, "clock": clock_text}
         return fig, ax, lines, markers, corpse_marks, rlabel, hud_ctx, banner
@@ -464,8 +464,8 @@ class TeamReplayRenderer:
                               ha="right", va="bottom", transform=fig.transFigure, zorder=20)
         legend = fig.text(0.02, 0.06, "", color="#CCCCCC", fontsize=11,
                           ha="left", va="bottom", transform=fig.transFigure, zorder=20)
-        winner_banner = fig.text(0.5, 0.5, "", color="white", fontsize=52, weight="bold",
-                                 ha="center", va="center", transform=fig.transFigure, zorder=30)
+        winner_banner = fig.text(0.5, 0.965, "", color="white", fontsize=18, weight="bold",
+                                 ha="center", va="top", transform=fig.transFigure, zorder=30)
         winner_banner.set_visible(False)
 
         # pooled kill-connection artists

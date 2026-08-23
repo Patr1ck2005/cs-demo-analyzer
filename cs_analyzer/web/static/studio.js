@@ -49,9 +49,26 @@
   const frm = document.getElementById('frm-studio-replay');
   const btnRender = document.getElementById('btn-render');
   if (frm && btnRender) {
+    const recipeSel = document.getElementById('rc-recipe');
+    const playerSel = document.getElementById('rc-player');
+    // single-player recipes need a player; team recipes ignore it
+    function syncPlayerEnabled() {
+      const opt = recipeSel.selectedOptions[0];
+      const isSingle = opt && opt.textContent.includes('单人');
+      playerSel.disabled = !isSingle;
+      if (!isSingle) playerSel.value = '';
+    }
+    recipeSel.addEventListener('change', syncPlayerEnabled);
+    syncPlayerEnabled();
+
     btnRender.addEventListener('click', () => {
-      const recipe = document.getElementById('rc-recipe').value;
-      const player = document.getElementById('rc-player').value.trim();
+      const opt = recipeSel.selectedOptions[0];
+      if (opt && opt.textContent.includes('单人') && !playerSel.value) {
+        statusEl.textContent = '单人配方需要先选择一个玩家';
+        return;
+      }
+      const recipe = recipeSel.value;
+      const player = playerSel.value;
       const override = {};
       frm.querySelectorAll('[data-sec]').forEach((el) => {
         let val;

@@ -92,6 +92,70 @@ def test_build_players_spawn_ignores_team0_first_spawn() -> None:
     assert players[0].team == "Team 3"
 
 
+# ---- M1: live team_num majority is ground truth for roster sides ----
+
+
+def _round_events(start=1000, end=5000):
+    return {
+        "round_start": pd.DataFrame({"tick": [start], "round": [1]}),
+        "round_end": pd.DataFrame({"tick": [end], "round": [1]}),
+    }
+
+
+def _in_round_ticks(steamid: str, team: float, start=1000, n=70, step=64):
+    return pd.DataFrame(
+        {
+            "tick": [start + i * step for i in range(n)],
+            "steamid": [steamid] * n,
+            "team_num": [team] * n,
+        }
+    )
+
+
+def test_player_info_swapped_team_overridden_by_live_ticks() -> None:
+    """WMPVP player_info tables carry stale/swapped team numbers; live ticks win
+    (verified against official spawn geography on real demos)."""
+    backend = DemoParserBackend(tick_fields=[])
+    info = pd.DataFrame({"steamid": [S_ALICE], "name": ["Alice"], "team_number": [3]})
+    ticks = _in_round_ticks(S_ALICE, team=2.0)
+    players = backend._build_players(info, _round_events(), ticks)
+    assert players[0].team == "Team 2"
+
+
+def test_warmup_spawn_ignored_and_majority_overrides() -> None:
+    """A warmup-phase spawn (before the first round_start) must not decide the
+    team; the in-round tick majority does."""
+    backend = DemoParserBackend(tick_fields=[])
+    spawns = pd.DataFrame(
+        {
+            "tick": [100],  # warmup, before round_start at 1000
+            "user_steamid": [S_ALICE],
+            "user_name": ["Alice"],
+            "user_team_num": [3.0],
+        }
+    )
+    ticks = _in_round_ticks(S_ALICE, team=2.0)
+    players = backend._build_players(pd.DataFrame(), {**_round_events(), "player_spawn": spawns}, ticks)
+    assert players[0].team == "Team 2"
+
+
+def test_snapshot_team_kept_when_insufficient_tick_evidence() -> None:
+    """Without >=50 in-round rows there is no majority; snapshot stands."""
+    backend = DemoParserBackend(tick_fields=[])
+    info = pd.DataFrame({"steamid": [S_ALICE], "name": ["Alice"], "team_number": [3]})
+    ticks = _in_round_ticks(S_ALICE, team=2.0, n=10)  # too few rows
+    players = backend._build_players(info, _round_events(), ticks)
+    assert players[0].team == "Team 3"
+
+
+def test_matching_team_info_untouched() -> None:
+    backend = DemoParserBackend(tick_fields=[])
+    info = pd.DataFrame({"steamid": [S_ALICE], "name": ["Alice"], "team_number": [3]})
+    ticks = _in_round_ticks(S_ALICE, team=3.0)
+    players = backend._build_players(info, _round_events(), ticks)
+    assert players[0].team == "Team 3"
+
+
 def test_fill_teams_from_deaths() -> None:
     players = [Player(steamid=S_ALICE, name="Alice", team="Team 0")]
     deaths = pd.DataFrame(

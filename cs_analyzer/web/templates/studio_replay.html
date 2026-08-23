@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}导出 2D 回放 · {{ demo.map_name }}{% endblock %}
 {% block content %}
+<div class="sub"><a href="/studio">← 返回工作室</a></div>
 <h1>导出 2D 回放视频</h1>
 <div class="sub">{{ demo.filename }} · {{ demo.map_name }} · T {{ demo.t_score }} : {{ demo.ct_score }} CT</div>
 
@@ -12,7 +13,12 @@
       <option value="{{ r.name }}">{{ r.title }}（{{ '单人' if r.kind == 'single' else '10人' }}）</option>
       {% endfor %}
     </select>
-    <input id="rc-player" placeholder="单人配方时填玩家名 / steamid（团队忽略）" style="flex:1">
+    <select id="rc-player">
+      <option value="">单人配方请选玩家…</option>
+      {% for p in players %}
+      <option value="{{ p.steamid }}">{{ p.name }}{{ '' if p.replayable else '（无位置数据，单人不可用）' }}</option>
+      {% endfor %}
+    </select>
   </div>
 </div>
 

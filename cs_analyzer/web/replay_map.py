@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 TICK_RATE = 64
 VIEWER_SPEED_DEFAULT = 10.0
 
+# Bump when rendered-output semantics change (e.g. basemap added, renderer
+# upgrade) so cached viewer artifacts are treated as stale and re-rendered.
+RENDER_VERSION = 2
+
 # detonate event name -> Chinese label for the timeline legend
 _UTILITY_KINDS = {
     "smokegrenade_detonate": "烟雾",
@@ -155,9 +159,13 @@ def load_map(demo_hash: str, out_dir: Path) -> dict | None:
     if not p.exists():
         return None
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    # stale renders (pre-basemap etc.) must not be served as ready
+    if data.get("render_version") != RENDER_VERSION:
+        return None
+    return data
 
 
 def is_ready(demo_hash: str, out_dir: Path) -> bool:
@@ -180,6 +188,7 @@ def render_viewer_job(
     segs = build_viewer_segments(demo, cfg, speed)
     events = build_viewer_events(demo)
     payload = {
+        "render_version": RENDER_VERSION,
         "fps": cfg.fps,
         "speed": speed,
         "tick_rate": TICK_RATE,

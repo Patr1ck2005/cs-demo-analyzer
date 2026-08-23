@@ -4,10 +4,11 @@
 <div class="sub"><a href="/demo/{{ demo.hash }}">← 返回 demo</a></div>
 
 <div class="card">
-  <h1>{{ player.name }}
+  <h1>{{ player.name }}</h1>
+  <div style="margin:2px 0 6px">
     <span class="badge {{ 't' if player.team_label=='T' else 'ct' if player.team_label=='CT' else 't0' }}">{{ player.team_label }}</span>
     <span class="badge {{ 'ok' if player.replayable else 'no' }}">{{ '可回放' if player.replayable else '无位置数据' }}</span>
-  </h1>
+  </div>
   <div class="sub">{{ demo.filename }} · {{ demo.map_name }}</div>
   <table>
     <tr><th>K</th><td>{{ player.K }}</td><th>D</th><td>{{ player.D }}</td><th>A</th><td>{{ player.A }}</td></tr>
@@ -48,6 +49,12 @@
 {% endif %}
 
 <h2>回放</h2>
+{% if not player.replayable %}
+<div class="card">
+  <span class="badge t0">无位置数据</span>
+  <div class="sub" style="margin-top:6px">该玩家的 pawn 实体在解析时缺失（逐广播特定，无法从事件重建），单人回放/位置类分析不可用；统计与击杀数据仍完整。<a href="/demo/{{ demo.hash }}/viewer">团队视角回放仍可用 →</a></div>
+</div>
+{% endif %}
 <div class="card">
   {% for r in replays %}
   <div class="replay-card">
@@ -57,10 +64,14 @@
     <video controls src="{{ r.url }}"></video>
     {% endif %}
     <div style="margin-top:8px">
+      {% if r.disabled %}
+      <button class="btn" disabled title="该玩家无位置数据，单人回放不可用">不可用（无位置数据）</button>
+      {% else %}
       <button class="btn"
               onclick="startReplay('{{ demo.hash }}', '{{ r.recipe }}', '{{ '' if r.kind=='team' else player.steamid }}', this)">
         {{ '重新生成' if r.exists else '生成回放' }}
       </button>
+      {% endif %}
     </div>
   </div>
   {% endfor %}
