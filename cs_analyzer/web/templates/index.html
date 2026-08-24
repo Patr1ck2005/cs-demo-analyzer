@@ -19,9 +19,9 @@
   <form class="upload-drop" action="/upload" method="post" enctype="multipart/form-data"
         id="upload-form">
     <label class="dropzone" id="dropzone">
-      <input type="file" name="file" accept=".dem" required id="file-input">
-      <div class="empty-title">拖拽 .dem 到这里，或点击选择文件</div>
-      <div class="sub" style="margin:4px 0 0">上传后自动解析并入库</div>
+      <input type="file" name="files" accept=".dem" required multiple id="file-input">
+      <div class="empty-title">拖拽 .dem 到这里，或点击选择文件（可多选）</div>
+      <div class="sub" style="margin:4px 0 0">上传后自动解析并入库；重复内容自动跳过</div>
     </label>
     <div style="margin-top:10px"><button class="btn" type="submit">上传并解析</button></div>
   </form>
@@ -66,11 +66,12 @@
   const input = document.getElementById('file-input');
   if (dz && input) {
     dz.addEventListener('click', (e) => { if (e.target !== input) input.click(); });
-    input.addEventListener('change', () => {
-      if (input.files.length) {
-        dz.querySelector('.empty-title').textContent = input.files[0].name;
-      }
-    });
+    const describe = () => {
+      const n = input.files.length;
+      dz.querySelector('.empty-title').textContent =
+        n > 1 ? `已选 ${n} 个文件` : (n === 1 ? input.files[0].name : '拖拽 .dem 到这里，或点击选择文件（可多选）');
+    };
+    input.addEventListener('change', describe);
     ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => {
       e.preventDefault(); dz.classList.add('dragover');
     }));
@@ -80,7 +81,7 @@
     dz.addEventListener('drop', (e) => {
       if (e.dataTransfer.files.length) {
         input.files = e.dataTransfer.files;
-        dz.querySelector('.empty-title').textContent = e.dataTransfer.files[0].name;
+        describe();
       }
     });
   }

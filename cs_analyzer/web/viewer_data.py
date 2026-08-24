@@ -23,6 +23,8 @@ import json
 import logging
 from pathlib import Path
 
+import numpy as np
+
 from cs_analyzer.model.parsed_demo import ParsedDemo
 from cs_analyzer.replay.timeline import TICK_RATE, round_freeze_ends
 
@@ -31,12 +33,13 @@ logger = logging.getLogger(__name__)
 TICK_RATE = 64
 SNAPSHOT_STRIDE = 8  # ticks between snapshots (8 Hz; 64/8 exact)
 ROUND_CLOCK_SECONDS = 115.0
-VIEWER_DATA_VERSION = 2
-LAYER_VERSION = 1
+VIEWER_DATA_VERSION = 3
+LAYER_VERSION = 2  # v2: shots carry shooter yaw ("ya") for tracer rendering
 
-# demoparser2 0.41 exposes no clip/reserve props (probed across all demos,
-# scripts/probe_ammo.py) — ammo ships as null until a parse route exists.
-AMMO_AVAILABLE = False
+# demoparser2 >= 0.42 exposes per-tick ammo (probed on all real demos,
+# output/.ammo_probe.json). Detection is dynamic: older caches re-parse lazily
+# via PARSER_VERSION, so the columns are simply expected to be there.
+_AMMO_TICK_COLS = ("active_weapon_ammo", "is_in_reload")
 
 # side enum used in snapshot arrays (was "T"/"CT"/"" strings in v1)
 SIDE_T, SIDE_CT, SIDE_UNKNOWN = 0, 1, 2
@@ -162,6 +165,34 @@ def pd_forward_fill(arr):
     return arr[idx]
 
 
+def _union_reload_flag(prop_flag, prop_ticks, event_ticks, event_pad=(0, 96)):
+    """Merge the is_in_reload prop with weapon_reload event runs.
+
+    event ticks fire per-tick during a reload; each run (gap<=2) padded by
+    event_pad ticks marks one reload window. Returns a flag array aligned to
+    prop_ticks (same length as prop_flag).
+    """
+    import numpy as np
+
+    out = np.asarray(prop_flag, dtype=np.int8).copy()
+    if len(event_ticks) == 0:
+        return out
+    et = np.sort(np.asarray(event_ticks, dtype=np.int64))
+    # collapse consecutive event ticks into runs
+    starts = [et[0]]
+    prev = et[0]
+    for x in et[1:]:
+        if x > prev + 2:
+            starts.append(x)
+        prev = x
+    tick_arr = np.asarray(prop_ticks, dtype=np.int64)
+    lo, hi = event_pad
+    for s in starts:
+        mask = (tick_arr >= s + lo) & (tick_arr <= s + hi)
+        out[mask] = 1
+    return out
+
+
 def _team_names(demo: ParsedDemo) -> dict[str, str]:
     """Real team names from begin_new_match ("" falls back to T/CT client-side)."""
     df = demo.events.get("begin_new_match")
@@ -209,6 +240,7 @@ def build_viewer_data(demo: ParsedDemo) -> dict:
     roster: list[dict] = []
     players: list[dict] = []
     weapons = _WeaponTable()
+    has_ammo = ticks is not None and set(_AMMO_TICK_COLS) <= set(ticks.columns)
     if ticks is not None and not ticks.empty and {"steamid", "X", "Y"} <= set(ticks.columns):
         for p in demo.players:
             sub = ticks[ticks["steamid"] == p.steamid].sort_values("tick")
@@ -255,6 +287,27 @@ def build_viewer_data(demo: ParsedDemo) -> dict:
                 else np.full(len(sub), "", dtype=object)
             )
 
+            # v3: per-tick magazine + reload flag (grenades/knife carry 0)
+            if has_ammo:
+                ammo_v = col("active_weapon_ammo").clip(0, 999).astype(np.int32)
+                reload_v = col("is_in_reload").astype(np.int8)
+                # The is_in_reload prop misses some reloads on certain WMPVP
+                # players (0762: 1 span vs 3 event runs); the weapon_reload
+                # event fires per-tick DURING the reload, so its run starts
+                # are the complementary signal. Union of both = robust window
+                # (97% of prop spans confirmed by ammo refills, see dev_log).
+                # NOTE: reload_v/ammo_v are indexed by vp (grid positions),
+                # not by raw sub rows — union must map event windows through
+                # the same vp index.
+                ev_reload = demo.events.get("weapon_reload")
+                if ev_reload is not None and not ev_reload.empty:
+                    ev_ticks = ev_reload[ev_reload["user_steamid"].astype(str) == p.steamid][
+                        "tick"
+                    ].to_numpy(dtype=np.int64)
+                    reload_v = _union_reload_flag(
+                        reload_v, sub["tick"].to_numpy(dtype=np.int64)[vp], ev_ticks
+                    )
+
             side_codes = [SIDE_T if s == 2.0 else SIDE_CT if s == 3.0 else SIDE_UNKNOWN
                           for s in side_raw.tolist()]
             gticks = grid_arr[valid]
@@ -264,20 +317,22 @@ def build_viewer_data(demo: ParsedDemo) -> dict:
                 "side_first": next(("T" if c == SIDE_T else "CT" for c in side_codes
                                     if c != SIDE_UNKNOWN), ""),
             })
-            players.append(
-                {
-                    "steamid": p.steamid,
-                    "t": gticks.astype(np.int64).tolist(),
-                    "x": np.round(px, 1).tolist(),
-                    "y": np.round(py, 1).tolist(),
-                    "yaw": (np.round(yaw_v / 5.0) * 5.0).astype(np.int32).tolist(),
-                    "hp": hp_v.tolist(),
-                    "armor": armor_v.tolist(),
-                    "alive": alive_v.astype(np.int8).tolist(),
-                    "side": side_codes,
-                    "w": [weapons.index(str(w)) for w in weapon_shorts[vp]],
-                }
-            )
+            entry = {
+                "steamid": p.steamid,
+                "t": gticks.astype(np.int64).tolist(),
+                "x": np.round(px, 1).tolist(),
+                "y": np.round(py, 1).tolist(),
+                "yaw": (np.round(yaw_v / 5.0) * 5.0).astype(np.int32).tolist(),
+                "hp": hp_v.tolist(),
+                "armor": armor_v.tolist(),
+                "alive": alive_v.astype(np.int8).tolist(),
+                "side": side_codes,
+                "w": [weapons.index(str(w)) for w in weapon_shorts[vp]],
+            }
+            if has_ammo:
+                entry["am"] = ammo_v.tolist()
+                entry["rl"] = reload_v.tolist()
+            players.append(entry)
 
     events = {
         **_kill_events(demo, weapons),
@@ -293,7 +348,7 @@ def build_viewer_data(demo: ParsedDemo) -> dict:
         "tick_rate": TICK_RATE,
         "stride": SNAPSHOT_STRIDE,
         "round_clock_seconds": ROUND_CLOCK_SECONDS,
-        "ammo": AMMO_AVAILABLE,
+        "ammo": has_ammo,
         "demo_hash": demo.metadata.demo_hash,
         "map_name": demo.metadata.map_name,
         "teams": _team_names(demo),
@@ -498,18 +553,37 @@ def _shot_events(demo: ParsedDemo, weapons: _WeaponTable) -> list[dict]:
     out: list[dict] = []
     if df is None or df.empty:
         return out
+    # shooter yaw at the fire tick (v2 layers): np.interp against each player's
+    # sorted tick/yaw arrays — one pass per shooter, no per-row scans
+    ticks_df = demo.ticks
+    yaw_by_sid: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    if ticks_df is not None and not ticks_df.empty and {"steamid", "tick", "yaw"} <= set(ticks_df.columns):
+        for sid, sub in ticks_df.groupby("steamid"):
+            sub = sub.sort_values("tick")
+            yaw_by_sid[sid] = (
+                sub["tick"].to_numpy(dtype=np.float64),
+                sub["yaw"].to_numpy(dtype=np.float64),
+            )
     for _, row in df.iterrows():
         x = _finite_or_none(row.get("user_X"))
         y = _finite_or_none(row.get("user_Y"))
         if x is None:
             continue  # Team 0 shooters have no position; skip silently
+        sid = _text(row.get("user_steamid", ""))
+        tick = int(row.get("tick", 0) or 0)
+        ya = None
+        series = yaw_by_sid.get(sid)
+        if series is not None and len(series[0]):
+            ya = float(np.interp(tick, series[0], series[1]))
         out.append(
             {
-                "tick": int(row.get("tick", 0) or 0),
+                "tick": tick,
                 "x": round(x, 1),
                 "y": round(y, 1),
-                "sid": _text(row.get("user_steamid", "")),
+                "sid": sid,
                 "wi": weapons.index(_short_weapon(_text(row.get("weapon", "")))),
+                # 5° buckets, same quantization as snapshot yaw
+                **({"ya": int(round(ya / 5.0) * 5) % 360} if ya is not None else {}),
             }
         )
     out.sort(key=lambda s: s["tick"])
@@ -520,36 +594,23 @@ _ECON_EMPTY = {"spend": 0, "weapons": [], "nades": 0}
 
 
 def _economy_events(demo: ParsedDemo, weapons: _WeaponTable) -> dict:
-    """Per-round-per-player purchase summary from item_purchase."""
-    df = demo.events.get("item_purchase")
+    """Per-round-per-player purchase summary from item_purchase.
+
+    Delegates to analysis.economy.build_purchase_log — the shared aggregation
+    consumed by both this layers artifact and the EconomyModule (M7 refactor).
+    """
+    from cs_analyzer.analysis.economy import build_purchase_log
+
     rounds: dict[str, dict[str, dict]] = {}
-    if df is None or df.empty:
-        return {"rounds": rounds}
-
-    bounds = [(int(r.start_tick), int(r.end_tick)) for r in demo.regular_rounds]
-
-    def round_at(tick: int) -> int:
-        for i, (start, end) in enumerate(bounds):
-            if start <= tick <= end:
-                return i + 1
-        return 0
-
-    for _, row in df.iterrows():
-        rnd = round_at(int(row.get("tick", 0) or 0))
-        if rnd == 0:
-            continue
-        sid = _text(row.get("steamid", "") or row.get("user_steamid", ""))
-        if not sid:
-            continue
-        item = _short_weapon(_text(row.get("item_name", row.get("weapon", ""))))
-        cost = int(row.get("cost", 0) or 0)
-        bucket = rounds.setdefault(str(rnd), {}).setdefault(
-            sid, {"spend": 0, "weapons": [], "nades": 0}
-        )
-        bucket["spend"] += cost
-        bucket["weapons"].append(weapons.index(item))
-        if item.startswith(_GRENADE_ITEM_PREFIXES):
-            bucket["nades"] += 1
+    for rnd, players in build_purchase_log(demo).items():
+        bucket_out: dict[str, dict] = {}
+        for sid, bucket in players.items():
+            bucket_out[sid] = {
+                "spend": bucket["spend"],
+                "weapons": [weapons.index(w) for w in bucket["weapons"]],
+                "nades": bucket["nades"],
+            }
+        rounds[str(rnd)] = bucket_out
     return {"rounds": rounds}
 
 

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}批量解析 · {{ action }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>批量解析中…</h1>
+    <div class="page-meta">共 {{ rows|length }} 个文件。完成后本页实时刷新状态，<a href="/">返回 Demo 库</a>。</div>
+  </div>
+</div>
+
+<div class="card">
+  <table class="data-table" id="batch-table">
+    <thead>
+      <tr><th>文件</th><th>状态</th><th>结果</th></tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr data-job="{{ r.job_id or '' }}">
+        <td class="bf-label">{{ r.label }}</td>
+        <td class="bf-state">
+          {% if r.state == 'duplicate' %}<span class="badge">已解析，跳过</span>
+          {% elif r.state == 'error' %}<span class="badge" style="color:var(--err)">保存失败</span>
+          {% else %}<span class="badge">解析中…</span>{% endif %}
+        </td>
+        <td class="bf-result sub">
+          {% if r.state == 'duplicate' %}<a href="/demo/{{ r.demo_hash }}">查看分析 →</a>
+          {% elif r.state == 'error' %}{{ r.error }}{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="sub" id="batch-summary" style="margin-top:8px"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const rows = [...document.querySelectorAll('#batch-table tr[data-job]')]
+    .filter((tr) => tr.dataset.job);
+  if (!rows.length) return;
+  const summary = document.getElementById('batch-summary');
+  let remaining = rows.length;
+
+  function setRow(tr, st) {
+    const stateEl = tr.querySelector('.bf-state');
+    const resultEl = tr.querySelector('.bf-result');
+    if (st.status === 'done') {
+      stateEl.innerHTML = '<span class="badge" style="color:var(--ok)">完成</span>';
+      resultEl.innerHTML = '<a href="/demo/' + st.result + '">查看分析 →</a>';
+    } else if (st.status === 'error') {
+      stateEl.innerHTML = '<span class="badge" style="color:var(--err)">失败</span>';
+      resultEl.textContent = st.error || '未知错误';
+    } else {
+      return; // still pending/running
+    }
+    remaining -= 1;
+    tr.dataset.job = '';
+  }
+
+  const timer = setInterval(() => {
+    let live = 0;
+    for (const tr of rows) {
+      const id = tr.dataset.job;
+      if (!id) continue;
+      live += 1;
+      fetch('/api/jobs/' + id)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+        .then((st) => { if (st.status === 'done' || st.status === 'error') { setRow(tr, st); live -= 1; } })
+        .catch((e) => console.warn('job poll failed:', String(e))); // transient — retry next tick
+    }
+    summary.textContent = live
+      ? `剩余 ${live} 个任务解析中…`
+      : '全部结束。';
+    if (!live) clearInterval(timer);
+  }, 1500);
+})();
+</script>
+{% endblock %}

@@ -161,3 +161,70 @@ def aggregate_payload(result: AggregateResult) -> dict:
             for d in result.demos
         ],
     }
+
+
+# ---- Phase F M7/M8: advanced analysis payloads ----
+
+
+def duels_payload(result) -> dict:
+    """Duel matrix -> ECharts heatmap (players × players win-rate cells)."""
+    players = result.players
+    names = [result.names.get(s, s[-4:]) for s in players]
+    cells = []
+    for i, a in enumerate(players):
+        for j, b in enumerate(players):
+            k = result.kills.get(a, {}).get(b, 0)
+            d = result.kills.get(b, {}).get(a, 0)
+            if k + d == 0 or i == j:
+                continue
+            cells.append([j, i, round(k / (k + d), 3), k, d, k + d >= result.min_duels])
+    sides = [result.sides.get(s, "") for s in players]
+    return {"players": names, "steamids": players, "sides": sides,
+            "min_duels": result.min_duels, "cells": cells}
+
+
+def economy_payload(result) -> dict:
+    """Round buy classification -> combo chart (spend bars + buy-type line)."""
+    rounds = sorted({r.round for r in result.rounds})
+    series = {}
+    for side in ("T", "CT"):
+        rows = {r.round: r for r in result.rounds if r.side == side}
+        series[side] = {
+            "spend": [round(rows[r].spend) if r in rows else None for r in rounds],
+            "buy": [rows[r].buy if r in rows else None for r in rounds],
+        }
+    return {
+        "rounds": rounds,
+        "series": series,
+        "win_by_buy": result.win_by_buy,
+        "loss_streaks": result.loss_streaks,
+    }
+
+
+def utility_payload(result) -> dict:
+    """Flash value ranking + smoke denial counters."""
+    return {
+        "flashers": result.flashers,
+        "smoke": result.smoke,
+    }
+
+
+def routes_payload(result, map_res: MapResource) -> dict:
+    """Opening route centroids in image-space [0..1]² (same convention as the
+    heatmap: world_to_pixel, y flipped — plot with yAxis inverse:true)."""
+    def norm(pt: list[list[float]]) -> list[list[float]]:
+        out = []
+        for x, y in pt:
+            px, py = map_res.world_to_pixel(float(x), float(y))
+            out.append([round(px / max(map_res.image_width, 1), 4),
+                        round(py / max(map_res.image_height, 1), 4)])
+        return out
+
+    return {
+        "side": result.side,
+        "k": result.k,
+        "routes": [
+            {"route": norm(r["route"]), "rounds": r["rounds"], "share": r["share"]}
+            for r in result.routes
+        ],
+    }

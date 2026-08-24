@@ -98,7 +98,8 @@
         : undefined,
       grid: { left: 6, right: 6, top: 6, bottom: kind === 'utility' ? 32 : 6 },
       xAxis: { type: 'value', min: 0, max: 1, show: false },
-      yAxis: { type: 'value', min: 0, max: 1, show: false },
+      // points are image-space (0 = top): invert the axis so north stays up
+      yAxis: { type: 'value', min: 0, max: 1, show: false, inverse: true },
       series,
     };
   }
@@ -111,6 +112,25 @@
       dom.style.backgroundImage = `url("${payload.map_image}")`;
     }
     return mount(dom, mapChartOption(kind, payload));
+  }
+
+  /** Mount the opening-routes chart with the radar PNG background. */
+  function mountRoutesChart(el, payload) {
+    const dom = typeof el === 'string' ? document.getElementById(el) : el;
+    if (!dom) return null;
+    if (payload.map_image) dom.style.backgroundImage = `url("${payload.map_image}")`;
+    const chart = mount(dom, routesOption(payload));
+    // HTML legend below the square (kept outside so the grid == image box)
+    const palette = ['#ffb02e', '#3d9bff', '#3ddc97', '#ff4d5e'];
+    if (dom.parentElement) {
+      const legend = document.createElement('div');
+      legend.className = 'routes-legend';
+      legend.innerHTML = payload.routes.map((r, i) =>
+        `<span><i style="background:${palette[i % palette.length]}"></i>` +
+        `路线 ${i + 1} · ${(r.share * 100).toFixed(0)}% · R${r.rounds.join('/R')}</span>`).join('');
+      dom.parentElement.appendChild(legend);
+    }
+    return chart;
   }
 
   // ---- aggregate: player × demo Rating matrix ----
@@ -180,6 +200,121 @@
     };
   }
 
+  // ---- Phase F M7/M8: advanced analysis charts ----
+
+  // duel matrix: players × players win-rate heatmap (cells < min_duels greyed)
+  function duelsOption(payload) {
+    const players = payload.players;
+    const data = payload.cells.map((c) => ({
+      value: [c[0], c[1], c[2]], k: c[3], d: c[4], enough: c[5],
+    }));
+    return {
+      tooltip: {
+        position: 'top',
+        formatter: (p) => {
+          const row = players[p.value[1]], col = players[p.value[0]];
+          return `${row} vs ${col}<br/>胜率 <b>${(p.value[2] * 100).toFixed(0)}%</b> ` +
+            `(${p.data.k}杀 / ${p.data.d}死)${p.data.enough ? '' : ' · 样本不足'}`;
+        },
+      },
+      grid: { height: '60%', top: 12, left: 100, right: 20 },
+      xAxis: { type: 'category', data: players, splitArea: { show: true },
+               axisLabel: { rotate: 30, fontSize: 10 } },
+      yAxis: { type: 'category', data: players, splitArea: { show: true } },
+      visualMap: {
+        min: 0, max: 1, calculable: true, orient: 'horizontal',
+        left: 'center', bottom: 0,
+        inRange: { color: ['#3d9bff', '#1a2130', '#ffb02e'] },
+        formatter: (v) => (v * 100).toFixed(0) + '%',
+      },
+      series: [{
+        type: 'heatmap', data,
+        label: { show: true, fontSize: 9, color: TOKENS.text,
+                 formatter: (p) => (p.data.enough ? (p.value[2] * 100).toFixed(0) : '·') },
+      }],
+    };
+  }
+
+  // economy: per-round team spend bars + buy classification
+  function economyOption(payload) {
+    const buyColor = { eco: '#8b98ab', force: '#ffb02e', full: '#3ddc97' };
+    const mk = (side, color) => ({
+      name: side + ' 消费',
+      type: 'bar',
+      data: payload.series[side].spend,
+      itemStyle: { color },
+      barMaxWidth: 14,
+    });
+    return {
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params) => {
+          const r = params[0].axisValue + ' 回合';
+          return r + '<br/>' + params.map((p) =>
+            `${p.seriesName}: $${p.value == null ? '-' : p.value}`).join('<br/>');
+        },
+      },
+      legend: { bottom: 0, textStyle: { color: TOKENS.muted, fontSize: 11 } },
+      grid: { left: 8, right: 16, top: 20, bottom: 46, containLabel: true },
+      xAxis: { type: 'category', data: payload.rounds.map((r) => 'R' + r) },
+      yAxis: { type: 'value', name: '队伍消费 $' },
+      series: [mk('T', '#ffb02e'), mk('CT', '#3d9bff')],
+    };
+  }
+
+  // utility: flash value ranking bars (horizontal)
+  function utilityFlashOption(payload) {
+    const f = payload.flashers.slice(0, 10);
+    return {
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params) => {
+          const p = params[0];
+          const row = payload.flashers[p.dataIndex];
+          return `${row.name}<br/>致盲敌人 <b>${row.enemy_blind_s}s</b> · 误伤队友 ${row.friendly_blind_s}s` +
+            `<br/>投掷 ${row.throws} 次 · 场均价值 ${row.value_per_throw}s`;
+        },
+      },
+      grid: { left: 8, right: 30, top: 10, bottom: 24, containLabel: true },
+      xAxis: { type: 'value', name: '闪光价值 (s)' },
+      yAxis: { type: 'category', data: f.map((x) => x.name).reverse(),
+               axisLabel: { fontSize: 10 } },
+      series: [{
+        type: 'bar',
+        data: f.map((x) => x.value).reverse(),
+        itemStyle: { color: '#e8edf4' },
+        barMaxWidth: 16,
+        label: { show: true, position: 'right', fontSize: 9, color: TOKENS.muted,
+                 formatter: (p) => p.value.toFixed(1) + 's' },
+      }],
+    };
+  }
+
+  // opening routes: centroid polylines over the radar background
+  // (image-space coords, same inverse-y convention as the heatmap; the grid
+  // must coincide with the background image box, so zero padding + HTML legend)
+  function routesOption(payload) {
+    const palette = ['#ffb02e', '#3d9bff', '#3ddc97', '#ff4d5e'];
+    const series = payload.routes.map((r, i) => ({
+      name: `路线 ${i + 1}`,
+      type: 'lines',
+      coordinateSystem: 'cartesian2d',
+      polyline: true,
+      data: [{ coords: r.route.map((p) => [p[0], p[1]]) }],
+      lineStyle: { color: palette[i % palette.length], width: 4, opacity: 0.9,
+                   curveness: 0, cap: 'round' },
+      symbol: ['none', 'arrow'],
+      symbolSize: 10,
+    }));
+    return {
+      tooltip: { trigger: 'item' },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { type: 'value', min: 0, max: 1, show: false },
+      yAxis: { type: 'value', min: 0, max: 1, show: false, inverse: true },
+      series,
+    };
+  }
+
   window.CSACharts = {
     mount,
     radarOption,
@@ -187,6 +322,11 @@
     matrixOption,
     barsOption,
     trendsOption,
+    duelsOption,
+    economyOption,
+    utilityFlashOption,
+    routesOption,
+    mountRoutesChart,
     TOKENS,
   };
 })();

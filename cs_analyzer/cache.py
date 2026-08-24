@@ -23,7 +23,7 @@ _CHUNK_SIZE = 65536
 # 1.5.1: roster side now derived from live in-round team_num majority
 # (warmup/knife-phase spawns no longer define a player's team); added
 # active_weapon_name tick field for the canvas viewer.
-PARSER_VERSION = "1.5.1"
+PARSER_VERSION = "1.6.0"
 
 
 class DemoCache:

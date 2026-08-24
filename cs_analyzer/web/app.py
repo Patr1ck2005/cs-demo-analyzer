@@ -20,21 +20,29 @@ from cs_analyzer.analysis.aggregate import compute_aggregate
 from cs_analyzer.cache import DemoCache
 from cs_analyzer.config import AnalysisConfig, load_settings
 from cs_analyzer.model.parsed_demo import ParsedDemo
-from cs_analyzer.web import store, tasks
+from cs_analyzer.web import store, tasks, weapons
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+TEMPLATES.env.filters["wicon"] = weapons.icon_url
+TEMPLATES.env.filters["wlabel"] = weapons.label_zh
 STATIC_DIR = BASE_DIR / "static"
 OUT_DIR = Path("output") / "web"
 DEMOS_DIR = Path("demos")
+
+
+def _demos_dir() -> Path:
+    """Upload target dir (module-level so tests can monkeypatch it)."""
+    return DEMOS_DIR
 
 app = FastAPI(title="CsDemoAnalyzer 本地平台", version="0.1.0")
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 _analysis_cache: dict[str, dict] = {}
+_module_cache: dict[str, dict] = {}
 
 
 def _settings():
@@ -69,10 +77,22 @@ def _analyze(demo: ParsedDemo) -> dict:
     return out
 
 
+def _analyze_module(demo: ParsedDemo, module_name: str):
+    """Lazy per-module memo: demo pages only pay for the modules they render."""
+    key = demo.metadata.demo_hash
+    slot = _module_cache.setdefault(key, {})
+    if module_name in slot:
+        return slot[module_name]
+    result = _runner().run_one(demo, module_name)
+    slot[module_name] = result
+    return result
+
+
 # ---- pages ----
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    _stale_cache_sweep()  # no-op after the first call
     demos = store.list_demos(_cache().cache_dir)
     return TEMPLATES.TemplateResponse(
         request, "index.html",
@@ -85,15 +105,72 @@ def index(request: Request):
     )
 
 
-@app.post("/upload")
-async def upload(request: Request, file: UploadFile = File(...)):
-    DEMOS_DIR.mkdir(exist_ok=True)
-    dest = DEMOS_DIR / Path(file.filename).name
+def _save_upload(file: UploadFile) -> Path:
+    """Persist an uploaded .dem into demos/, resolving filename collisions.
+
+    Same-name-same-size is treated as the same file (overwrite in place);
+    otherwise a numeric suffix is appended.
+    """
+    demos_dir = _demos_dir()
+    demos_dir.mkdir(exist_ok=True)
+    name = Path(file.filename or "upload.dem").name or "upload.dem"
+    dest = demos_dir / name
+    if dest.exists():
+        # compare sizes without loading either into memory; never close the
+        # upload stream here — it is still read afterwards by copyfileobj
+        file.file.seek(0, 2)
+        same = file.file.tell() == dest.stat().st_size
+        file.file.seek(0)
+        if not same:
+            stem, suffix = dest.stem, dest.suffix or ".dem"
+            n = 2
+            while (demos_dir / f"{stem}-{n}{suffix}").exists():
+                n += 1
+            dest = demos_dir / f"{stem}-{n}{suffix}"
+            logger.info("upload name collision: %s -> %s", name, dest.name)
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
-    job_id = tasks.tasks.submit(_parse_job, path=str(dest))
+    return dest
+
+
+@app.post("/upload")
+async def upload(request: Request, files: list[UploadFile] = File(...)):
+    """Multi-demo upload: save all, dedup by content hash, batch-parse the rest."""
+    saved: list[tuple[str, Path]] = []
+    for f in files:
+        try:
+            dest = _save_upload(f)
+        except OSError as exc:
+            logger.exception("failed to save upload %s", f.filename)
+            saved.append((f.filename or "?", exc))
+            continue
+        saved.append((Path(f.filename or dest.name).name, dest))
+
+    rows = []  # batch_jobs.html rows: {label, job_id|None, state}
+    cache = _cache()
+    for label, dest in saved:
+        if isinstance(dest, OSError):
+            rows.append({"label": label, "job_id": None, "state": "error",
+                         "error": str(dest), "demo_hash": None})
+            continue
+        try:
+            demo_hash = DemoCache.hash_demo(dest)
+        except OSError as exc:
+            logger.exception("hash failed for %s", dest)
+            rows.append({"label": label, "job_id": None, "state": "error",
+                         "error": str(exc), "demo_hash": None})
+            continue
+        if cache.exists(demo_hash):
+            logger.info("upload duplicate skipped: %s (%s)", label, demo_hash[:12])
+            rows.append({"label": label, "job_id": None, "state": "duplicate",
+                         "error": None, "demo_hash": demo_hash})
+            continue
+        job_id = tasks.tasks.submit(_parse_job, label=label, path=str(dest))
+        rows.append({"label": label, "job_id": job_id, "state": "submitted",
+                     "error": None, "demo_hash": demo_hash})
+
     return TEMPLATES.TemplateResponse(
-        request, "job.html", {"job_id": job_id, "action": "解析 demo"}
+        request, "batch_jobs.html", {"rows": rows, "action": "解析 demo"}
     )
 
 
@@ -117,15 +194,7 @@ def job_status(job_id: str):
     job = tasks.tasks.get_status(job_id)
     if job is None:
         return JSONResponse({"status": "unknown"})
-    return JSONResponse(
-        {
-            "id": job.id,
-            "status": job.status,
-            "progress": job.progress,
-            "result": job.result,
-            "error": job.error,
-        }
-    )
+    return JSONResponse(job.as_dict())
 
 
 @app.get("/demo/{demo_hash}", response_class=HTMLResponse)
@@ -145,7 +214,8 @@ def player_detail(request: Request, demo_hash: str, steamid: str):
     demo = _load(demo_hash)
     if demo is None:
         return TEMPLATES.TemplateResponse(
-            request, "error.html", {"message": f"未找到 demo {demo_hash[:12]}"}
+            request, "error.html",
+            {"message": f"未找到 demo {demo_hash[:12]}（缓存可能正在后台重解析，请稍后刷新重试）"},
         )
     analysis = _analyze(demo)
     ctx = _player_context(demo, analysis, steamid)
@@ -207,6 +277,61 @@ def aggregate_charts():
 
     result = compute_aggregate(_cache().cache_dir, _settings().analysis)
     return JSONResponse(aggregate_payload(result))
+
+
+# ---- Phase F M7/M8: advanced analysis payloads ----
+
+@app.get("/api/demo/{demo_hash}/analysis/duels.json")
+def duels_charts(demo_hash: str):
+    """Duel matrix heatmap payload (对枪矩阵)."""
+    from cs_analyzer.web.chart_data import duels_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    result = _analyze_module(demo, "duels")
+    return JSONResponse(duels_payload(result))
+
+
+@app.get("/api/demo/{demo_hash}/analysis/economy.json")
+def economy_charts(demo_hash: str):
+    """Per-round buy classification + win-by-buy payload (经济分析)."""
+    from cs_analyzer.web.chart_data import economy_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    result = _analyze_module(demo, "economy")
+    return JSONResponse(economy_payload(result))
+
+
+@app.get("/api/demo/{demo_hash}/analysis/utility.json")
+def utility_charts(demo_hash: str):
+    """Flash value ranking + smoke denial payload (道具效用)."""
+    from cs_analyzer.web.chart_data import utility_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    result = _analyze_module(demo, "utility_effect")
+    return JSONResponse(utility_payload(result))
+
+
+@app.get("/api/demo/{demo_hash}/analysis/routes.json")
+def routes_charts(demo_hash: str):
+    """Opening route clusters over the map image (开局路线)."""
+    from cs_analyzer.maps.loader import load_map_or_fallback
+    from cs_analyzer.web.chart_data import routes_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    result = _analyze_module(demo, "routes")
+    map_res = load_map_or_fallback(demo.metadata.map_name, demo.ticks)
+    payload = routes_payload(result, map_res)
+    payload["map_image"] = f"/maps/{demo.metadata.map_name}.png"
+    payload["has_map_image"] = map_res.image_path is not None
+    return JSONResponse(payload)
 
 
 @app.get("/coverage", response_class=HTMLResponse)
@@ -282,6 +407,12 @@ def get_viewer_layers(demo_hash: str, with_layers: str = Query("shots,economy", 
                         headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/api/meta/weapons.json")
+def weapons_meta():
+    """Weapon alias/label/category table (mirror: static/js/weapon_meta.js)."""
+    return JSONResponse(weapons.payload())
+
+
 @app.get("/maps/{map_name}")
 def map_image(map_name: str):
     """Serve official radar PNGs (immutable: images are content-pinned by name)."""
@@ -299,7 +430,8 @@ def demo_viewer(request: Request, demo_hash: str):
     demo = _load(demo_hash)
     if demo is None:
         return TEMPLATES.TemplateResponse(
-            request, "error.html", {"message": f"未找到 demo {demo_hash[:12]}"}
+            request, "error.html",
+            {"message": f"未找到 demo {demo_hash[:12]}（缓存可能正在后台重解析，请稍后刷新重试）"},
         )
     meta = demo.metadata
     reg = demo.regular_rounds
@@ -318,10 +450,63 @@ def demo_viewer(request: Request, demo_hash: str):
     )
 
 
+@app.get("/demo/{demo_hash}/overlap", response_class=HTMLResponse)
+def demo_overlap(request: Request, demo_hash: str):
+    """Round-overlap analysis page (回合重叠): dedicated layout."""
+    demo = _load(demo_hash)
+    if demo is None:
+        return TEMPLATES.TemplateResponse(
+            request, "error.html",
+            {"message": f"未找到 demo {demo_hash[:12]}（缓存可能正在后台重解析，请稍后刷新重试）"},
+        )
+    meta = demo.metadata
+    reg = demo.regular_rounds
+    return TEMPLATES.TemplateResponse(
+        request, "overlap_viewer.html",
+        {
+            "demo": {
+                "hash": meta.demo_hash,
+                "filename": Path(meta.demo_path).name,
+                "map_name": meta.map_name,
+            },
+        },
+    )
+
+
 # ---- helpers ----
 
 def _load(demo_hash: str) -> ParsedDemo | None:
     return store.load_demo(demo_hash, _cache().cache_dir)
+
+
+_sweep_started = False
+
+
+def _stale_cache_sweep() -> None:
+    """Re-parse demos whose cache went stale (e.g. PARSER_VERSION bump).
+
+    Runs once per process, on the first library page render: hashing is cheap,
+    stale entries re-parse in the background task pool (~10s each). Without
+    this, a version bump leaves every demo 404 until manually re-parsed.
+    """
+    global _sweep_started
+    if _sweep_started:
+        return
+    _sweep_started = True
+    cache = _cache()
+    demos_dir = _demos_dir()
+    if not demos_dir.is_dir():
+        return
+    for dem in sorted(demos_dir.glob("*.dem")):
+        try:
+            demo_hash = DemoCache.hash_demo(dem)
+        except OSError:
+            logger.exception("sweep: hash failed for %s", dem)
+            continue
+        if cache.exists(demo_hash):
+            continue
+        logger.info("sweep: re-parsing stale demo %s (%s)", dem.name, demo_hash[:12])
+        tasks.tasks.submit(_parse_job, label=dem.name, path=str(dem))
 
 
 def _demo_context(demo: ParsedDemo, analysis: dict) -> dict:

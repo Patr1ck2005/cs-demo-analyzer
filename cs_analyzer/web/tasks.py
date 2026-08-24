@@ -25,6 +25,17 @@ class Job:
     error: str | None = None
     started: float = 0.0
     finished: float = 0.0
+    label: str = ""  # human-readable name (e.g. original demo filename)
+
+    def as_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "status": self.status,
+            "progress": self.progress,
+            "result": self.result,
+            "error": self.error,
+            "label": self.label,
+        }
 
 
 class TaskManager:
@@ -33,9 +44,9 @@ class TaskManager:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
 
-    def submit(self, fn, **kwargs) -> str:
+    def submit(self, fn, *, label: str = "", **kwargs) -> str:
         job_id = uuid.uuid4().hex[:12]
-        job = Job(id=job_id)
+        job = Job(id=job_id, label=label)
         with self._lock:
             self._jobs[job_id] = job
 

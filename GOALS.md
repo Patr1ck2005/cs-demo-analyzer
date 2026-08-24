@@ -24,15 +24,15 @@
 ### 回放配方系统（LTG-1 内）—— 已随管线归档（Phase E 2026-08-24）
 配方系统（recipes.yaml + csa recipe）已删除。其视觉模板（道具弧线/多层烟雾云/火焰区/击杀连线/枪线/闪光/炸弹标记）已移植到 canvas 回放器覆盖层（`static/js/viewer_overlays.js`），参数规格见 `docs/video_pipeline_archive.md` §3。
 
-### LTG-2 [B+C通道合并] 本地 Web 平台 —— Phase E 重设计完成（2026-08-24）
+### LTG-2 [B+C通道合并] 本地 Web 平台 —— Phase F 完成（2026-08-24）
 - **成品**：本地 Web 平台（FastAPI + Jinja2 SSR，全中文）——深色分析工具风
-  - Demo 库：拖拽上传 + 统计条 + 密集表格 + 行点击
-  - 单场复盘：比分 hero + 可排序选手表 + ECharts 雷达 + 回合时间线（深链回放器）+ 击杀流分组
+  - Demo 库：拖拽多文件上传 + 哈希去重 + 批量任务页 + 统计条 + 密集表格 + 行点击
+  - 单场复盘：比分 hero + 可排序选手表 + ECharts 雷达 + 回合时间线（深链回放器）+ 击杀流（武器图标）+ **对枪矩阵/经济分析/道具效用/开局路线** 四个高级分析区块
   - 选手页：stat tiles + 个人雷达（本人高亮）+ ECharts 地图位置图（热力/道具落点叠加雷达 PNG）
   - 跨场聚合：ECharts Rating 矩阵/条形/趋势 + 可排序明细表
-  - 实时回放器 v2：相机缩放平移 + 高级覆盖层 + 击杀流挂件 + 炸弹倒计时 + 深链
-- **技术要点**：图表 = ECharts 本地 vendor（`web/chart_data.py` 纯载荷 + 3 个 charts.json 端点，matplotlib 已移除）；回放数据 = viewer-data v2（击杀坐标/道具真实时长/闪光/炸弹/经济分层）
-- **状态**：🟢 Phase E 完成（待提交）
+  - 实时回放器 v3：相机缩放平移 + 高级覆盖层（枪口焰/曳光/换弹弧）+ **弹药/换弹真数据**（demoparser2 0.42）+ 缩放 LOD（血量环/弹药数字/武器贴图徽章）+ **控图实时染色 + 伪 3D 视图** + 击杀流挂件（图标）+ 炸弹倒计时 + 深链
+- **技术要点**：图表 = ECharts 本地 vendor；回放数据 = viewer-data v3 + layers v2；武器图标 = MIT 社区包 vendor + 三命名体系归一；控图 = 客户端高斯核 EMA（p95 0.2ms）；路线聚类 = 种子化 k-means（无 sklearn）
+- **状态**：🟢 Phase F 完成（待提交，123 测试全绿）
 
 ### LTG-3 [地基] 解析工具集扎实化 —— 已交付
 - **成品**：`csa coverage` 扫描全部真实 demo → `output/coverage/coverage.html`（总览矩阵 + 逐 demo 明细 + 调查结论 + 已知限制，全中文高信息量）

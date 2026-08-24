@@ -181,10 +181,28 @@ video { width: 100%; border-radius: 8px; border: 1px solid var(--line); backgrou
 .ob-score { font-size: var(--fs-lg); font-weight: 800; font-variant-numeric: tabular-nums; }
 .ob-rows { list-style: none; margin: 0; padding: 4px; }
 .ob-row { padding: 7px 9px; border-radius: 6px; margin-bottom: 3px; background: var(--panel2); }
+.ob-row--clickable { cursor: pointer; }
+.ob-row--clickable:hover { background: var(--panel3); }
+.ob-row.is-focus { background: rgba(77, 163, 255, .16);
+                   box-shadow: inset 2px 0 0 var(--accent); }
 .ob-row-top { display: flex; justify-content: space-between; gap: 8px; }
 .ob-name { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; overflow: hidden;
-           text-overflow: ellipsis; max-width: 130px; }
+           text-overflow: ellipsis; max-width: 130px; display: flex; align-items: center; gap: 4px; }
+.ob-num { display: inline-flex; width: 14px; height: 14px; border-radius: 3px;
+          border: 1.5px solid; font-size: 10px; font-weight: 800; line-height: 12px;
+          align-items: center; justify-content: center; flex: none;
+          font-family: Consolas, monospace; }
 .ob-wpn { font-size: var(--fs-xs); color: var(--muted); }
+/* ammo counter + reload badge inside the OB weapon cell */
+.ob-wpn .ob-ammo { font-family: Consolas, monospace; font-weight: 700;
+                   color: var(--text); margin-left: 4px; }
+.ob-wpn .ob-ammo.empty { color: var(--err); }
+.ob-wpn .ob-reloading { color: var(--t); font-weight: 700; margin-left: 4px; }
+/* vendored weapon SVGs (light-gray art on transparent; drop-shadow lifts them
+   off the dark panels) — shared by OB panels, kill feed and kill lines */
+.wpn-ico { height: 14px; width: auto; vertical-align: -2px; opacity: .92;
+           filter: drop-shadow(0 0 2px rgba(0, 0, 0, .8)); }
+.ob-wpn .wpn-ico { height: 16px; vertical-align: -3px; }
 .ob-row-bot { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
 .ob-hp { flex: 1; height: 5px; border-radius: 3px; background: #0d1420; overflow: hidden; }
 .ob-hp i { display: block; height: 100%; width: 100%; background: var(--ok); transition: width .15s; }
@@ -233,11 +251,20 @@ video { width: 100%; border-radius: 8px; border: 1px solid var(--line); backgrou
 .kill-feed .kf-a, .kill-feed .kf-v { font-weight: 600; white-space: nowrap;
                                      overflow: hidden; text-overflow: ellipsis; }
 .kill-feed .kf-w { color: var(--muted); }
+.kill-feed .kf-w.wpn-ico { opacity: .95; }
 .kill-feed .kf-x { color: var(--err); }
 .kill-feed .kf-hs { color: var(--warn); font-weight: 700; font-size: 10px;
                     border: 1px solid var(--warn); border-radius: 3px; padding: 0 3px; }
 .ob-bomb { font-size: var(--fs-md); font-weight: 800; color: var(--err);
            font-variant-numeric: tabular-nums; }
+/* map-control legend (Phase F M6) — bottom center of the map wrap */
+.control-legend { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+                  display: flex; align-items: center; gap: 8px; z-index: 6;
+                  background: rgba(11, 14, 20, .72); border-radius: 6px;
+                  padding: 3px 10px; font-size: var(--fs-xs); color: var(--muted);
+                  pointer-events: none; }
+.control-legend .cl-bar { width: 90px; height: 8px; border-radius: 4px;
+                          background: linear-gradient(90deg, rgba(255,176,46,.8), rgba(20,24,32,.5), rgba(61,155,255,.8)); }
 
 /* ---- map-position charts (ECharts over radar PNG background) ---- */
 .map-chart { position: relative; width: 100%; aspect-ratio: 1 / 1;
@@ -245,3 +272,27 @@ video { width: 100%; border-radius: 8px; border: 1px solid var(--line); backgrou
              background-position: center; border-radius: 8px; border: 1px solid var(--line);
              background-color: #07090d; }
 .map-chart .echart { position: absolute; inset: 0; }
+/* opening-routes: square radar container centered on the page (the ECharts
+   grid must coincide with the background image box or coords drift) */
+.routes-wrap { display: flex; flex-direction: column; align-items: center; }
+.routes-wrap .map-chart { max-width: 560px; width: 100%; }
+.routes-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px;
+                 font-size: var(--fs-xs); color: var(--muted); }
+.routes-legend i { display: inline-block; width: 14px; height: 3px;
+                   border-radius: 2px; margin-right: 5px; vertical-align: 2px; }
+
+/* ---- overlap analysis panel (dedicated UI for 重叠 mode) ---- */
+.overlap-panel { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line);
+                 border-radius: var(--r-md); background: var(--panel2);
+                 display: flex; flex-direction: column; gap: 8px; }
+.ovp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ovp-label { font-size: var(--fs-xs); color: var(--muted); flex: none; }
+.ovp-rounds { display: flex; gap: 4px; flex-wrap: wrap; }
+.ovp-rounds .chip { min-width: 34px; text-align: center; }
+.ovp-rounds .chip.base { border-color: var(--accent); color: var(--accent); }
+.ovp-rounds .chip.off { opacity: .35; }
+.ovp-phase-val { font-size: var(--fs-xs); color: var(--text); min-width: 38px;
+                 font-variant-numeric: tabular-nums; }
+.ovp-side .chip { min-width: 40px; text-align: center; }
+.ovp-hint { margin-left: auto; }
+#ovp-phase { flex: 1; max-width: 260px; accent-color: var(--accent); }

@@ -32,15 +32,37 @@ def _demo_with_state():
     return build_parsed_demo(ticks=ticks)
 
 
+def _demo_with_ammo_state():
+    """Same as _demo_with_state plus the 0.42 ammo/reload tick columns."""
+    demo = _demo_with_state()
+    demo.ticks["active_weapon_ammo"] = [30] * 40 + [0] * 40
+    demo.ticks["is_in_reload"] = [False] * 20 + [True] * 5 + [False] * 55
+    return demo
+
+
 def test_build_viewer_data_schema() -> None:
     d = viewer_data.build_viewer_data(_demo_with_state())
     assert d["viewer_version"] == viewer_data.VIEWER_DATA_VERSION
     assert d["tick_rate"] == 64 and d["stride"] == 8
     assert len(d["segments"]) == 2
     assert d["segments"][0]["winner_side"] in ("T", "CT")
-    assert d["ammo"] is False
+    assert d["ammo"] is False  # no ammo columns in the legacy fixture
+    assert "am" not in d["players"][0] and "rl" not in d["players"][0]
     assert d["map"]["image_url"] == "/maps/de_mirage.png"
     assert {"min_x", "max_x", "min_y", "max_y"} <= set(d["map"]["bounds"])
+
+
+def test_ammo_arrays_when_columns_present() -> None:
+    """v3: am/rl snapshot arrays ride along when the 0.42 columns exist."""
+    d = viewer_data.build_viewer_data(_demo_with_ammo_state())
+    assert d["ammo"] is True
+    p = d["players"][0]
+    assert len(p["am"]) == len(p["t"]) == len(p["rl"])
+    assert set(p["am"]) == {30, 0}  # ak47 phase 30, knife phase 0
+    # reload window (ticks 1280..1600) shows up in the rl array
+    i_reload = next(i for i, t in enumerate(p["t"]) if 1280 <= t <= 1600)
+    assert p["rl"][i_reload] == 1
+    assert p["rl"][0] == 0
 
 
 def test_snapshot_stride_and_side_follows_team_num() -> None:

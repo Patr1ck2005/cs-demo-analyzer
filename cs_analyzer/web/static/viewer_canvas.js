@@ -28,7 +28,7 @@
   let D = null;            // viewer-data payload
   let mapImg = null;       // Image
   let totalTicks = 1;      // timeline span
-  const TOGGLE_DEFAULTS = { trails: true, kills: true, nades: true, shots: false, blinds: true, bombs: true };
+  const TOGGLE_DEFAULTS = { trails: true, kills: true, nades: true, shots: false, blinds: true, bombs: true, control: false, ctrl3d: false };
   const state = {
     playing: false,
     tick: 0,
@@ -37,6 +37,7 @@
     holdUntil: 0,          // wall-clock ms pause at round end
     toggles: Object.assign({}, TOGGLE_DEFAULTS),  // overlay switches (persisted)
     lastLinkedRound: null, // last round written to the deep-link URL
+    focusSid: null,        // clicked player (highlight; others dimmed)
   };
   try { // restore persisted overlay toggles
     const saved = JSON.parse(localStorage.getItem('csa-viewer-toggles') || '{}');
@@ -97,6 +98,9 @@
       armor: p.rows.armor[i], alive: p.rows.alive[i],
       side: SIDE_NAME[p.rows.side[i]] || '',
       w: (D.weapon_table || [])[p.rows.w[i]] || '',
+      // v3 ammo/reload (absent rows resolve to undefined -> client guards)
+      ammo: p.rows.am ? p.rows.am[i] : undefined,
+      reload: p.rows.rl ? !!p.rows.rl[i] : false,
       i, j,
     };
     if (j > i && p.rows.alive[i] && p.rows.alive[j] && out.alive) {
@@ -142,6 +146,9 @@
     const ih = (mapImg && mapImg.naturalHeight) || 1024;
     const scale = Math.min(w / iw, h / ih);
     drawMapLayer.geom = { scale };
+    // 3D mode: the radar texture is drawn by the control layer's perspective
+    // camera on fx-layer — the flat 2D basemap here would cover it
+    if (state.toggles.ctrl3d) return;
     if (!mapImg) return;
     // camera transform: screen = viewCenter + (mapPx - camCenter) * scale * zoom
     if (window.ViewerCam) ViewerCam.resolve(cam, iw, ih);
@@ -167,6 +174,12 @@
     const ctx = setupCanvas($('fx-layer'), w, h);
     ctx.clearRect(0, 0, w, h);
     if (!D || !window.ViewerOverlays) return;
+    // map-control layer first (territory wash under all event overlays)
+    if (window.ViewerControl && (state.toggles.control || state.toggles.ctrl3d)) {
+      drawControlLayer(ctx, tick, w, h);
+    }
+    // 2D event overlays are skipped in 3D mode (perspective makes them wrong)
+    if (state.toggles.ctrl3d) return;
     // advanced overlays (ported effect templates) live in viewer_overlays.js
     ViewerOverlays.draw({
       ctx,
@@ -181,7 +194,108 @@
     });
   }
 
+  // ---- map control (Phase F M6): EMA-smoothed territory tint / 3D orbit ----
+  let controlLegendBuilt = false;
+  function controlPlayersAt(tick) {
+    const out = [];
+    for (const p of players) {
+      const st = playerStateAt(p, tick);
+      if (!st.alive) continue;
+      out.push({ x: st.x, y: st.y, sideCode: p.rows.side[st.i] });
+    }
+    return out;
+  }
+  function drawControlLayer(ctx, tick, w, h) {
+    const t0 = performance.now();
+    const field = ViewerControl.update(tick, D.tick_rate, controlPlayersAt, D.map);
+    if (state.toggles.ctrl3d) {
+      // 3D: ground texture + columns + player dots rendered by the control
+      // module's own perspective camera
+      const players3d = [];
+      for (const p of players) {
+        const st = playerStateAt(p, tick);
+        if (!st.alive) continue;
+        const dimmed = state.focusSid && p.steamid !== state.focusSid;
+        players3d.push({
+          x: st.x, y: st.y,
+          color: dimmed ? hexA(p.color, 0.18) : p.color,
+          focus: state.focusSid === p.steamid,
+        });
+      }
+      ViewerControl.render3D(ctx, D.map, field, w, h, mapImg, players3d);
+    } else {
+      ViewerControl.renderFlat(ctx, D.map, field, toScreen);
+    }
+    buildControlLegend();
+    // perf probe (budget: p95 < 4ms; degrade 3D -> flat if blown repeatedly)
+    const ms = performance.now() - t0;
+    const dbg = (window.__viewerDebug = window.__viewerDebug || { timings: {} });
+    dbg.timings = dbg.timings || {};
+    dbg.timings.controlMs = ms;
+    if (ms > 12 && state.toggles.ctrl3d) {
+      controlSlowFrames = (controlSlowFrames || 0) + 1;
+      if (controlSlowFrames > 60) {
+        console.warn('control 3D frame budget blown (%.1fms avg) — falling back to flat', ms);
+        state.toggles.ctrl3d = false;
+        syncToolbarChips();
+      }
+    } else {
+      controlSlowFrames = 0;
+    }
+  }
+  let controlSlowFrames = 0;
+  function buildControlLegend() {
+    if (controlLegendBuilt) return;
+    controlLegendBuilt = true;
+    const wrap = document.querySelector('.ob-map-wrap');
+    const el = document.createElement('div');
+    el.className = 'control-legend';
+    el.innerHTML =
+      '<span class="cl-t">T 控制</span>' +
+      '<span class="cl-bar"></span>' +
+      '<span class="cl-ct">CT 控制</span>';
+    wrap.appendChild(el);
+  }
+
   // glyph wrappers shared with the main layer (implementations in viewer_overlays.js)
+  // Marker scale grows with zoom, capped: ms = min(0.36·√z, 1).
+  //   fit (z=1): ms=0.36 → dot r≈4px — players ~120u apart stay separated;
+  //   zoomed (z≥7.7): ms=1 → r=11px — fully readable, never grows beyond.
+  // Number label clamps to ≥9px so identity stays readable at any zoom.
+  function markerScale() {
+    const z = cam.zoom || 1;
+    return Math.min(0.36 * Math.sqrt(z), 1);
+  }
+
+  // Number font: shrinks with ms but never below ~9px — the label is the
+  // identity anchor and must stay readable even when dots are tiny.
+  function labelFont(ms) {
+    return `800 ${Math.max(12 * ms, 9)}px Consolas, monospace`;
+  }
+
+  // Label collision resolution: when two markers are closer than ~2.2 dot
+  // radii, offset their number labels apart (up-right / down-left) with a
+  // leader line so every player's number stays readable. OB-software staple.
+  function resolveLabelOffsets(projected, ms) {
+    const minDist = 24 * ms;   // label needs ~2.2 dot radii of separation
+    const items = projected.filter((pr) => !pr.corpse);
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i], b = items[j];
+        const dx = b.sx - a.sx, dy = b.sy - a.sy;
+        const d = Math.hypot(dx, dy);
+        if (d >= minDist || d === 0) continue;
+        // push labels apart along the a→b axis, half each
+        const push = (minDist - d) / 2 + 6 * ms;
+        const ux = dx / d, uy = dy / d;
+        a.lox = (a.lox || 0) - ux * push;
+        a.loy = (a.loy || 0) - uy * push;
+        b.lox = (b.lox || 0) + ux * push;
+        b.loy = (b.loy || 0) + uy * push;
+      }
+    }
+  }
+
   function star(ctx, x, y, r) {
     if (window.ViewerOverlays) ViewerOverlays.star(ctx, x, y, r);
   }
@@ -193,54 +307,163 @@
   function drawMainLayer(tick) {
     const wrap = document.querySelector('.ob-map-wrap');
     const w = wrap.clientWidth, h = wrap.clientHeight;
-    const ctx = setupCanvas($('main-layer'), w, h);
+    const ctx = setupCanvas($('main-layer'), w, h); // setupCanvas clears
     if (!D) return;
+    if (state.toggles.ctrl3d) return; // players render inside the 3D layer
     const windowT = 1.2 * D.tick_rate;
     // zoom-aware marker scale: readable when magnified, unchanged at fit (z=1)
-    const ms = 1 / Math.sqrt(cam.zoom || 1);
+    const ms = markerScale();
+    // pass 1: project everyone + collect screen positions for label collision
+    const projected = [];
     for (const p of players) {
       const st = playerStateAt(p, tick);
       if (!st.alive) {
-        // corpse marker at last position
-        if (st.x || st.y) {
+        if ((st.x || st.y)) {
           const [sx, sy] = toScreen(st.x, st.y);
-          skull(ctx, sx, sy);
+          projected.push({ p, st, sx, sy, corpse: true });
         }
         continue;
       }
-      // trail: walk back through snapshots within the window
-      const rows = p.rows;
-      let i0 = st.i;
-      while (i0 > 0 && rows.t[st.i] - rows.t[i0] < windowT) i0--;
-      ctx.lineWidth = 2.2 * ms;
-      let prev = null;
-      for (let i = i0; i <= st.j && i < rows.t.length; i++) {
-        if (!rows.alive[i]) break;
-        const [sx, sy] = toScreen(rows.x[i], rows.y[i]);
-        if (prev && Math.hypot(sx - prev.sx, sy - prev.sy) * (1 / drawMapLayer.geom.scale) < BREAK_DIST) {
-          const f = (i - i0) / Math.max(st.i - i0, 1);
-          ctx.strokeStyle = hexA(p.color, 0.15 + 0.85 * f);
-          ctx.beginPath(); ctx.moveTo(prev.sx, prev.sy); ctx.lineTo(sx, sy); ctx.stroke();
-        }
-        prev = { sx, sy };
-      }
-      // marker + yaw fan
       const [sx, sy] = toScreen(st.x, st.y);
+      projected.push({ p, st, sx, sy, corpse: false });
+    }
+    // label collision: players within (2.2·dotR) vertically stack their labels
+    resolveLabelOffsets(projected, ms);
+    for (const pr of projected) {
+      const { p, st, sx, sy } = pr;
+      const focusA = state.focusSid ? (p.steamid === state.focusSid ? 1 : 0.12) : 1;
+      if (pr.corpse) {
+        if (focusA > 0.5) {
+          ctx.globalAlpha = focusA;
+          skull(ctx, sx, sy);
+          ctx.globalAlpha = 1;
+        }
+        continue;
+      }
+      // trail: walk back through snapshots within the window (toggle-gated)
+      if (state.toggles.trails !== false) {
+        const rows = p.rows;
+        let i0 = st.i;
+        while (i0 > 0 && rows.t[st.i] - rows.t[i0] < windowT) i0--;
+        ctx.lineWidth = 2.2 * ms;
+        let prev = null;
+        for (let i = i0; i <= st.j && i < rows.t.length; i++) {
+          if (!rows.alive[i]) break;
+          const [sx2, sy2] = toScreen(rows.x[i], rows.y[i]);
+          if (prev && Math.hypot(sx2 - prev.sx, sy2 - prev.sy) * (1 / drawMapLayer.geom.scale) < BREAK_DIST) {
+            const f = (i - i0) / Math.max(st.i - i0, 1);
+            ctx.strokeStyle = hexA(p.color, (0.15 + 0.85 * f) * focusA);
+            ctx.beginPath(); ctx.moveTo(prev.sx, prev.sy); ctx.lineTo(sx2, sy2); ctx.stroke();
+          }
+          prev = { sx: sx2, sy: sy2 };
+        }
+      }
+      // marker + yaw fan (sizes tuned for readability: dot r≈11px at floor)
       const yawRad = (st.yaw * Math.PI) / 180;
       // Source yaw: 0 = +X, CCW. Screen y grows south -> dir = (cos(yaw), -sin(yaw)).
       // (Verified: 12613 moving samples, yaw vs atan2(vy,vx) circ error -0.8 deg.)
       const dx = Math.cos(yawRad), dy = -Math.sin(yawRad);
       const half = (YAW_FAN_DEG * Math.PI) / 360;
-      const R = 16 * ms;
+      const R = 30 * ms;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.arc(sx, sy, R, Math.atan2(dy, dx) - half, Math.atan2(dy, dx) + half);
       ctx.closePath();
-      ctx.fillStyle = hexA(p.color, 0.35); ctx.fill();
-      ctx.beginPath(); ctx.arc(sx, sy, 5.5 * ms, 0, Math.PI * 2);
-      ctx.fillStyle = p.color; ctx.fill();
-      ctx.lineWidth = 1.2 * ms; ctx.strokeStyle = '#000'; ctx.stroke();
+      ctx.fillStyle = hexA(p.color, 0.35 * focusA); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx, sy, 11 * ms, 0, Math.PI * 2);
+      ctx.fillStyle = hexA(p.color, focusA); ctx.fill();
+      ctx.lineWidth = 2 * ms; ctx.strokeStyle = '#000'; ctx.stroke();
+      // number label (identity anchor): offset above-right of the dot with a
+      // leader line when markers collide; white on black outline
+      const lx = sx + (pr.lox || 0), ly = sy + (pr.loy || 0);
+      if (pr.lox || pr.loy) {
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(lx, ly);
+        ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1.2 * ms; ctx.stroke();
+      }
+      ctx.font = labelFont(ms);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 3 * ms; ctx.strokeStyle = 'rgba(0,0,0,.95)';
+      ctx.strokeText(p.num, lx, ly);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(p.num, lx, ly);
+      if (state.focusSid === p.steamid) {
+        // highlight ring on the focused player
+        ctx.beginPath(); ctx.arc(sx, sy, 18 * ms, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2.4 * ms; ctx.stroke();
+      }
+      // reload indicator: rotating amber dashed arc around the dot
+      if (st.reload) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(sx, sy, 22 * ms, 0, Math.PI * 2);
+        ctx.setLineDash([6, 4]);
+        ctx.lineDashOffset = -tick / 3; // rotate as the reload progresses
+        ctx.strokeStyle = 'rgba(255,176,46,.9)';
+        ctx.lineWidth = 3 * ms;
+        ctx.stroke();
+        ctx.restore();
+      }
+      // zoom-gated LOD detail (Phase F M5): HP ring, ammo, weapon badge
+      if (cam.zoom >= ZOOM_LOD && focusA > 0.5) drawLodDetail(ctx, st, sx, sy, ms);
     }
+  }
+
+
+  // zoom threshold where per-player detail fades in
+  const ZOOM_LOD = 2.5;
+  // weapon badge images pre-rasterized through WeaponMeta.getIconImage
+  const _badgeCache = new Map(); // weapon short name -> Image | null(failed)
+  function drawLodDetail(ctx, st, sx, sy, ms) {
+    // HP ring: track arc around the dot (ok/warn/err by hp)
+    const hpFrac = Math.max(0, Math.min(st.hp / 100, 1));
+    ctx.beginPath(); ctx.arc(sx, sy, 17 * ms, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 4 * ms; ctx.stroke();
+    if (hpFrac > 0) {
+      ctx.beginPath();
+      ctx.arc(sx, sy, 17 * ms, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * hpFrac);
+      ctx.strokeStyle = st.hp > 50 ? C.ok : st.hp > 25 ? C.warn : C.err;
+      ctx.lineWidth = 4 * ms; ctx.stroke();
+    }
+    // ammo readout at the dot's upper right (v3 payloads only)
+    if (st.ammo != null) {
+      ctx.font = `700 ${14 * ms}px Consolas, monospace`;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.lineWidth = 4 * ms; ctx.strokeStyle = '#000';
+      ctx.strokeText(String(st.ammo), sx + 15 * ms, sy - 12 * ms);
+      ctx.fillStyle = st.ammo === 0 ? C.err : '#e8edf4';
+      ctx.fillText(String(st.ammo), sx + 15 * ms, sy - 12 * ms);
+    }
+    // weapon icon badge above the dot (zoom >= 3): light plate — the vendored
+    // SVGs have no fill attr (default BLACK), so they need a light background
+    if (cam.zoom >= 3 && window.WeaponMeta && st.w) {
+      const img = _badgeCache.get(st.w);
+      if (img && img.naturalWidth) {
+        const bw = 36 * ms, bh = 20 * ms;
+        const bx = sx - bw / 2, by = sy - 42 * ms;
+        ctx.fillStyle = 'rgba(232, 237, 244, .92)';
+        roundRect(ctx, bx, by, bw, bh, 4 * ms);
+        ctx.fill();
+        ctx.lineWidth = 1 * ms; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.stroke();
+        const pad = 4 * ms;
+        ctx.drawImage(img, bx + pad, by + (bh - (bh - pad * 2)) / 2, bw - pad * 2, bh - pad * 2);
+      } else if (img === undefined) {
+        // async load; draw nothing this frame, cache resolves later
+        _badgeCache.set(st.w, null);
+        WeaponMeta.getIconImage(st.w)
+          .then((loaded) => _badgeCache.set(st.w, loaded))
+          .catch((e) => console.warn('weapon badge load failed:', st.w, String(e)));
+      }
+    }
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
   function hexA(hex, a) {
@@ -390,7 +613,25 @@
       li.innerHTML =
         '<div class="ob-row-top"><span class="ob-name"></span><span class="ob-wpn"></span></div>' +
         '<div class="ob-row-bot"><div class="ob-hp"><i></i></div><span class="ob-armor"></span></div>';
-      li.querySelector('.ob-name').textContent = p.name;
+      // number chip (1-0) — same label as the map marker
+      const nameEl = li.querySelector('.ob-name');
+      const num = document.createElement('span');
+      num.className = 'ob-num';
+      num.style.borderColor = p.color;
+      num.style.color = p.color;
+      num.textContent = p.num;
+      num.title = `编号 ${p.num} · ${p.name}`;
+      const txt = document.createElement('span');
+      txt.className = 'ob-name-text';
+      txt.textContent = p.name;
+      nameEl.replaceChildren(num, txt);
+      // click to focus/highlight this player (works in live + overlap modes)
+      li.title = '点击高亮该选手，再点取消';
+      li.classList.add('ob-row--clickable');
+      li.addEventListener('click', () => {
+        state.focusSid = state.focusSid === p.steamid ? null : p.steamid;
+        syncPanelFocus();
+      });
       panelRows[p.steamid] = li;
       return li;
     };
@@ -426,6 +667,12 @@
     return n;
   }
 
+  function syncPanelFocus() {
+    for (const [sid, li] of Object.entries(panelRows)) {
+      li.classList.toggle('is-focus', state.focusSid === sid);
+    }
+  }
+
   function schedulePanelFlush(ts) {
     if (ts - lastFlush < 100) return;
     lastFlush = ts;
@@ -452,10 +699,21 @@
       const sideCls = (p) => (p ? (p.sideFirst === 'T' ? ' t-text' : p.sideFirst === 'CT' ? ' ct-text' : '') : '');
       li.innerHTML =
         '<span class="kf-a' + sideCls(ak) + '"></span>' +
-        '<span class="kf-w"></span><span class="kf-x">✖</span>' +
+        '<img class="kf-w wpn-ico" alt="" draggable="false"><span class="kf-x">✖</span>' +
         '<span class="kf-v' + sideCls(vk) + '"></span>';
       li.querySelector('.kf-a').textContent = k.an || '?';
-      li.querySelector('.kf-w').textContent = (D.weapon_table || [])[k.wi] || '';
+      const wName = (D.weapon_table || [])[k.wi] || '';
+      const wEl = li.querySelector('.kf-w');
+      if (window.WeaponMeta && wName) {
+        wEl.src = WeaponMeta.iconUrl(wName);
+        wEl.title = WeaponMeta.label(wName);
+      } else {
+        wEl.remove();
+        li.querySelector('.kf-x').insertAdjacentHTML('beforebegin',
+          '<span class="kf-w"></span>');
+        // fall back to text when icons are unavailable
+        li.querySelectorAll('.kf-w').forEach((el) => { el.textContent = wName; });
+      }
       li.querySelector('.kf-v').textContent = k.vn || '?';
       if (k.hs) { const b = document.createElement('span'); b.className = 'kf-hs'; b.textContent = 'HS'; li.appendChild(b); }
       ul.appendChild(li);
@@ -489,10 +747,38 @@
       list.forEach(([p, st], idx) => {
         const li = panelRows[p.steamid];
         const key = p.steamid;
-        const sig = [st.hp, st.w, st.alive, st.armor].join('|');
+        const sig = [st.hp, st.w, st.alive, st.armor, st.ammo, st.reload].join('|');
         if (lastVals[key] === sig) return;
         lastVals[key] = sig;
-        li.querySelector('.ob-wpn').textContent = st.w || '';
+        const wEl = li.querySelector('.ob-wpn');
+        const wName = st.w || '';
+        if (window.WeaponMeta && wName) {
+          // icon + tooltip + ammo readout (dense OB layout)
+          const sigW = wName + ':' + (st.ammo != null ? st.ammo : '');
+          if (wEl.dataset.w !== sigW) {
+            wEl.dataset.w = sigW;
+            wEl.innerHTML = '';
+            const img = document.createElement('img');
+            img.className = 'wpn-ico'; img.alt = ''; img.draggable = false;
+            img.src = WeaponMeta.iconUrl(wName);
+            img.title = WeaponMeta.label(wName);
+            wEl.appendChild(img);
+            if (st.ammo != null) {
+              const n = document.createElement('span');
+              n.className = 'ob-ammo' + (st.ammo === 0 ? ' empty' : '');
+              n.textContent = st.ammo;
+              wEl.appendChild(n);
+            }
+            if (st.reload) {
+              const r = document.createElement('span');
+              r.className = 'ob-reloading';
+              r.textContent = '换弹';
+              wEl.appendChild(r);
+            }
+          }
+        } else {
+          wEl.textContent = wName;
+        }
         li.querySelector('.ob-armor').textContent = st.armor > 0 ? '🛡' + st.armor : '';
         const bar = li.querySelector('.ob-hp i');
         bar.style.width = st.hp + '%';
@@ -510,6 +796,31 @@
     };
     place('panel-t', buckets.T, 'T');
     place('panel-ct', buckets.CT, 'CT');
+    // panel header names follow the LIVE side occupying each panel (teams swap
+    // at halftime; the header must not keep showing a stale side)
+    const tName = buckets.T.length ? (D.teams && teamNameForSide('T', state.tick)) || 'T' : 'T';
+    const ctName = buckets.CT.length ? (D.teams && teamNameForSide('CT', state.tick)) || 'CT' : 'CT';
+    const tEl = document.querySelector('.ob-team--t .ob-side-name');
+    const ctEl = document.querySelector('.ob-team--ct .ob-side-name');
+    if (tEl) tEl.textContent = tName;
+    if (ctEl) ctEl.textContent = ctName;
+  }
+
+  /** Real team name currently playing `side` at `tick` (halftime-swap aware). */
+  function teamNameForSide(side, tick) {
+    // segments carry winner_side; find which real team won as `side` most
+    // recently at/before tick — cheap heuristic: last segment ≤ tick
+    let seg = null;
+    for (const s of D.segments) {
+      if (s.start_tick <= tick) seg = s; else break;
+    }
+    if (!seg) return side;
+    // teams.t/ct are the STARTING sides (begin_new_match); after a side swap
+    // the names flip. Winner side tells us the mapping at this segment.
+    const starts = { T: D.teams?.t || 'T', CT: D.teams?.ct || 'CT' };
+    // if the segment's round is in the second half (side swap), flip
+    const swapped = seg.round > Math.ceil(D.segments.length / 2);
+    return swapped ? (side === 'T' ? starts.CT : starts.T) : starts[side];
   }
 
   // ---- data load ----
@@ -521,15 +832,22 @@
       totalTicks = D.segments[D.segments.length - 1].end_tick;
       state.tick = D.segments[0].start_tick; // start at the first round, not tick 0
 
-      // colors by first observed side (post-M1 roster is correct; live side bytes
-      // drive panels, but marker hue stays stable per player across halves)
+      // per-player identity: number label (1-0) + stable color from STARTING
+      // side (warm palette = starting T, cool = starting CT — identity, not
+      // live side; the live side drives the panel columns)
       const sideCount = { T: 0, CT: 0 };
-      players = D.players.map((rows) => {
+      players = D.players.map((rows, i) => {
         const firstCode = rows.side.find((s) => s !== 2);
         const firstSide = SIDE_NAME[firstCode] || 'CT';
         const pal = firstSide === 'T' ? T_PALETTE : CT_PALETTE;
         const idx = sideCount[firstSide]++;
-        return { steamid: rows.steamid, name: (D.roster.find(r => r.steamid === rows.steamid) || {}).name || rows.steamid, sideFirst: firstSide, rows, color: pal[idx % pal.length] };
+        return {
+          steamid: rows.steamid,
+          name: (D.roster.find(r => r.steamid === rows.steamid) || {}).name || rows.steamid,
+          sideFirst: firstSide,
+          num: String((i + 1) % 10),  // 1..9, 0 — unique per player
+          rows, color: pal[idx % pal.length],
+        };
       });
 
       killTicks = (D.events.kills || []).map((k) => k.tick).sort((a, b) => a - b);
@@ -537,10 +855,15 @@
         .filter((k) => Number.isFinite(k.ax) && Number.isFinite(k.vx))
         .sort((a, b) => a.tick - b.tick);
 
-      // real team names from the demo header, when present
+      // real team names from the demo header (starting sides; panel headers
+      // re-derive the live mapping per tick in flushPanels)
       if (D.teams) {
-        if (D.teams.t) document.querySelector('.ob-team--t .ob-side-name').textContent = D.teams.t;
-        if (D.teams.ct) document.querySelector('.ob-team--ct .ob-side-name').textContent = D.teams.ct;
+        if (D.teams.t || D.teams.ct) {
+          const tEl = document.querySelector('.ob-team--t .ob-side-name');
+          const ctEl = document.querySelector('.ob-team--ct .ob-side-name');
+          if (tEl && D.teams.t) tEl.textContent = D.teams.t;
+          if (ctEl && D.teams.ct) ctEl.textContent = D.teams.ct;
+        }
       }
 
       // deep link ?round=N&t=S (seconds into the round)
@@ -608,6 +931,10 @@
     const redrawMap = () => drawMapLayer();
     wrap.addEventListener('wheel', (e) => {
       e.preventDefault();
+      if (state.toggles.ctrl3d && window.ViewerControl) {
+        ViewerControl.dolly(Math.exp(e.deltaY * 0.0012)); // wheel = dolly in 3D
+        return;
+      }
       if (!drawMapLayer.geom) return;
       const rect = wrap.getBoundingClientRect();
       const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -615,25 +942,50 @@
         drawMapLayer.geom.scale, D.map.width, D.map.height, 1, 8);
       redrawMap();
     }, { passive: false });
-    const pan = { on: false, x: 0, y: 0, moved: false };
+    // pointer capture is deferred until the drag threshold is crossed so plain
+    // clicks (toolbar chips inside the wrap!) still receive their native click
+    const pan = { on: false, id: -1, x: 0, y: 0, moved: false };
     wrap.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
-      pan.on = true; pan.moved = false; pan.x = e.clientX; pan.y = e.clientY;
-      wrap.setPointerCapture(e.pointerId);
+      // toolbar chips are interactive DOM inside the wrap — they own their gestures
+      if (e.target.closest && e.target.closest('.ob-toolbar')) return;
+      pan.on = true; pan.id = e.pointerId; pan.moved = false;
+      pan.x = e.clientX; pan.y = e.clientY;
     });
     wrap.addEventListener('pointermove', (e) => {
-      if (!pan.on) return;
+      if (!pan.on || e.pointerId !== pan.id) return;
       const dx = e.clientX - pan.x, dy = e.clientY - pan.y;
-      if (!pan.moved && Math.hypot(dx, dy) < 4) return; // click vs drag threshold
-      pan.moved = true;
+      if (!pan.moved) {
+        if (Math.hypot(dx, dy) < 4) return; // click vs drag threshold
+        pan.moved = true;
+        try { wrap.setPointerCapture(pan.id); } catch (err) { /* pointer gone */ }
+      }
       pan.x = e.clientX; pan.y = e.clientY;
+      // 3D mode: drag orbits the perspective camera (ground texture redraws
+      // every frame in drawFxLayer — no explicit redraw needed)
+      if (state.toggles.ctrl3d && window.ViewerControl) {
+        ViewerControl.orbit(dx * 0.005, dy * 0.004);
+        return;
+      }
       if (!drawMapLayer.geom) return;
       ViewerCam.panBy(cam, dx, dy, camView(), drawMapLayer.geom.scale,
         D.map.width, D.map.height);
       redrawMap();
     });
-    wrap.addEventListener('pointerup', () => { pan.on = false; });
-    const resetCam = () => { ViewerCam.reset(cam); redrawMap(); };
+    wrap.addEventListener('pointerup', (e) => {
+      if (e.pointerId !== pan.id) return;
+      pan.on = false;
+      try { if (wrap.hasPointerCapture && wrap.hasPointerCapture(pan.id)) wrap.releasePointerCapture(pan.id); } catch (err) { /* noop */ }
+    });
+    const resetCam = (e) => {
+      // dblclick on toolbar chips must not reset the camera
+      if (e && e.target && e.target.closest && e.target.closest('.ob-toolbar')) return;
+      if (state.toggles.ctrl3d && window.ViewerControl) {
+        ViewerControl.reset3d(D.map); // 3D has its own camera
+        return;
+      }
+      ViewerCam.reset(cam); redrawMap();
+    };
     wrap.addEventListener('dblclick', resetCam);
     document.getElementById('btn-cam-reset')?.addEventListener('click', resetCam);
 
@@ -663,20 +1015,33 @@
       else if (e.code === 'ArrowLeft') state.tick = Math.max(0, state.tick - (e.shiftKey ? 30 : 5) * D.tick_rate);
       else if (e.code === 'ArrowRight') state.tick = Math.min(totalTicks, state.tick + (e.shiftKey ? 30 : 5) * D.tick_rate);
       else if (e.code === 'KeyR') resetCam();
-      else if (/^[1-8]$/.test(e.key)) { state.speed = Number(e.key); $('sel-speed').value = e.key; }
+      else if (e.code === 'Escape' && state.focusSid) {
+        state.focusSid = null;
+        syncPanelFocus();
+      }
+      else if (/^[1-9]$/.test(e.key)) {
+        const v = Number(e.key);
+        // only accept speeds the select actually offers (keeps UI in sync)
+        if ([...$('sel-speed').options].some((o) => o.value === e.key)) {
+          state.speed = v; $('sel-speed').value = e.key;
+        }
+      }
     });
     window.addEventListener('resize', () => { drawMapLayer(); });
   }
 
   // ---- overlay toolbar: chip toggles bound to state.toggles + localStorage ----
+  let toolbarChips = {}; // key -> chip element
   function buildToolbar() {
     const bar = document.getElementById('ob-toolbar');
     if (!bar) return;
     const labels = [
       ['trails', '轨迹'], ['kills', '击杀线'], ['nades', '道具'],
       ['shots', '枪线'], ['blinds', '闪光'], ['bombs', '炸弹'],
+      ['control', '控图'], ['ctrl3d', '3D'],
     ];
     bar.innerHTML = '';
+    toolbarChips = {};
     for (const [key, label] of labels) {
       const chip = document.createElement('button');
       chip.type = 'button';
@@ -684,10 +1049,30 @@
       chip.textContent = label;
       chip.addEventListener('click', () => {
         state.toggles[key] = !state.toggles[key];
-        chip.classList.toggle('on', state.toggles[key]);
+        // 3D and flat tint are mutually exclusive modes of one layer
+        if (key === 'control' && state.toggles.control) state.toggles.ctrl3d = false;
+        if (key === 'ctrl3d' && state.toggles.ctrl3d) { state.toggles.control = true; ViewerControl.reset(); }
+        if (key === 'control' && !state.toggles.control) state.toggles.ctrl3d = false;
+        if (!state.toggles.control) {
+          const legend = document.querySelector('.control-legend');
+          if (legend) { legend.remove(); controlLegendBuilt = false; }
+        }
+        // 2D basemap <-> 3D ground texture swap lives on the map-layer canvas;
+        // it only repaints on explicit redraws, so force one on mode change
+        if (key === 'ctrl3d' || key === 'control') drawMapLayer();
+        syncToolbarChips();
         try { localStorage.setItem('csa-viewer-toggles', JSON.stringify(state.toggles)); } catch (e) {}
       });
+      toolbarChips[key] = chip;
       bar.appendChild(chip);
+    }
+  }
+
+  function syncToolbarChips() {
+    for (const [key, chip] of Object.entries(toolbarChips)) {
+      chip.classList.toggle('on', !!state.toggles[key]);
+      // 3D chip only meaningful when the control layer is on
+      if (key === 'ctrl3d') chip.disabled = !state.toggles.control;
     }
   }
 

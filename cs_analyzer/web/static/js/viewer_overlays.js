@@ -29,6 +29,11 @@
   const SMOKE_FADE_TAIL_S = 2.5;
   const KILL_DUR_S = 1.2;
   const SHOT_DUR_S = 0.12;
+  // combat feedback (Phase F M5): muzzle flash / tracer windows & lengths
+  const MUZZLE_DUR_S = 0.06;         // 60ms flash at the muzzle
+  const TRACER_DUR_S = 0.18;         // tracer fade window
+  const TRACER_WORLD = 900;          // tracer length in world units
+  const RELOAD_ARC_R = 13;           // reload arc radius (screen px, zoom-scaled)
   const LANDING_PULSE_S = 0.35;
   const DEFAULT_ZONE_S = { smoke: 18, flash: 2, he: 1, fire: 7 };
 
@@ -217,20 +222,51 @@
     }
   }
 
-  // ---- shots: brief gold spark at each firing origin (lazy layer) ----
+  // ---- shots: muzzle flash + gold tracer along shooter yaw (lazy layer) ----
   function drawShots(env) {
     const { ctx, tick, TICK } = env;
     const durT = SHOT_DUR_S * TICK;
     const shots = env.layers.shots || [];
     const ticks = tickIndex(shots, 'tick');
-    for (let i = lowerBound(ticks, tick - durT); i < shots.length; i++) {
+    const maxT = Math.max(durT, TRACER_DUR_S * TICK, MUZZLE_DUR_S * TICK);
+    const wm = window.WeaponMeta;
+    for (let i = lowerBound(ticks, tick - maxT); i < shots.length; i++) {
       const s = shots[i];
       const age = tick - s.tick;
-      if (age > durT) break;
+      if (age > maxT) break;
       if (age < 0) continue; // future shots
       const [sx, sy] = env.toScreen(s.x, s.y);
-      ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2);
-      ctx.fillStyle = hexA(COLORS.shot, 0.85 * (1 - age / durT)); ctx.fill();
+      const wName = (env.layers.weapon_table || [])[s.wi] || '';
+      const isGun = !wm || wm.isGun(wName); // grenades/knife/c4 get no tracer
+      // tracer: gold gradient line along the shot's yaw (needs layer v2 "ya")
+      if (isGun && s.ya != null && age <= TRACER_DUR_S * TICK) {
+        const rad = (s.ya * Math.PI) / 180;
+        // Source yaw: 0 = +X CCW; screen y grows south -> (cos, -sin)
+        const dx = Math.cos(rad), dy = -Math.sin(rad);
+        const len = env.worldDist(TRACER_WORLD);
+        const a = 0.55 * (1 - age / (TRACER_DUR_S * TICK));
+        const grad = ctx.createLinearGradient(sx, sy, sx + dx * len, sy + dy * len);
+        grad.addColorStop(0, hexA(COLORS.shot, a));
+        grad.addColorStop(1, hexA(COLORS.shot, 0));
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + dx * len, sy + dy * len);
+        ctx.strokeStyle = grad; ctx.lineWidth = 1.6; ctx.stroke();
+      }
+      // muzzle flash: additive radial burst at the origin (guns only)
+      if (isGun && age <= MUZZLE_DUR_S * TICK) {
+        const p = 1 - age / (MUZZLE_DUR_S * TICK);
+        const r = 9 * (0.5 + 0.5 * p);
+        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+        g.addColorStop(0, `rgba(255,235,150,${0.9 * p})`);
+        g.addColorStop(0.5, `rgba(255,210,80,${0.55 * p})`);
+        g.addColorStop(1, 'rgba(255,210,80,0)');
+        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fillStyle = g; ctx.fill();
+      }
+      // legacy spark for non-gun "shots" (grenade detonations etc.)
+      if (!isGun) {
+        ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+        ctx.fillStyle = hexA(COLORS.shot, 0.85 * (1 - age / durT)); ctx.fill();
+      }
     }
   }
 
@@ -315,6 +351,6 @@
 
   window.ViewerOverlays = {
     draw, star, skull, diamond, hexA,
-    COLORS, DEFAULT_ZONE_S, KILL_DUR_S,
+    COLORS, DEFAULT_ZONE_S, KILL_DUR_S, RELOAD_ARC_R,
   };
 })();

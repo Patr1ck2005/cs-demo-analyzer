@@ -40,3 +40,12 @@ def test_task_error_captured() -> None:
 def test_unknown_job_is_none() -> None:
     m = TaskManager()
     assert m.get_status("nope") is None
+
+
+def test_job_label_propagates() -> None:
+    m = TaskManager(max_workers=1)
+    job_id = m.submit(lambda: "ok", label="my_demo.dem")
+    st = m.get_status(job_id)
+    assert st.label == "my_demo.dem"
+    assert st.as_dict()["label"] == "my_demo.dem"
+    assert st.as_dict()["status"] in ("pending", "done")

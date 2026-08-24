@@ -4,12 +4,14 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析工具。产品定位 = **CS2 demo 分析器**（非视频工作室），两个分析视角——定量（统计/ECharts 雷达/聚合）+ 空间-时间（**Canvas 实时回放器 v2**：相机缩放平移 + 高级覆盖层）。本地 Web 平台（FastAPI, `csa serve` → `http://127.0.0.1:8000`）是唯一主入口。
+CsDemoAnalyzer：本地优先 CS2 demo 分析工具。产品定位 = **CS2 demo 分析器**（非视频工作室），两个分析视角——定量（统计/ECharts 雷达/聚合）+ 空间-时间（**Canvas 实时回放器 v3**：相机缩放平移 + 高级覆盖层 + 弹药/换弹 + 控图染色）。本地 Web 平台（FastAPI, `csa serve` → `http://127.0.0.1:8000`）是唯一主入口。
 
-**当前形态（2026-08-24, Phase E 完成后）**：matplotlib/manim 视频管线已整体退役（能力归档见 `docs/video_pipeline_archive.md`），CLI 只剩 parse/analyze/coverage/serve/info 五个命令；定量图表全部 ECharts 本地 vendor 化（离线可用），matplotlib 依赖移除；全站深色分析风设计系统（token + 组件类）；97 测试全绿。
+**当前形态（2026-08-24, Phase F 完成后）**：Phase E 基础上新增——多 demo 上传+批量任务页、武器图标系统（49 个 MIT SVG vendor + 三命名体系归一）、demoparser2 0.42 升级（弹药/换弹真数据）、战斗反馈（枪口焰/曳光/换弹弧/缩放 LOD：血量环+弹药+武器徽章）、**控图实时染色+伪 3D**（客户端逐帧高斯核 EMA，p95 0.2ms）、四项高级分析（对枪矩阵/经济/道具效用/开局路线聚类，demo 详情页四个新区块）。123 测试全绿。
 
-**主分支 commit 历史**（git log 倒序，Phase E 改动在工作区待提交，见 §7）：
+**主分支 commit 历史**（git log 倒序，Phase F 改动在工作区待提交，见 §7）：
 ```
+f5a922f feat: one-click start/stop scripts for the local web platform
+933e9b1 feat: Phase E full site redesign + advanced 2D analysis (video pipeline retired)
 a074731 docs: sync ARCHITECTURE/HANDOFF/README + dev_log for Phase C/D
 c6ed497 feat: canvas real-time replay viewer + T/CT side fix + esports UI overhaul (Phase C/D)
 6b41e58 feat: web demo analyzer (2D viewer + export studio) + load speedups
@@ -34,7 +36,7 @@ c6ed497 feat: canvas real-time replay viewer + T/CT side fix + esports UI overha
 | :--- | :--- |
 | OS | Windows 11 Pro 10.0.26200 |
 | Python | **`D:\Program Files\Python311\python.exe`（3.11.9）** — 真正的工作环境 |
-| demoparser2 | 0.41.4（0.41 系无弹药路由，见 §4 已知限制） |
+| demoparser2 | **0.42.0**（pyproject 锁 `>=0.42,<0.43`；0.42 起提供 `active_weapon_ammo`/`is_in_reload`/`weapon_reload`，探针结果 `output/.ammo_probe.json`） |
 | ffmpeg | 不再需要（无服务端渲染） |
 | 虚拟环境 | `enve/` 是 **DELL 机器复制的旧 venv**，勿用；基 Python 已装全部依赖 |
 
@@ -42,43 +44,56 @@ c6ed497 feat: canvas real-time replay viewer + T/CT side fix + esports UI overha
 
 ## 4. 已知问题 / 技术债务
 
-1. **弹药数据缺失**：demoparser2 0.41.4 无 clip/reserve 路由（`scripts/probe_ammo.py` 已证），viewer 面板无弹药位。升级后重探 → bump `VIEWER_DATA_VERSION`。
+1. **~~弹药数据缺失~~（Phase F 已解决）**：0.42.0 提供逐 tick `active_weapon_ammo`/`is_in_reload`；viewer-data **v3** 快照带 `am`/`rl` 数组 + 顶层 `ammo` 特性标志；`rl` 用 prop ∪ `weapon_reload` 事件运行段并集（prop 对个别 WMPVP 选手漏报，0762 案例：1 span vs 3 event runs；prop span 97% 经弹药回填验证）。
 2. **道具飞行轨迹为反推**：SourceTV 无道具轨迹实体；投掷起点由投掷者位置按飞行秒数反推（`timeline._reconstruct_throw`），区域时长为真实值（`*_expired` 实体匹配）。
 3. **Team 0 玩家（pawn 未解析）**：某些 WMPVP SourceTV demo 个别玩家全位置 NaN 且不可重建（逐广播特定）。viewer/热力图跳过，统计完整。判定：`cs_analyzer/coverage.py`。
 4. **RWS / Rating 是近似**：自实现 HLTV 公式，与平台数值有差异。
-5. **队名为占位**："Team 2/3"；真实队名在 `begin_new_match`（viewer-data v2 已输出 `teams`，WMPVP demo 该事件常缺失 → 客户端回退 T/CT）。
+5. **队名为占位**："Team 2/3"；真实队名在 `begin_new_match`（viewer-data 已输出 `teams`，WMPVP demo 该事件常缺失 → 客户端回退 T/CT）。
 6. **bomb 事件坐标三级回退**：事件坐标 → 下包者快照插值 → null（客户端画 site 徽章）。`scripts/probe_bomb_events.py` 尚未编写。
 7. **孤儿产物目录**：`output/web/{hash}/radar|pref|aggregate`（matplotlib 时代 PNG）已无生产者，可手动删除。
 8. **coverage.html 内联样式**：仍是 Phase D token 快照（调色板一致，未引入 v2 组件类）；后续可对齐。
+9. **PARSER_VERSION 1.6.0 缓存失效**：Phase F bump 后旧缓存全部懒重解析（每 demo ~8-14s）；首次访问各页会慢一次。
+10. **开局路线 V1 只出 T 方**：CT 结果已算好挂在 ctx（`OpeningRouteModule.run` 里 `ctx.put(results["CT"])`），未来页面可直接取用。
 
 ## 5. 关键入口
 
 ```bash
-"/d/Program Files/Python311/python.exe" -m pytest -q        # 97 全绿
+"/d/Program Files/Python311/python.exe" -m pytest -q        # 123 全绿
 PYTHONIOENCODING=utf-8 "/d/Program Files/Python311/python.exe" -m uvicorn cs_analyzer.web.app:app --port 8000
 scripts/visual_check.py                                      # playwright 全页截图 + console 错误
+scripts/probe_ammo.py                                        # 弹药字段探针（隔离子进程）
 ```
 
 核心文件：
 - CLI: `cs_analyzer/cli.py`（parse/analyze/coverage/serve/info）
 - 覆盖度: `cs_analyzer/coverage.py` + `scripts/probe_team0.py`
-- 解析: `cs_analyzer/parser/backend.py`（demoparser2）, `providers.py`
-- 模型/缓存: `cs_analyzer/model/`, `cache.py`（PARSER_VERSION 1.5.1）
-- 分析: `cs_analyzer/analysis/`（basic_stats, ratings, preference, aggregate）
+- 解析: `cs_analyzer/parser/backend.py`（demoparser2；`_parse_ticks` 带 legacy 字段降级重试）, `providers.py`
+- 模型/缓存: `cs_analyzer/model/`, `cache.py`（PARSER_VERSION 1.6.0）
+- 分析: `cs_analyzer/analysis/`（basic_stats, ratings, preference, aggregate + **duels, economy, utility_effect, routes**）
 - 回放数据层: `cs_analyzer/replay/timeline.py`（PlayerTimeline/UTILITY_END_TABLES/_reconstruct_throw）
-- Web: `cs_analyzer/web/`——`app.py` 路由、`viewer_data.py`（v2 数据包+layers）、`chart_data.py`（ECharts 载荷）、`store.py`、`tasks.py`、`templates/`、`static/`（viewer_canvas.js + js/viewer_camera.js + js/viewer_overlays.js + charts.js + vendor/echarts）
+- Web: `cs_analyzer/web/`——`app.py` 路由（含 `/analysis/{duels,economy,utility,routes}.json` + 惰性 `_analyze_module` memo）、`viewer_data.py`（**v3** 数据包+layers v2）、`chart_data.py`（ECharts 载荷+4 个高级分析载荷）、`weapons.py`（**武器单一事实源**）、`store.py`、`tasks.py`（Job.label）、`templates/`（含 batch_jobs.html）、`static/`（viewer_canvas.js + js/viewer_camera.js + viewer_overlays.js + **viewer_control.js** + **weapon_meta.js** + charts.js + img/weapons/ + vendor/echarts）
 - 地图: `cs_analyzer/maps/loader.py` + `maps/data/`（mirage/ancient/inferno）
 
 ## 6. 下一步建议（按优先级）
 
-1. **提交 Phase E 全部改动**（工作区待提交，provenance `ai:stealth/ox-alpha`，用户已确认）。
-2. **弹药数据**：demoparser2 升级后重探 → `VIEWER_DATA_VERSION` bump → OB 面板弹药位。
-3. **更多地图**：从 MurkyYT/cs2-map-icons 取 PNG + radar_info 校准 yaml。
-4. **可选**：bomb 事件坐标探针脚本；coverage.html 样式对齐 v2 组件类；`_analysis_cache` 加上限或失效策略。
+1. **提交 Phase F 全部改动**（工作区待提交，provenance 待用户确认）。
+2. **更多地图**：从 MurkyYT/cs2-map-icons 取 PNG + radar_info 校准 yaml（控图/路线/热力图都吃地图资源）。
+3. **CT 开局路线页**：数据已算好（ctx 里），加个 UI 切换即可。
+4. **可选**：bomb 事件坐标探针脚本；coverage.html 样式对齐 v2 组件类；`_module_cache` 加上限或失效策略；经济模块接 `is_warmup` 过滤。
 
 ## 7. 已验证里程碑（本阶段成果）
 
-- **Phase E 全站重设计 + 高级 2D 分析（ox-alpha, 2026-08-24，待提交）**：
+- **Phase F 密度/武器语义/控图/进阶分析（ox-alpha, 2026-08-24，待提交）**：
+  - M1 回放器交互修复：工具条按钮"点不动"根因=拖拽 `setPointerCapture` 无条件劫持（双层修复：`.ob-toolbar` 内跳过 + 4px 阈值后才捕获）；`轨迹` 开关接活；模板补复位视图按钮；dblclick 工具条守卫；速度下拉补齐 3/5/6/7 与数字键同步。
+  - M2 多 demo 上传：`list[UploadFile]` + multiple 表单 + 内容哈希去重（重复跳过）+ 文件名冲突后缀；`Job.label`；`batch_jobs.html` 批量结果页（逐行轮询）；测试隔离 `_demos_dir` monkeypatch（不再污染真实 demos/）。
+  - M3 武器图标系统：49 个 MIT SVG vendor（akiver/cs-demo-manager，LICENSE.txt 附 provenance）；`weapons.py` 单一事实源（三命名体系归一：事件短名 `ak47` / WMPVP 皮肤 `ak47_txz03` / tick 显示名 `ak-47`，200 真实名全覆盖）；Jinja 过滤器 + `/api/meta/weapons.json` + `weapon_meta.js` 镜像（含异步 Image 缓存）；OB 面板/击杀流/战报页击杀行三路消费。
+  - M4 demoparser2 0.42 升级：升级后 111 测试全绿 + 两类真实 demo 重解析回归；探针全 8 demo 物化（all-or-nothing 通过）；tick 字段 += ammo/reload（backend legacy 重试降级）；`PARSER_VERSION` 1.6.0；viewer-data **v3**（`am`/`rl` 数组 + `ammo` 标志，gzip 0.73MB 预算内）；`rl` = prop ∪ 事件运行段并集（数据质量实测：弹药 16→换弹→20 轨迹、97% prop span 经回填验证）。
+  - M5 战斗反馈+LOD：shots 层 v2 补发射者 yaw（np.interp）；枪口焰 60ms 径向渐变 + 900u 曳光线（WeaponMeta.isGun 过滤投掷物/刀）；换弹琥珀虚线旋转弧 + 面板"换弹"徽标 + 弹药数字；缩放 LOD（zoom≥2.5：血量环/弹药数字；zoom≥3：武器贴图徽章，异步加载失败退级 console.warn）。playwright 实测环/数字/曳光全部渲染。
+  - M6 控图旗舰（`js/viewer_control.js`）：客户端逐帧计算（10 人 × ±4 格截断高斯核 σ=170u/480u，CELL 128u）；τ=2s EMA + seek 回溯 4s 重建；2D 快路径 offscreen ImageData 单次 drawImage；**伪 3D 斜投影挤出**（顶面+双侧面、画家算法 depth=sy_top+sx、900 格封顶+视口剔除）；`控图`/`3D` 开关互斥 + T←→CT 图例；超帧预算自动降级 3D→平面。**性能实测 p50 0.1ms / p95 0.2ms（预算 4ms）**。
+  - M7 对枪矩阵+经济：`analysis/duels.py`（方向性 kills 矩阵，<3 次灰显）；`analysis/economy.py`（eco<2000/force<3700/full 分类 + 各买法胜率 + 连败 streak；`build_purchase_log` 抽为 viewer layers 共享源——重构完成，layers 字节不变）；`app._analyze_module` 惰性 per-module memo。
+  - M8 道具效用+开局路线：`utility_effect.py`（闪光价值=敌人秒数+0.5×队友秒数；烟中击杀/死亡=落点 120u 半径×真实时长判定）；`routes.py`（前 25s 轨迹弧长重采样 10 点→队均→种子化 k-means 肘点选 k，无 sklearn；修复半开区间回合窗泄漏 bug）；demo_detail 四个新区块 + 4 个 charts.json 端点，真机全部渲染验证。
+  - 测试 97→**123** 全绿；playwright 全页 console 零错误。
+- **Phase E 全站重设计 + 高级 2D 分析（已提交 933e9b1）**：
   - M1 归档：`docs/video_pipeline_archive.md`（能力目录 + 参数/色板/时序移植规格 + 质量评估结论）。
   - M2 删除：matplotlib/manim 视频管线 ~3000 行（render 8 模块/recipe/batch/export/utils.ffmpeg/studio×3 页/7 CLI 命令/5 测试文件/素材），依赖清理（Pillow/manim extra/matplotlib），grep 门禁归零。
   - M3 viewer-data v2（VIEWER_DATA_VERSION=2）：击杀坐标+爆头、道具真实时长（timeline 复用）+投掷起点、闪光致盲对、炸弹事件（三级坐标回退）、真实队名、武器驻留+int 化（**raw 6.5→4.8MB，gzip 0.78MB 持平**）；重型分层 `viewer_layers.json`（shots 4253/economy 24 回合，gzip 40KB）+ `/api/demo/{h}/viewer-layers`。

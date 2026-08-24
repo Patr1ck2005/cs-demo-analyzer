@@ -33,6 +33,10 @@ class ParseManager:
                 "active_weapon", "active_weapon_name", "is_alive",
                 "is_scoped", "is_walking", "duck_amount",
                 "team_num", "player_name",
+                # demoparser2 >= 0.42 (probe: output/.ammo_probe.json — all 8
+                # WMPVP demos materialize both; backend falls back to the
+                # legacy list if a future version drops them)
+                "active_weapon_ammo", "is_in_reload",
             ]
         )
         self.cache = cache

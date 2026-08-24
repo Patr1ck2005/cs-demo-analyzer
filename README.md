@@ -8,11 +8,13 @@ Local-first CS2 demo analysis toolkit. Parses `.dem` files into typed intermedia
 - Multi-demo parsing with content-addressed cache (JSON + Parquet)
 - Provider abstraction: auto-detects Valve MM / Faceit / Perfect World demos
 - Robust SourceTV handling: roster rebuilt from spawns when `player_info` is absent; T/CT sides from live per-tick `team_num` majority
+- Multi-file upload with content-hash dedup + batch job progress page
 
 **P1 - Quantitative Analysis**
 - Basic stats: K/D/A, KPR, ADR, Survivals, HS%, First Kills Per Round
 - Ratings: RWS, HLTV Rating 2.0 approximation, KAST, Impact
 - Player preference: position heatmap, utility placement, peek aggressiveness, crosshair placement
+- Advanced: duel matrix (pairwise win rates), economy buy classification (eco/force/full + win rates), utility effectiveness (flash value, smoke kills), opening route clustering (seeded k-means)
 - Cross-demo aggregation matched by SteamID
 
 **P2 - Local Web Platform**
@@ -23,11 +25,14 @@ Local-first CS2 demo analysis toolkit. Parses `.dem` files into typed intermedia
 - Cross-match aggregation: player×demo Rating matrix, per-player bars, T-side score trends, sortable detail table
 - Charts are pure JSON payloads (`web/chart_data.py`) rendered by vendored Apache ECharts — fully offline, no matplotlib
 
-**P3 - Real-Time 2D Replay Viewer (Phase C/E)**
-- Esports OB layout: 2D map center, T/CT 5-player panels (name/weapon/HP/armor), scoreboard + round clock + bomb countdown
-- Zero prerender wait: viewer-data v2 snapshot pack (8Hz, ~0.8MB gzip) built on first open (<3s)
+**P3 - Real-Time 2D Replay Viewer (Phase C/E/F)**
+- Esports OB layout: 2D map center, T/CT 5-player panels (name/weapon icon/ammo/HP/armor/reload badge), scoreboard + round clock + bomb countdown
+- Zero prerender wait: viewer-data v3 snapshot pack (8Hz, ~0.73MB gzip) built on first open (<3s)
+- Per-tick ammo + reload windows from demoparser2 0.42 (`active_weapon_ammo`/`is_in_reload`/`weapon_reload`)
 - Camera: mouse-wheel zoom-to-cursor, drag pan, R/double-click reset
-- Advanced overlays (ported from the archived video pipeline): grenade flight arcs + real-duration smoke/fire zones, kill connection lines with headshot accent, shot sparks (lazy layer), blind rings, bomb plant/defuse/explode markers, kill feed widget
+- Advanced overlays (ported from the archived video pipeline): grenade flight arcs + real-duration smoke/fire zones, kill connection lines with headshot accent, muzzle flash + gold tracers (shot yaw from layers v2), blind rings, bomb plant/defuse/explode markers, kill feed widget with weapon icons
+- **Map control (控图)**: real-time territory tinting (Gaussian influence kernels + EMA smoothing) with a switchable pseudo-3D extrusion view, football pitch-control style
+- Zoom LOD: HP ring, ammo counter, weapon-icon badges fade in as you zoom (≥2.5×/≥3×)
 - Overlay toggle toolbar (persisted), tick-domain timeline with side-colored kill dots
 - Round deep links `?round=N&t=S`; real team names from the demo header when present
 
@@ -136,6 +141,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
 | `basic_stats` | `BasicStatsResult` | K/D/A, KPR, ADR, HS%, FKPR |
 | `ratings` | `RatingsResult` | RWS, Rating 2.0, KAST, Impact |
 | `preference` | `PreferenceResult` | Position heatmap, utility, peek, crosshair |
+| `duels` | `DuelMatrixResult` | Pairwise attacker-vs-victim kill matrix |
+| `economy` | `EconomyResult` | Per-round eco/force/full buy classification + win rates |
+| `utility_effect` | `UtilityEffectResult` | Flash value (enemy/friendly blind seconds), smoke kills |
+| `routes` | `OpeningRouteResult` | Opening path clustering (seeded k-means, T side) |
 
 ## Caching
 

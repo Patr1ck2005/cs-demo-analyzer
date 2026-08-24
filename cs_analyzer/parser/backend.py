@@ -48,6 +48,7 @@ WANTED_EVENT_TYPES: tuple[str, ...] = (
     "inferno_startburn",
     "smokegrenade_expired",
     "inferno_expire",
+    "weapon_reload",
 )
 
 # Player fields appended to every event (prefixed attacker_/user_/etc. by demoparser)
@@ -126,8 +127,20 @@ class DemoParserBackend:
         try:
             ticks = parser.parse_ticks(self.tick_fields)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("parse_ticks failed: %s", exc)
-            return pd.DataFrame()
+            # Retry with the legacy field list: a future demoparser2 may drop
+            # or half-materialize the newer props (active_weapon_ammo /
+            # is_in_reload). Degrade gracefully instead of losing all ticks.
+            legacy = [f for f in self.tick_fields
+                      if f not in ("active_weapon_ammo", "is_in_reload")]
+            if legacy == self.tick_fields:
+                logger.warning("parse_ticks failed: %s", exc)
+                return pd.DataFrame()
+            logger.warning("parse_ticks with ammo fields failed (%s); retrying legacy list", exc)
+            try:
+                ticks = parser.parse_ticks(legacy)
+            except Exception as exc2:  # noqa: BLE001
+                logger.warning("parse_ticks legacy retry failed: %s", exc2)
+                return pd.DataFrame()
         # Normalize steamid to string for consistent comparison with Player model
         if "steamid" in ticks.columns and not ticks.empty:
             ticks["steamid"] = ticks["steamid"].astype(str)
