@@ -1,0 +1,11 @@
+<!-- highlight card: shared by dashboard 精选 (server-rendered) — the
+     /highlights page and career page build the same markup client-side.
+     tier labels: ace/1vN/kN as-is (short, mono). -->
+<a class="hl-card" href="{{ h.deep_link }}">
+  <div class="hl-tier {{ 'hl-ace' if h.tier == 'ace' }}">{{ h.tier }}</div>
+  <div class="hl-body">
+    <div class="hl-name">{{ h.name }}</div>
+    <div class="hl-meta">{{ h.map_name }} · R{{ h.round }} · {{ h.kills }} 杀</div>
+  </div>
+  <span class="hl-go">▶ 回放</span>
+</a>

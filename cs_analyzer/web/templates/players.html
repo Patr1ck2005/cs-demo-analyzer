@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}选手库{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>选手库</h1>
+    <div class="page-meta">{{ result.total_players }} 名选手（按 SteamID 跨场匹配）· {{ result.total_demos }} 部 demo · 样本量 ≥5 场参与排名</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/compare">大数据对比 →</a>
+    <a class="chip" href="/teams">队伍视图（即将上线）</a>
+  </div>
+</div>
+
+{% if result.total_demos %}
+<div class="section-header"><h2>选手跨场 Rating 矩阵</h2></div>
+<div class="card" style="padding:8px"><div id="matrix-chart" style="height:380px" class="chart-loading"></div></div>
+{% endif %}
+
+<div class="section-header"><h2>选手跨场明细</h2></div>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th class="sortable">选手</th><th class="sortable num">场次</th><th class="sortable num">总击杀</th><th class="sortable num">总回合</th>
+        <th class="sortable num">场均KPR</th><th class="sortable num">场均ADR</th><th class="sortable num">场均Rating</th><th class="sortable num">场均KAST%</th></tr>
+  </thead>
+  <tbody>
+  {% for p in result.players %}
+    <tr class="row-link {{ 'low-sample' if p.demo_count < 5 else '' }}" data-href="/player/{{ p.steamid }}">
+      <td><a href="/player/{{ p.steamid }}">{{ p.name }}</a></td>
+      <td class="num">{{ p.demo_count }}{% if p.demo_count < 5 %} <span class="badge no" title="样本不足 5 场">少</span>{% endif %}</td>
+      <td class="num">{{ p.total_kills }}</td><td class="num">{{ p.total_rounds }}</td>
+      <td class="num">{{ '%.2f'|format(p.avg_kpr) }}</td><td class="num">{{ '%.1f'|format(p.avg_adr) }}</td>
+      <td class="num">{{ '%.2f'|format(p.avg_rating) }}</td><td class="num">{{ '%.0f'|format(p.avg_kast) }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="sub">暂无跨场数据</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
+{% block scripts %}
+{% if result.total_demos %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
+<script src="/static/charts.js?v={{ static_v }}"></script>
+<script src="/static/table_sort.js"></script>
+<script>
+(async function () {
+  try {
+    const r = await fetch('/api/aggregate/charts.json');
+    if (!r.ok) return;
+    const payload = await r.json();
+    CSACharts.mount('matrix-chart', CSACharts.matrixOption(payload));
+  } catch (e) { /* chart stays empty on fetch failure */ }
+})();
+document.querySelectorAll('tr.row-link').forEach((tr) => {
+  tr.addEventListener('click', (e) => {
+    if (e.target.closest('a') || e.target.closest('button')) return;
+    location.href = tr.dataset.href;
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

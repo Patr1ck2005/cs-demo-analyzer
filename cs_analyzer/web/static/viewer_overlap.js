@@ -8,7 +8,8 @@
 // ghost mode (default on) keeps the others at low alpha.
 (function () {
   'use strict';
-  const m = location.pathname.match(/\/demo\/([^/]+)\/overlap/);
+  // tolerate both /demo/{h}/overlap (legacy) and /match/{h}/overlap (Phase H)
+  const m = location.pathname.match(/\/(?:demo|match)\/([^/]+)\/overlap/);
   if (!m) return;
   const HASH = m[1];
 
@@ -16,9 +17,12 @@
   const CT_PALETTE = ['#81d4fa', '#3d9bff', '#00bcd4', '#0288d1', '#1565c0'];
   const SIDE_NAME = ['T', 'CT', ''];
   const YAW_FAN_DEG = 35;
-  const BREAK_DIST = 300;
+  const BREAK_DIST = 300;   // fallbacks; live values come from ViewerPrefs
   const GHOST_ALPHA = 0.14;
   const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  // prefs accessors (fallbacks keep the page alive if viewer_prefs.js fails)
+  const pref = (k, fb) => (window.ViewerPrefs ? window.ViewerPrefs.get(k) : fb);
 
   const $ = (id) => document.getElementById(id);
   let D = null;            // viewer-data payload
@@ -42,14 +46,21 @@
     const b = D.map.bounds;
     return D.map.width / Math.max(b.max_x - b.min_x, 1);
   }
-  // Marker scale grows with zoom, capped: ms = min(0.36·√z, 1).
-  // fit → dot r≈4px (12 overlapped rounds stay separated); zoomed → r=11px.
+  // Marker scale grows with zoom, capped — tunable in the ⚙ panel
+  // (ViewerPrefs; defaults 0.54 / 0.6 / 2).
   function markerScale() {
     const z = cam.zoom || 1;
-    return Math.min(0.36 * Math.sqrt(z), 1);
+    const P = window.ViewerPrefs;
+    const fit = P ? P.get('marker.fit') : 0.54;
+    const exp = P ? P.get('marker.exp') : 0.6;
+    const cap = P ? P.get('marker.cap') : 2;
+    return Math.min(fit * Math.pow(z, exp), cap);
   }
   function labelFont(ms) {
-    return `800 ${Math.max(12 * ms, 9)}px Consolas, monospace`;
+    const P = window.ViewerPrefs;
+    const scale = P ? P.get('label.scale') : 12;
+    const min = P ? P.get('label.min') : 9;
+    return `800 ${Math.max(scale * ms, min)}px Consolas, monospace`;
   }
   function camScale() {
     return (drawMapLayer.geom ? drawMapLayer.geom.scale : 1) * cam.zoom;
@@ -131,7 +142,7 @@
         const isFocus = state.focusSid === p.steamid;
         let alpha;
         if (state.focusSid) {
-          alpha = isFocus ? 1 : (state.ghost ? GHOST_ALPHA : 0);
+          alpha = isFocus ? 1 : (state.ghost ? pref('overlap.ghost_alpha', GHOST_ALPHA) : 0);
         } else {
           alpha = on ? 0.9 : 0.12;
         }
@@ -146,15 +157,18 @@
         // opening pattern is visible at any phase
         if (state.trails) {
           const rows = p.rows;
-          const win = (state.focusSid ? 10 : 6) * D.tick_rate;
+          const winSec = state.focusSid
+            ? pref('trail.focus_window_s', 10) : pref('trail.window_s', 6);
+          const win = winSec * D.tick_rate;
           let i0 = st.i;
           while (i0 > 0 && rows.t[st.i] - rows.t[i0] < win) i0--;
-          ctx.lineWidth = (isFocus ? 3.2 : 2) * ms;
+          ctx.lineWidth = pref('trail.width', 2) * (isFocus ? 1.6 : 1) * ms;
           let prev = null;
           for (let i = i0; i <= st.i && i < rows.t.length; i++) {
             if (!rows.alive[i]) break;
             const [sx, sy] = toScreen(rows.x[i], rows.y[i]);
-            if (prev && Math.hypot(sx - prev.sx, sy - prev.sy) * (1 / drawMapLayer.geom.scale) < BREAK_DIST) {
+            if (prev && Math.hypot(sx - prev.sx, sy - prev.sy) * (1 / drawMapLayer.geom.scale)
+                < pref('overlap.break_dist', BREAK_DIST)) {
               const f = (i - i0) / Math.max(st.i - i0, 1);
               ctx.strokeStyle = hexA(color, alpha * (0.12 + 0.85 * f));
               ctx.beginPath(); ctx.moveTo(prev.sx, prev.sy); ctx.lineTo(sx, sy); ctx.stroke();

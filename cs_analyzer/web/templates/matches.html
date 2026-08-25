@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}对局库{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>对局库</h1>
+    <div class="page-meta">共 {{ demos|length }} 场对局 · {{ maps|length }} 张地图</div>
+  </div>
+  <div class="page-actions">
+    <a class="chip" href="/favorites">收藏与标注（即将上线）</a>
+  </div>
+</div>
+
+<div class="toolbar" style="margin-bottom:14px">
+  <span class="sub" style="margin:0">地图</span>
+  <button class="chip on" data-map-filter="*" type="button">全部</button>
+  {% for m in maps %}
+  <button class="chip" data-map-filter="{{ m }}" type="button">{{ m }}</button>
+  {% endfor %}
+  <span style="flex:1"></span>
+  <button class="chip on" id="view-cards" type="button">卡片</button>
+  <button class="chip" id="view-table" type="button">表格</button>
+</div>
+
+<div id="matches-cards">
+  {% if demos %}
+  <div class="grid match-grid" id="match-wall">
+    {% for d in demos %}{% include "_match_card.html" %}{% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-title">还没有解析的 demo</div>
+    <div>上传一个 .dem 开始，或把文件放进 demos/ 目录后重启服务。</div>
+  </div>
+  {% endif %}
+</div>
+
+<div id="matches-table" hidden>
+  {% if demos %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th class="sortable">文件</th><th class="sortable">地图</th><th class="sortable">平台</th>
+            <th class="sortable num">回合</th><th class="sortable num">玩家</th><th>入口</th></tr>
+      </thead>
+      <tbody>
+      {% for d in demos %}
+        <tr class="row-link" data-map="{{ d.map_name }}" data-href="/match/{{ d.demo_hash }}">
+          <td><a href="/match/{{ d.demo_hash }}">{{ d.filename }}</a></td>
+          <td>{{ d.map_name }}</td>
+          <td>{{ d.provider }}</td>
+          <td class="num">{{ d.num_rounds }}</td>
+          <td class="num">{{ d.players|length }}</td>
+          <td>
+            <a class="btn btn-sm" href="/match/{{ d.demo_hash }}">分析</a>
+            <a class="badge ct" href="/match/{{ d.demo_hash }}/viewer">实时回放 ▶</a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/table_sort.js"></script>
+<script>
+(function () {
+  const wall = document.getElementById('match-wall');
+  // card view filter + row view filter share the same chip state
+  let mapFilter = '*';
+  // cards carry data-map for filtering (derived from the map badge text)
+  document.querySelectorAll('#match-wall .match-card').forEach((el) => {
+    const b = el.querySelector('.mc-body .badge');
+    if (b) el.setAttribute('data-map', b.textContent.trim());
+  });
+  function applyFilter() {
+    document.querySelectorAll('#match-wall .match-card').forEach((el) => {
+      el.hidden = mapFilter !== '*' && el.getAttribute('data-map') !== mapFilter;
+    });
+    document.querySelectorAll('#matches-table tr.row-link').forEach((tr) => {
+      tr.hidden = mapFilter !== '*' && tr.dataset.map !== mapFilter;
+    });
+  }
+  document.querySelectorAll('[data-map-filter]').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('[data-map-filter]').forEach((c) => c.classList.remove('on'));
+      chip.classList.add('on');
+      mapFilter = chip.dataset.mapFilter;
+      applyFilter();
+    });
+  });
+  // view switch (persisted)
+  const cards = document.getElementById('matches-cards');
+  const table = document.getElementById('matches-table');
+  const bC = document.getElementById('view-cards');
+  const bT = document.getElementById('view-table');
+  function setView(v) {
+    localStorage.setItem('csa.matches.view', v);
+    cards.hidden = v !== 'cards';
+    table.hidden = v !== 'table';
+    bC.classList.toggle('on', v === 'cards');
+    bT.classList.toggle('on', v === 'table');
+  }
+  bC.addEventListener('click', () => setView('cards'));
+  bT.addEventListener('click', () => setView('table'));
+  setView(localStorage.getItem('csa.matches.view') || 'cards');
+  // table row click-through
+  document.querySelectorAll('tr.row-link').forEach((tr) => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a') || e.target.closest('button')) return;
+      location.href = tr.dataset.href;
+    });
+  });
+})();
+</script>
+{% endblock %}

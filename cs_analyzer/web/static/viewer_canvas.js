@@ -1,7 +1,8 @@
 // Real-time 2D map replay viewer (Phase C M3): layered canvases, rAF loop,
 // tick-domain timeline. Data: /api/demo/{hash}/viewer-data (8 Hz snapshots).
 (function () {
-  const m = location.pathname.match(/\/demo\/([^/]+)\/viewer/);
+  // tolerate both /demo/{h}/viewer (legacy) and /match/{h}/viewer (Phase H)
+  const m = location.pathname.match(/\/(?:demo|match)\/([^/]+)\/viewer/);
   if (!m) return;
   const HASH = m[1];
 
@@ -258,19 +259,26 @@
   }
 
   // glyph wrappers shared with the main layer (implementations in viewer_overlays.js)
-  // Marker scale grows with zoom, capped: ms = min(0.36·√z, 1).
-  //   fit (z=1): ms=0.36 → dot r≈4px — players ~120u apart stay separated;
-  //   zoomed (z≥7.7): ms=1 → r=11px — fully readable, never grows beyond.
-  // Number label clamps to ≥9px so identity stays readable at any zoom.
+  // Marker scale grows superlinearly with zoom, capped:
+  //   ms = min(fit · z^exp, cap) — all three tunable in the ⚙ panel
+  //   (ViewerPrefs; defaults 0.54 / 0.6 / 2 → fit r≈6px, z=8 r≈21px).
+  // Number label clamps to a floor so identity stays readable at any zoom.
   function markerScale() {
     const z = cam.zoom || 1;
-    return Math.min(0.36 * Math.sqrt(z), 1);
+    const P = window.ViewerPrefs;
+    const fit = P ? P.get('marker.fit') : 0.54;
+    const exp = P ? P.get('marker.exp') : 0.6;
+    const cap = P ? P.get('marker.cap') : 2;
+    return Math.min(fit * Math.pow(z, exp), cap);
   }
 
-  // Number font: shrinks with ms but never below ~9px — the label is the
+  // Number font: shrinks with ms but never below the floor — the label is the
   // identity anchor and must stay readable even when dots are tiny.
   function labelFont(ms) {
-    return `800 ${Math.max(12 * ms, 9)}px Consolas, monospace`;
+    const P = window.ViewerPrefs;
+    const scale = P ? P.get('label.scale') : 12;
+    const min = P ? P.get('label.min') : 9;
+    return `800 ${Math.max(scale * ms, min)}px Consolas, monospace`;
   }
 
   // Label collision resolution: when two markers are closer than ~2.2 dot
@@ -393,9 +401,11 @@
       }
       // reload indicator: rotating amber dashed arc around the dot
       if (st.reload) {
+        const P = window.ViewerPrefs;
+        const arcR = (P ? P.get('fx.reload_arc_r') : 13) + 9; // dot ring + gap
         ctx.save();
         ctx.beginPath();
-        ctx.arc(sx, sy, 22 * ms, 0, Math.PI * 2);
+        ctx.arc(sx, sy, arcR * ms, 0, Math.PI * 2);
         ctx.setLineDash([6, 4]);
         ctx.lineDashOffset = -tick / 3; // rotate as the reload progresses
         ctx.strokeStyle = 'rgba(255,176,46,.9)';
@@ -551,7 +561,7 @@
     if (sel && sel.value !== String(seg.round)) sel.value = String(seg.round);
     const t = Math.max(0, Math.round((state.tick - seg.start_tick) / D.tick_rate));
     try {
-      history.replaceState(null, '', `/demo/${HASH}/viewer?round=${seg.round}&t=${t}`);
+      history.replaceState(null, '', `/match/${HASH}/viewer?round=${seg.round}&t=${t}`);
     } catch (e) { /* sandboxed contexts */ }
   }
 
@@ -1042,7 +1052,10 @@
       ['shots', '枪线'], ['blinds', '闪光'], ['bombs', '炸弹'],
       ['control', '控图'], ['ctrl3d', '3D'],
     ];
+    // keep the static ⚙ prefs button (lives in the same bar)
+    const prefsBtn = document.getElementById('prefs-btn');
     bar.innerHTML = '';
+    if (prefsBtn) bar.appendChild(prefsBtn);
     toolbarChips = {};
     for (const [key, label] of labels) {
       const chip = document.createElement('button');

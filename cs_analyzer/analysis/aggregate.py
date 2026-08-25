@@ -21,6 +21,10 @@ class PlayerRow:
     total_kills: int = 0
     total_deaths: int = 0
     total_rounds: int = 0
+    # Phase H career-page extensions (additive; weighted sums for averages)
+    total_headshot_kills: int = 0
+    total_first_kills: int = 0
+    total_survival_weighted: float = 0.0  # Survivals x rounds, for the weighted mean
 
     @property
     def demo_count(self) -> int:
@@ -44,6 +48,18 @@ class PlayerRow:
     def avg_kast(self) -> float:
         vals = [d["KAST"] for d in self.demos if d.get("rounds")]
         return sum(vals) / len(vals) if vals else 0.0
+
+    @property
+    def avg_hs_pct(self) -> float:
+        return (self.total_headshot_kills / self.total_kills * 100.0) if self.total_kills else 0.0
+
+    @property
+    def avg_fkpr(self) -> float:
+        return self.total_first_kills / self.total_rounds if self.total_rounds else 0.0
+
+    @property
+    def avg_survivals(self) -> float:
+        return (self.total_survival_weighted / self.total_rounds) if self.total_rounds else 0.0
 
 
 @dataclass
@@ -124,11 +140,17 @@ def compute_aggregate(cache_dir: Path = Path(".cache"), analysis: AnalysisConfig
             row.total_kills += bs.kills
             row.total_deaths += bs.deaths
             row.total_rounds += bs.rounds
+            row.total_headshot_kills += bs.headshot_kills
+            row.total_first_kills += bs.first_kills
+            row.total_survival_weighted += bs.Survivals * bs.rounds
             row.demos.append(
                 {
                     "demo": Path(demo.metadata.demo_path).name,
+                    "demo_hash": demo.metadata.demo_hash,
+                    "map_name": demo.metadata.map_name,
                     "rounds": bs.rounds,
                     "kills": bs.kills,
+                    "deaths": bs.deaths,
                     "KPR": bs.KPR,
                     "ADR": bs.ADR,
                     "Rating": rt.Rating if rt else 0.0,

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · 即将上线{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="sub" style="margin-bottom:2px"><a href="/">← 返回仪表盘</a></div>
+    <h1>{{ title }}</h1>
+    <div class="page-meta">功能规划中 · 骨架已预留</div>
+  </div>
+</div>
+<div class="empty-state" style="margin-top:24px">
+  <div class="empty-title">{{ title }}（即将上线）</div>
+  <div>{{ blurb }}</div>
+  <div class="sub" style="margin-top:12px">此页面为 Phase H 预留骨架：导航与路由已就位，数据管线待后续填充。</div>
+</div>
+{% endblock %}

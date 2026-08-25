@@ -20,6 +20,7 @@ import cs_analyzer.analysis.duels  # noqa: F401
 import cs_analyzer.analysis.economy  # noqa: F401
 import cs_analyzer.analysis.utility_effect  # noqa: F401
 import cs_analyzer.analysis.routes  # noqa: F401
+import cs_analyzer.analysis.highlights  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

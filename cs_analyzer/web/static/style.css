@@ -441,6 +441,101 @@ video { width: 100%; border-radius: 8px; border: 1px solid var(--line); backgrou
 .control-legend .cl-bar { width: 90px; height: 8px; border-radius: 4px;
                           background: linear-gradient(90deg, rgba(255,176,46,.8), rgba(20,24,32,.5), rgba(61,155,255,.8)); }
 
+/* ============================= tabs (Phase H match detail) ============================= */
+.tabs { display: flex; gap: 4px; margin: var(--sp-4) 0; border-bottom: 1px solid var(--line);
+        flex-wrap: wrap; }
+.tab-btn { position: relative; background: transparent; color: var(--muted); border: none;
+           padding: 9px 18px; font-size: var(--fs-base); font-weight: 600; cursor: pointer;
+           font-family: var(--font-display); letter-spacing: .05em; text-transform: uppercase;
+           border-radius: 8px 8px 0 0; transition: color .15s, background .15s; }
+.tab-btn:hover { color: var(--text); background: var(--accent-soft); }
+.tab-btn.on { color: var(--accent); }
+.tab-btn.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px;
+                     height: 2px; background: var(--grad-accent); border-radius: 2px;
+                     box-shadow: 0 0 8px rgba(167, 139, 250, .55); }
+.tab-panel { animation: rise-in .4s cubic-bezier(.22, .9, .3, 1) both; }
+
+/* ============================= match cards (Phase H) ============================= */
+.match-card { display: flex; flex-direction: column; background: var(--panel);
+              border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden;
+              text-decoration: none; box-shadow: var(--shadow-card);
+              transition: transform .2s cubic-bezier(.22, .9, .3, 1), border-color .2s, box-shadow .2s; }
+.match-card:hover { transform: translateY(-3px); border-color: rgba(167, 139, 250, .45);
+                    box-shadow: var(--shadow-pop); text-decoration: none; }
+.mc-map { aspect-ratio: 16 / 9; background-color: #07070d; background-size: contain;
+          background-repeat: no-repeat; background-position: center; position: relative;
+          border-bottom: 1px solid var(--line); }
+.mc-map--none { background: linear-gradient(135deg, #10111d, #1d2036); }
+.mc-map-name { position: absolute; left: 8px; bottom: 6px; font-family: var(--font-mono);
+               font-size: var(--fs-xs); color: var(--muted); text-shadow: 0 1px 3px #000; }
+.mc-rounds { position: absolute; top: 8px; right: 8px; font-family: var(--font-mono);
+             font-size: var(--fs-xs); color: var(--muted); background: rgba(8, 8, 15, .8);
+             border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; }
+.mc-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mc-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text);
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mc-actions { font-size: var(--fs-xs); color: var(--accent); }
+.match-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+
+/* ============================= highlight cards (Phase H) ============================= */
+.hl-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.hl-card { display: flex; align-items: center; gap: 10px; background: var(--panel);
+           border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px;
+           text-decoration: none; box-shadow: var(--shadow-card);
+           transition: transform .2s cubic-bezier(.22, .9, .3, 1), border-color .2s, box-shadow .2s; }
+.hl-card:hover { transform: translateY(-2px); border-color: rgba(167, 139, 250, .5);
+                 box-shadow: var(--shadow-pop); text-decoration: none; }
+.hl-tier { flex: none; min-width: 44px; text-align: center; font-family: var(--font-display);
+           font-weight: 700; font-size: var(--fs-md); letter-spacing: .04em;
+           color: var(--accent); background: var(--accent-soft); border: 1px solid rgba(167, 139, 250, .35);
+           border-radius: 8px; padding: 4px 6px; }
+.hl-tier.hl-ace { color: var(--warn); background: rgba(255, 176, 46, .14);
+                  border-color: rgba(255, 176, 46, .4); }
+.hl-body { min-width: 0; flex: 1; }
+.hl-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text);
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hl-meta { font-size: var(--fs-xs); color: var(--muted); margin-top: 1px; }
+.hl-go { flex: none; font-size: var(--fs-xs); color: var(--accent); }
+
+/* ============================= compare percentile bars (Phase H) ============================= */
+.pct-bar { height: 3px; border-radius: 2px; background: var(--panel3); margin-top: 3px;
+           overflow: hidden; }
+.pct-bar i { display: block; height: 100%; background: var(--grad-accent); border-radius: 2px; }
+tr.low-sample td { opacity: .55; }
+
+/* ============================= viewer prefs drawer (Phase H+) ============================= */
+.prefs-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 200;
+                background: rgba(13, 13, 22, .96); backdrop-filter: blur(14px);
+                border-left: 1px solid rgba(167, 139, 250, .25);
+                box-shadow: -18px 0 50px rgba(0, 0, 0, .5);
+                display: flex; flex-direction: column;
+                animation: prefs-in .28s cubic-bezier(.22, .9, .3, 1); }
+.prefs-drawer[hidden] { display: none; }
+@keyframes prefs-in { from { transform: translateX(40px); opacity: 0; }
+                      to { transform: none; opacity: 1; } }
+.prefs-head { display: flex; align-items: center; justify-content: space-between;
+              padding: 14px 16px; border-bottom: 1px solid var(--line);
+              font-family: var(--font-display); font-weight: 700; letter-spacing: .06em; }
+.prefs-close { background: none; border: none; color: var(--muted); font-size: 15px;
+               cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+.prefs-close:hover { color: var(--text); background: var(--accent-soft); }
+.prefs-body { flex: 1; overflow-y: auto; padding: 10px 16px 16px; }
+.prefs-group { margin-bottom: 18px; }
+.prefs-group-title { font-size: var(--fs-xs); color: var(--accent); font-weight: 700;
+                     text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+.prefs-hint { display: block; color: var(--faint); font-weight: 400; text-transform: none;
+              letter-spacing: 0; margin-top: 2px; }
+.prefs-row { display: grid; grid-template-columns: 92px 1fr 44px; align-items: center;
+             gap: 8px; padding: 3px 0; }
+.prefs-label { font-size: var(--fs-xs); color: var(--muted); }
+.prefs-row input[type=range] { width: 100%; accent-color: var(--accent); height: 18px; }
+.prefs-val { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text);
+             text-align: right; font-variant-numeric: tabular-nums; }
+.prefs-foot { display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+              border-top: 1px solid var(--line); }
+.prefs-saved { font-size: var(--fs-xs); color: var(--ok); margin-left: auto; }
+
 /* ============================= map-position charts ============================= */
 .map-chart { position: relative; width: 100%; aspect-ratio: 1 / 1;
              background-size: contain; background-repeat: no-repeat;

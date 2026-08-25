@@ -228,3 +228,87 @@ def routes_payload(result, map_res: MapResource) -> dict:
             for r in result.routes
         ],
     }
+
+
+# ---- Phase H: highlights / compare payloads ----
+
+
+def highlights_payload(result) -> dict:
+    """Single-demo highlights, best-first."""
+    from cs_analyzer.analysis.highlights import HighlightsResult
+
+    assert isinstance(result, HighlightsResult)
+    return {
+        "highlights": [
+            {
+                "kind": h.kind,
+                "tier": h.tier,
+                "round": h.round,
+                "steamid": h.steamid,
+                "name": h.name,
+                "side": h.side,
+                "kills": h.kills,
+                "map_name": h.map_name,
+                "deep_link": f"/match/{result.demo_hash}/viewer?round={h.round}&t=0",
+            }
+            for h in result.sorted()
+        ]
+    }
+
+
+MIN_SAMPLE_DEMOS = 5  # players below this are excluded from ranking/baseline
+
+
+def compare_payload(result: AggregateResult) -> dict:
+    """Big-sample comparison: leaderboard + percentile ranks + radar overlay.
+
+    Eligibility: demo_count >= MIN_SAMPLE_DEMOS. Percentile rank of a player
+    is the share of ELIGIBLE players strictly below them on that metric.
+    Radar values reuse the RADAR_AXES normalization on career averages.
+    """
+    eligible = [p for p in result.players if p.demo_count >= MIN_SAMPLE_DEMOS]
+    metrics = {
+        "rating": lambda p: p.avg_rating,
+        "kpr": lambda p: p.avg_kpr,
+        "adr": lambda p: p.avg_adr,
+        "hs": lambda p: p.avg_hs_pct,
+    }
+    pools = {k: sorted(fn(p) for p in eligible) for k, fn in metrics.items()}
+
+    def pct_rank(key: str, value: float) -> float:
+        pool = pools[key]
+        if not pool:
+            return 0.0
+        lo = sum(1 for v in pool if v < value)
+        return round(lo / len(pool), 3)
+
+    def career_radar(p) -> tuple[list[float], list[float]]:
+        merged = [p.avg_kpr, p.avg_survivals, p.avg_adr, p.avg_hs_pct, p.avg_fkpr, p.avg_rating]
+        values = [_norm(v, a["min"], a["max"]) for v, a in zip(merged, RADAR_AXES)]
+        return values, [round(v, 2) for v in merged]
+
+    players = []
+    for p in result.players:
+        ok = p.demo_count >= MIN_SAMPLE_DEMOS
+        radar, raw = career_radar(p) if ok else ([], [])
+        players.append(
+            {
+                "steamid": p.steamid,
+                "name": p.name,
+                "demo_count": p.demo_count,
+                "eligible": ok,
+                "ratings": {
+                    k: {"value": round(fn(p), 3), "pct": pct_rank(k, fn(p))}
+                    for k, fn in metrics.items()
+                }
+                if ok
+                else {},
+                "radar": radar,
+                "raw": raw,
+            }
+        )
+    return {
+        "indicators": [a["label"] for a in RADAR_AXES],
+        "min_sample": MIN_SAMPLE_DEMOS,
+        "players": players,
+    }

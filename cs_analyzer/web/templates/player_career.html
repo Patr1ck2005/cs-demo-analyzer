@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}{{ p.name }} · 生涯{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="sub" style="margin-bottom:2px"><a href="/players">← 返回选手库</a></div>
+    <h1>{{ p.name }}</h1>
+    <div class="page-meta">跨 {{ p.demo_count }} 场 · 共 {{ p.total_rounds }} 回合{% if p.demo_count < 5 %} · <span class="badge no">样本不足 5 场</span>{% endif %}</div>
+  </div>
+</div>
+
+<div class="stat-row">
+  <div class="stat-card"><div class="stat-label">K / D</div>
+    <div class="stat-value">{{ p.total_kills }} / {{ p.total_deaths }}</div></div>
+  <div class="stat-card"><div class="stat-label">场均 Rating</div>
+    <div class="stat-value {{ 'pos' if p.avg_rating >= 1.0 else 'neg' }}">{{ '%.2f'|format(p.avg_rating) }}</div></div>
+  <div class="stat-card"><div class="stat-label">场均 ADR</div><div class="stat-value">{{ '%.1f'|format(p.avg_adr) }}</div></div>
+  <div class="stat-card"><div class="stat-label">场均 KPR</div><div class="stat-value">{{ '%.2f'|format(p.avg_kpr) }}</div></div>
+  <div class="stat-card"><div class="stat-label">场均 HS%</div><div class="stat-value">{{ '%.1f'|format(p.avg_hs_pct) }}</div></div>
+  <div class="stat-card"><div class="stat-label">场均 KAST%</div><div class="stat-value">{{ '%.0f'|format(p.avg_kast) }}</div></div>
+</div>
+
+<div class="grid">
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">生涯六轴雷达</h2>
+    <div id="career-radar" style="height:360px" class="chart-loading"></div>
+  </div>
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">跨场趋势（Rating / ADR）</h2>
+    <div id="career-trend" style="height:360px" class="chart-loading"></div>
+  </div>
+</div>
+
+<div class="section-header"><h2>场次列表</h2>
+  <div class="section-actions sub" style="margin:0">点击行 → 对局详情</div></div>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>对局</th><th>地图</th><th class="num">回合</th><th class="num">K</th><th class="num">D</th>
+        <th class="num">KPR</th><th class="num">ADR</th><th class="num">Rating</th><th class="num">KAST%</th><th>入口</th></tr>
+  </thead>
+  <tbody>
+  {% for d in p.demos %}
+    <tr class="row-link" data-href="/match/{{ d.demo_hash }}">
+      <td><a href="/match/{{ d.demo_hash }}">{{ d.demo }}</a></td>
+      <td>{{ d.map_name }}</td>
+      <td class="num">{{ d.rounds }}</td>
+      <td class="num">{{ d.kills }}</td>
+      <td class="num">{{ d.deaths }}</td>
+      <td class="num">{{ '%.2f'|format(d.KPR) }}</td>
+      <td class="num">{{ '%.1f'|format(d.ADR) }}</td>
+      <td class="num">{{ '%.2f'|format(d.Rating) }}</td>
+      <td class="num">{{ '%.0f'|format(d.KAST) }}</td>
+      <td><a class="badge ct" href="/match/{{ d.demo_hash }}/viewer">回放 ▶</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="10" class="sub">暂无场次</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="section-header"><h2>高光时刻</h2>
+  <div class="section-actions sub" style="margin:0">该选手的多杀 / 残局 / ACE</div></div>
+<div id="career-highlights" class="grid hl-grid">
+  <div class="empty-state" style="grid-column:1/-1"><div class="empty-title">加载中…</div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
+<script src="/static/charts.js?v={{ static_v }}"></script>
+<script src="/static/table_sort.js"></script>
+<script>
+(async function () {
+  const SID = '{{ p.steamid }}';
+  // radar: reuse the demo-wide payload builder via the aggregate charts API is
+  // per-demo; career radar is computed client-side from the career values
+  const axes = ['KPR', '存活率', 'ADR', '爆头率%', '首杀/回合', 'Rating'];
+  const norm = (v, lo, hi) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
+  const raw = [
+    {{ '%.4f'|format(p.avg_kpr) }},
+    {{ '%.4f'|format(p.avg_survivals) }},
+    {{ '%.4f'|format(p.avg_adr) }},
+    {{ '%.4f'|format(p.avg_hs_pct) }},
+    {{ '%.4f'|format(p.avg_fkpr) }},
+    {{ '%.4f'|format(p.avg_rating) }},
+  ];
+  const RANGES = [[0, 0.15], [0.4, 0.9], [0, 200], [20, 70], [0, 0.3], [0.6, 1.4]];
+  const values = raw.map((v, i) => Math.round(norm(v, RANGES[i][0], RANGES[i][1])));
+  try {
+    CSACharts.mount('career-radar', {
+      tooltip: { trigger: 'item' },
+      radar: {
+        indicator: axes.map((n) => ({ name: n, max: 100 })),
+        radius: '62%', center: ['50%', '46%'],
+        splitArea: { areaStyle: { color: ['rgba(38,41,66,.25)', 'rgba(38,41,66,.08)'] } },
+        axisLine: { lineStyle: { color: '#262942' } },
+        splitLine: { lineStyle: { color: '#262942' } },
+        axisName: { color: '#9aa0b8', fontSize: 11 },
+      },
+      series: [{
+        type: 'radar', symbolSize: 3,
+        data: [{ name: '生涯均值', value: values, raw,
+                 lineStyle: { width: 2.5 }, areaStyle: { opacity: 0.25 },
+                 itemStyle: { color: '#a78bfa' } }],
+        tooltip: {
+          formatter: (q) => `<b>${q.name}</b><br/>` + q.value.map((v, i) =>
+            `${axes[i]}: ${q.raw[i]} <span style="color:#636a85">(${v})</span>`).join('<br/>'),
+        },
+      }],
+    });
+  } catch (e) { /* radar stays skeleton */ }
+
+  // trend: Rating/ADR per demo (chronological)
+  const demos = [
+    {% for d in p.demos %}
+    { name: {{ ('"' ~ d.map_name ~ ' ' ~ loop.index ~ '"')|safe }}, rating: {{ '%.4f'|format(d.Rating) }}, adr: {{ '%.4f'|format(d.ADR) }}, hash: '{{ d.demo_hash }}' },
+    {% endfor %}
+  ];
+  try {
+    CSACharts.mount('career-trend', {
+      tooltip: { trigger: 'axis' },
+      legend: { bottom: 0, textStyle: { color: '#9aa0b8', fontSize: 11 } },
+      grid: { left: 8, right: 16, top: 20, bottom: 46, containLabel: true },
+      xAxis: { type: 'category', data: demos.map((d) => d.name),
+               axisLabel: { rotate: 30, fontSize: 10 } },
+      yAxis: [
+        { type: 'value', name: 'Rating', min: 0, scale: true },
+        { type: 'value', name: 'ADR', min: 0 },
+      ],
+      series: [
+        { name: 'Rating', type: 'line', smooth: true, symbolSize: 6,
+          data: demos.map((d) => d.rating), lineStyle: { width: 2.5 }, itemStyle: { color: '#a78bfa' } },
+        { name: 'ADR', type: 'line', yAxisIndex: 1, smooth: true, symbolSize: 5,
+          data: demos.map((d) => d.adr), lineStyle: { width: 1.5 }, itemStyle: { color: '#3d9bff' } },
+      ],
+    });
+  } catch (e) { /* trend stays skeleton */ }
+
+  // highlights for this player (M5 payload; fails soft)
+  try {
+    const r = await fetch('/api/highlights.json');
+    if (r.ok) {
+      const payload = await r.json();
+      const mine = (payload.highlights || []).filter((h) => h.steamid === SID).slice(0, 6);
+      const box = document.getElementById('career-highlights');
+      if (mine.length) {
+        box.innerHTML = mine.map((h) =>
+          `<a class="hl-card" href="${h.deep_link}">` +
+          `<div class="hl-tier">${h.tier}</div>` +
+          `<div class="hl-body"><div class="hl-name">${h.name}</div>` +
+          `<div class="hl-meta">${h.map_name} · R${h.round} · ${h.kills} 杀</div></div>` +
+          `<span class="hl-go">▶ 回放</span></a>`).join('');
+      } else {
+        box.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">该选手暂无高光</div></div>';
+      }
+    }
+  } catch (e) { /* section keeps placeholder */ }
+
+  document.querySelectorAll('tr.row-link').forEach((tr) => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a') || e.target.closest('button')) return;
+      location.href = tr.dataset.href;
+    });
+  });
+})();
+</script>
+{% endblock %}

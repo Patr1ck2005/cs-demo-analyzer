@@ -1,4 +1,8 @@
-"""Tests for the LTG-2 web platform (FastAPI routes + rendering smoke)."""
+"""Tests for the LTG-2 web platform (FastAPI routes + rendering smoke).
+
+Phase H: entity-centered IA — / matches / players / highlights / compare /
+system; legacy /demo/... URLs 301-redirect; all /api/... paths unchanged.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -44,31 +48,240 @@ def web_client(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "_cache", lambda: cache)
     monkeypatch.setattr(web_app, "OUT_DIR", tmp_path / "web")
     monkeypatch.setattr(web_app, "_demos_dir", lambda: tmp_path / "demos")
+    # aggregate memo must not leak between tests (module-level singleton)
+    from cs_analyzer.web import aggregation
+
+    aggregation.invalidate_aggregate()
     return TestClient(web_app.app), demo_hash, demo
 
 
-def test_index(web_client) -> None:
+def test_dashboard(web_client) -> None:
     c, _, _ = web_client
     r = c.get("/")
     assert r.status_code == 200
-    assert "Demo 库" in r.text
-    for token in ("dropzone", "跨场聚合", "实时回放"):
+    for token in ("仪表盘", "最近对局", "dropzone", "高光精选"):
         assert token in r.text
     assert "视频导出" not in r.text  # video studio retired in Phase E
 
 
-# ---------- Phase B: 2D map viewer + export studio ----------
+# ---------- Phase H: legacy URL redirects ----------
 
 
-def test_viewer_page(web_client) -> None:
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("/demo/{h}", "/match/{h}"),
+        ("/demo/{h}/viewer", "/match/{h}/viewer"),
+        ("/demo/{h}/overlap", "/match/{h}/overlap"),
+        ("/aggregate", "/players"),
+    ],
+)
+def test_redirects(web_client, old, new) -> None:
     c, h, _ = web_client
-    r = c.get(f"/demo/{h}/viewer")
+    r = c.get(old.format(h=h), follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == new.format(h=h)
+
+
+def test_redirect_player_keeps_steamid(web_client) -> None:
+    c, h, demo = web_client
+    sid = demo.players[0].steamid
+    r = c.get(f"/demo/{h}/player/{sid}", follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == f"/player/{sid}"
+
+
+def test_redirect_passes_query(web_client) -> None:
+    """Replay deep-links (?round=&t=) must survive the 301."""
+    c, h, _ = web_client
+    r = c.get(f"/demo/{h}/viewer?round=3&t=10", follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == f"/match/{h}/viewer?round=3&t=10"
+
+
+def test_removed_routes_gone(web_client) -> None:
+    """/coverage and /jobs/{id} page routes are deleted (Phase H)."""
+    c, _, _ = web_client
+    # both fall through to the error.html convention (HTTP 200 + message)
+    r = c.get("/coverage", follow_redirects=False)
+    assert r.status_code == 200
+    assert "页面不存在" in r.text
+    r2 = c.get("/jobs/abc123", follow_redirects=False)
+    assert r2.status_code == 404  # two-segment path: plain FastAPI 404
+    # the job status API survives
+    assert c.get("/api/jobs/abc123").status_code == 200
+
+
+def test_viewer_js_path_contract() -> None:
+    """viewer JS must accept both /demo and /match prefixes and write /match."""
+    static = Path(web_app.__file__).parent / "static"
+    canvas = (static / "viewer_canvas.js").read_text(encoding="utf-8")
+    overlap = (static / "viewer_overlap.js").read_text(encoding="utf-8")
+    assert "(?:demo|match)" in canvas
+    assert "(?:demo|match)" in overlap
+    assert "`/match/${HASH}/viewer?round=" in canvas
+
+
+# ---------- Phase H: new pages ----------
+
+
+def test_matches_page(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get("/matches")
+    assert r.status_code == 200
+    for token in ("对局库", "match-card", "view-cards", "view-table", "data-map-filter"):
+        assert token in r.text
+    assert f"/match/{h}" in r.text
+
+
+def test_players_page(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/players")
+    assert r.status_code == 200
+    for token in ("选手库", "matrix-chart", "场均Rating"):
+        assert token in r.text
+
+
+def test_player_career(web_client) -> None:
+    from .conftest import S_ALICE
+
+    c, _, _ = web_client
+    r = c.get(f"/player/{S_ALICE}")
+    assert r.status_code == 200
+    for token in ("生涯", "career-radar", "career-trend", "场次列表"):
+        assert token in r.text
+
+
+def test_player_career_404(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/player/unknown-steamid")
+    assert r.status_code == 200  # error.html convention
+    assert "未找到选手" in r.text
+
+
+def test_highlights_page(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/highlights")
+    assert r.status_code == 200
+    assert "高光时刻" in r.text
+    assert "hl-wall" in r.text
+
+
+def test_compare_page(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/compare")
+    assert r.status_code == 200
+    assert "大数据对比" in r.text
+    assert "compare-radar" in r.text
+
+
+def test_system_page(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/system")
+    assert r.status_code == 200
+    for token in ("缓存与版本", "任务队列", "未入库文件", "数据质量"):
+        assert token in r.text
+
+
+def test_placeholder_pages(web_client) -> None:
+    c, _, _ = web_client
+    for path, title in (
+        ("/favorites", "收藏与标注"),
+        ("/teams", "队伍视图"),
+        ("/map-analysis", "地图分析"),
+        ("/utility-lab", "道具专题"),
+        ("/reports", "报告导出"),
+    ):
+        r = c.get(path)
+        assert r.status_code == 200, path
+        assert title in r.text
+    # unknown single-segment paths still 404 via the error convention
+    r = c.get("/not-a-real-page")
+    assert r.status_code == 200
+    assert "页面不存在" in r.text
+
+
+# ---------- Phase H: match detail (tabbed) ----------
+
+
+def test_match_detail(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get(f"/match/{h}")
+    assert r.status_code == 200
+    for token in ("选手统计", "回合时间线", "击杀流", "match-tabs", "tab-panel"):
+        assert token in r.text
+    # client-side tabs: all panels render in the initial HTML
+    assert "kill-group" in r.text
+    assert "<details" in r.text
+
+
+def test_match_detail_links_viewer(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get(f"/match/{h}")
+    assert r.status_code == 200
+    assert "/match/" + h + "/viewer" in r.text
+    assert "进入实时回放" in r.text
+
+
+def test_match_viewer_page(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get(f"/match/{h}/viewer")
     assert r.status_code == 200
     # Phase C: real-time canvas OB layout replaces the pre-rendered video MVP
     for token in ("ob-layout", "main-layer", "viewer_canvas.js"):
         assert token in r.text
     assert "frm-prerender" not in r.text
     assert "<video" not in r.text
+
+
+# ---------- Phase H: new API endpoints ----------
+
+
+def test_highlights_api(web_client) -> None:
+    c, h, _ = web_client
+    r = c.get(f"/api/demo/{h}/highlights.json")
+    assert r.status_code == 200
+    assert "highlights" in r.json()
+    r2 = c.get("/api/highlights.json")
+    assert r2.status_code == 200
+    assert "highlights" in r2.json()
+
+
+def test_compare_api(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/api/compare/charts.json")
+    assert r.status_code == 200
+    data = r.json()
+    assert "indicators" in data and "players" in data
+    assert data["min_sample"] == 5
+
+
+def test_system_apis(web_client, tmp_path) -> None:
+    c, _, _ = web_client
+    r = c.get("/api/system/status.json")
+    assert r.status_code == 200
+    s = r.json()
+    assert s["cache_entries"] >= 1
+    assert "parser_version" in s and "viewer_data_version" in s
+
+    r2 = c.get("/api/system/unparsed.json")
+    assert r2.status_code == 200
+    assert "files" in r2.json()
+
+
+def test_system_import_submits_jobs(web_client, tmp_path) -> None:
+    """POST /system/import submits a parse job for each unparsed .dem."""
+    c, _, _ = web_client
+    d = tmp_path / "demos"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "import_me.dem").write_bytes(b"CSDEMO-import-probe" * 40)
+    r = c.post("/system/import", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/system"
+    (d / "import_me.dem").unlink()
+
+
+# ---------- Phase B/C: viewer data APIs (unchanged paths) ----------
 
 
 def test_viewer_data_route(web_client) -> None:
@@ -110,74 +323,6 @@ def test_maps_route(web_client) -> None:
     assert r_trav.status_code in (404, 400)
 
 
-def test_demo_detail(web_client) -> None:
-    c, h, _ = web_client
-    r = c.get(f"/demo/{h}")
-    assert r.status_code == 200
-    for token in ("选手统计", "回合时间线", "击杀流"):
-        assert token in r.text
-    # D3: kills grouped by round, collapsed <details> per round
-    assert "kill-group" in r.text
-    assert "<details" in r.text
-
-
-def test_coverage_route(web_client, monkeypatch, tmp_path) -> None:
-    """/coverage serves the CLI artifact when present, else a hint page."""
-    c, _, _ = web_client
-    # cwd without the report -> hint page (HTTP 200 + message, error.html convention)
-    monkeypatch.chdir(tmp_path)
-    r = c.get("/coverage")
-    assert r.status_code == 200
-    assert "csa coverage" in r.text
-    # with the artifact present -> served as file
-    d = tmp_path / "output" / "coverage"
-    d.mkdir(parents=True)
-    (d / "coverage.html").write_text("<html>覆盖度报告 OK</html>", encoding="utf-8")
-    r2 = c.get("/coverage")
-    assert r2.status_code == 200
-    assert "覆盖度报告 OK" in r2.text
-
-
-def test_player_detail(web_client) -> None:
-    c, h, demo = web_client
-    sid = demo.players[0].steamid
-    r = c.get(f"/demo/{h}/player/{sid}")
-    assert r.status_code == 200
-    for token in ("属性雷达", "Rating", "团队实时回放"):
-        assert token in r.text
-    # video recipes retired: no render buttons / <video> tags remain
-    assert "startReplay" not in r.text
-    assert "<video" not in r.text
-
-
-def test_player_detail_untracked_explainer(web_client) -> None:
-    """Team 0 / untracked players get the explanation card; stats stay complete."""
-    from .conftest import S_BOB
-
-    c, h, _ = web_client
-    r = c.get(f"/demo/{h}/player/{S_BOB}")  # Bob has no tick rows
-    assert r.status_code == 200
-    assert "无位置数据" in r.text
-    assert "团队视角回放仍可用" in r.text
-    assert "startReplay" not in r.text
-
-
-def test_demo_detail_links_viewer(web_client) -> None:
-    c, h, _ = web_client
-    r = c.get(f"/demo/{h}")
-    assert r.status_code == 200
-    assert "/demo/" + h + "/viewer" in r.text
-    assert "进入实时回放" in r.text
-
-
-def test_aggregate(web_client) -> None:
-    c, _, _ = web_client
-    r = c.get("/aggregate")
-    assert r.status_code == 200
-    assert "跨场聚合" in r.text
-    assert "matrix-chart" in r.text  # ECharts container present
-
-
 def test_chart_endpoints(web_client) -> None:
     """/charts.json endpoints return ECharts payloads on the synthetic demo."""
     c, h, demo = web_client
@@ -199,6 +344,21 @@ def test_chart_endpoints(web_client) -> None:
     assert r3.status_code == 200
     adata = r3.json()
     assert "matrix" in adata and "bars" in adata and "trends" in adata
+
+
+# ---------- Phase H: aggregate memo ----------
+
+
+def test_aggregate_memo(web_client) -> None:
+    """aggregated() is single-flight memoized; invalidate drops the object."""
+    from cs_analyzer.web import aggregation
+
+    a1 = aggregation.aggregated()
+    a2 = aggregation.aggregated()
+    assert a1 is a2
+    aggregation.invalidate_aggregate()
+    a3 = aggregation.aggregated()
+    assert a3 is not a1
 
 
 # ---------- Phase F M2: multi-demo upload + batch jobs ----------
@@ -299,3 +459,39 @@ def test_single_upload_still_works(web_client) -> None:
     # cleanup
     for p in Path("demos").glob("single.dem"):
         Path(p).unlink()
+
+
+# ---------- Phase H+: viewer prefs API ----------
+
+
+def test_ui_prefs_roundtrip(web_client, tmp_path, monkeypatch) -> None:
+    """POST /api/ui-prefs persists; GET returns the same object."""
+    c, _, _ = web_client
+    monkeypatch.setattr(web_app, "OUT_DIR", tmp_path / "web")
+    # empty before first save
+    assert c.get("/api/ui-prefs").json() == {}
+    body = {"marker.fit": 0.7, "marker.cap": 2.5, "control.sigma": 200}
+    r = c.post("/api/ui-prefs", json=body)
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    # GET returns exactly what was saved
+    got = c.get("/api/ui-prefs").json()
+    assert got == body
+    # file lands where the developer expects it (bake-back workflow)
+    f = tmp_path / "web" / "ui_prefs.json"
+    assert f.exists()
+    import json as _json
+    assert _json.loads(f.read_text(encoding="utf-8")) == body
+    # second save overwrites
+    c.post("/api/ui-prefs", json={"marker.fit": 0.6})
+    assert c.get("/api/ui-prefs").json() == {"marker.fit": 0.6}
+
+
+def test_ui_prefs_invalid_body(web_client, tmp_path, monkeypatch) -> None:
+    c, _, _ = web_client
+    monkeypatch.setattr(web_app, "OUT_DIR", tmp_path / "web")
+    r = c.post("/api/ui-prefs", content=b"not-json",
+               headers={"Content-Type": "application/json"})
+    assert r.status_code == 400
+    r2 = c.post("/api/ui-prefs", json=[1, 2])
+    assert r2.status_code == 400

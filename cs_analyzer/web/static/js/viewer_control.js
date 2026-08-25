@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  // ---- tuning constants ----
+  // ---- tuning constants (live values come from ViewerPrefs ⚙ panel) ----
   const CELL_WORLD = 128;      // grid cell size, world units (~40×40 on mirage)
   const SIGMA = 170;           // player influence kernel width (world units)
   const CUTOFF = 480;          // kernel truncation radius (±4 cells)
@@ -30,6 +30,8 @@
 
   const T_COLOR = [255, 176, 46];   // --t amber
   const CT_COLOR = [61, 155, 255];  // --ct blue
+
+  const pref = (k, fb) => (window.ViewerPrefs ? window.ViewerPrefs.get(k) : fb);
 
   let grid = null; // { cols, rows, x0, y0, map_name } in world coords
 
@@ -50,8 +52,9 @@
   function computeInstant(map, players) {
     const g = ensureGrid(map);
     const field = new Float32Array(g.cols * g.rows);
-    const reach = Math.ceil(CUTOFF / CELL_WORLD);
-    const inv2s2 = 1 / (2 * SIGMA * SIGMA);
+    const sigma = pref('control.sigma', SIGMA);
+    const reach = Math.ceil((sigma * CUTOFF / SIGMA) / CELL_WORLD);
+    const inv2s2 = 1 / (2 * sigma * sigma);
     for (const pl of players) {
       if (!Number.isFinite(pl.x) || !Number.isFinite(pl.y)) continue;
       const cx = Math.floor((pl.x - g.x0) / CELL_WORLD);
@@ -79,7 +82,7 @@
   /** EMA the accumulated field toward the instant field (dt in game seconds). */
   function smoothTo(acc, instant, dtS) {
     if (!acc) return Float32Array.from(instant);
-    const a = 1 - Math.exp(-Math.max(dtS, 0) / TAU_S);
+    const a = 1 - Math.exp(-Math.max(dtS, 0) / pref('control.tau', TAU_S));
     for (let i = 0; i < acc.length; i++) {
       acc[i] += (instant[i] - acc[i]) * a;
     }
@@ -124,7 +127,7 @@
       const v = field[i];
       const o = i * 4;
       if (Math.abs(v) < MIN_CELL) { data[o + 3] = 0; continue; }
-      const alpha = Math.min(Math.abs(v) / SAT_PLAYERS, 1) * MAX_ALPHA * 255;
+      const alpha = Math.min(Math.abs(v) / SAT_PLAYERS, 1) * pref('control.alpha', MAX_ALPHA) * 255;
       const col = v > 0 ? T_COLOR : CT_COLOR;
       data[o] = col[0]; data[o + 1] = col[1]; data[o + 2] = col[2];
       data[o + 3] = alpha;
@@ -284,7 +287,7 @@
         const x0 = g.x0 + cI * CELL_WORLD, y0 = g.y0 + r * CELL_WORLD;
         const x1 = x0 + CELL_WORLD, y1 = y0 + CELL_WORLD;
         // project base + lifted top (height by intensity)
-        const hh = (Math.abs(v) / SAT_PLAYERS) * (cam3d.dist * 0.06);
+        const hh = (Math.abs(v) / SAT_PLAYERS) * (cam3d.dist * pref('control.h3d', 0.06));
         const b00 = project(cam, [x0, y1, 0]), b10 = project(cam, [x1, y1, 0]);
         const b11 = project(cam, [x1, y0, 0]), b01 = project(cam, [x0, y0, 0]);
         if (!b00 || !b10 || !b11 || !b01) continue;

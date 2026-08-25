@@ -1,0 +1,18 @@
+<!-- match card: shared by dashboard "最近对局" and /matches card wall.
+     map_images (dict map_name -> url) is provided by the route; maps without
+     a radar PNG render a flat placeholder tile. -->
+<a class="match-card" href="/match/{{ d.demo_hash }}">
+  {% set img = map_images.get(d.map_name) if map_images else none %}
+  <div class="mc-map {{ '' if img else 'mc-map--none' }}"
+       {% if img %}style="background-image:url('{{ img }}')"{% endif %}>
+    <span class="mc-map-name">{{ d.map_name }}</span>
+    <span class="mc-rounds">{{ d.num_rounds }}R</span>
+  </div>
+  <div class="mc-body">
+    <div class="mc-name" title="{{ d.filename }}">{{ d.filename }}</div>
+    <div class="mc-meta">
+      <span class="badge t0">{{ d.map_name }}</span>
+      <span class="mc-actions">查看分析 →</span>
+    </div>
+  </div>
+</a>

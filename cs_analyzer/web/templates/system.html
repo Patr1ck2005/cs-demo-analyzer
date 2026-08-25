@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>系统</h1>
+    <div class="page-meta">缓存状态 · 任务队列 · 未入库文件 · 数据质量</div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">缓存与版本</h2>
+    <div id="sys-cache" class="sub">加载中…</div>
+  </div>
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">数据质量说明</h2>
+    <div class="sub" style="margin-bottom:8px">WMPVP SourceTV 广播中个别玩家 pawn 实体无法解析（Team 0）：位置/存活数据缺失，事件统计仍完整。属 demoparser2 库层限制，不可修复。</div>
+    <div class="sub" style="margin:0">完整覆盖度报告（CLI 生成）：<code class="kbd">csa coverage "demos/*.dem" --out output/coverage/coverage.html</code></div>
+  </div>
+</div>
+
+<div class="section-header"><h2>任务队列</h2></div>
+<div class="card">
+  <div id="sys-jobs" class="sub">加载中…</div>
+</div>
+
+<div class="section-header"><h2>未入库文件</h2>
+  <div class="section-actions"><button class="btn btn-sm" id="sys-import" type="button">一键入库</button></div></div>
+<div class="card">
+  <div id="sys-unparsed" class="sub">加载中…</div>
+</div>
+
+<div class="section-header"><h2>即将上线</h2></div>
+<div class="grid">
+  <a class="card" style="margin-bottom:0;text-decoration:none" href="/map-analysis">
+    <h2 style="border:none">地图分析 →</h2><div class="sub" style="margin:0">按地图聚合胜率/路线/热力</div></a>
+  <a class="card" style="margin-bottom:0;text-decoration:none" href="/utility-lab">
+    <h2 style="border:none">道具专题 →</h2><div class="sub" style="margin:0">全库道具画像与协同</div></a>
+  <a class="card" style="margin-bottom:0;text-decoration:none" href="/reports">
+    <h2 style="border:none">报告导出 →</h2><div class="sub" style="margin:0">PDF/长图/只读分享</div></a>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async function () {
+  // cache & versions
+  try {
+    const r = await fetch('/api/system/status.json');
+    if (r.ok) {
+      const s = await r.json();
+      document.getElementById('sys-cache').innerHTML =
+        `缓存条目 <b>${s.cache_entries}</b> 个 · 占用 <b>${s.cache_size_mb}</b> MB<br>` +
+        `解析器 PARSER <b>${s.parser_version}</b> · viewer-data <b>v${s.viewer_data_version}</b> · layers <b>v${s.layer_version}</b>`;
+    }
+  } catch (e) { /* card stays placeholder */ }
+
+  // jobs (poll every 2s)
+  const jobsEl = document.getElementById('sys-jobs');
+  async function pollJobs() {
+    try {
+      const r = await fetch('/api/jobs');
+      if (!r.ok) return;
+      const jobs = await r.json();
+      if (!jobs.length) { jobsEl.textContent = '暂无任务。'; return; }
+      jobsEl.innerHTML = jobs.slice(0, 12).map((j) => {
+        const cls = j.status === 'done' ? 'ok' : j.status === 'error' ? 't0' : 'ct';
+        return `<div style="padding:3px 0"><span class="badge ${cls}">${j.status}</span> ` +
+          `${j.label || j.id} ${j.error ? '· <span style="color:var(--err)">' + j.error + '</span>' : ''}</div>`;
+      }).join('');
+    } catch (e) { /* keep previous frame */ }
+  }
+  pollJobs();
+  setInterval(pollJobs, 2000);
+
+  // unparsed files
+  const upEl = document.getElementById('sys-unparsed');
+  async function pollUnparsed() {
+    try {
+      const r = await fetch('/api/system/unparsed.json');
+      if (!r.ok) return;
+      const u = await r.json();
+      upEl.textContent = u.files.length
+        ? `${u.files.length} 个 .dem 未入库：${u.files.slice(0, 6).join('、')}${u.files.length > 6 ? ' …' : ''}`
+        : 'demos/ 下所有文件均已入库。';
+    } catch (e) { /* keep previous frame */ }
+  }
+  pollUnparsed();
+  document.getElementById('sys-import').addEventListener('click', async () => {
+    const btn = document.getElementById('sys-import');
+    btn.disabled = true;
+    try {
+      await fetch('/system/import', { method: 'POST' });
+      setTimeout(() => { pollUnparsed(); pollJobs(); btn.disabled = false; }, 800);
+    } catch (e) { btn.disabled = false; }
+  });
+})();
+</script>
+{% endblock %}

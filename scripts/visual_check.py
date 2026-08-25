@@ -17,13 +17,17 @@ H = "769f7be048a28713ba1e09e8bce0b5f6d4d46f5a146bb8663256ea142aa65217"
 OUT = Path("output/.visual")
 
 PAGES = [
-    ("index", "/", None),
-    ("aggregate", "/aggregate", 1200),
-    ("demo_detail", f"/demo/{H}", 800),
-    ("player_detail", f"/demo/{H}/player/76561199829611601", 1200),
-    ("coverage", "/coverage", 800),
-    ("overlap", f"/demo/{H}/overlap", None),
-    ("viewer", f"/demo/{H}/viewer", None),
+    ("dashboard", "/", None),
+    ("matches", "/matches", 800),
+    ("match_detail", f"/match/{H}", 800),
+    ("players", "/players", 1200),
+    ("highlights", "/highlights", 1200),
+    ("compare", "/compare", 1200),
+    ("system", "/system", 800),
+    ("placeholder", "/favorites", 500),
+    ("player_career", "/player/76561199829611601", 1200),
+    ("overlap", f"/match/{H}/overlap", None),
+    ("viewer", f"/match/{H}/viewer", None),
 ]
 
 

@@ -22,7 +22,9 @@
       <canvas id="fx-layer"></canvas>
       <canvas id="main-layer"></canvas>
       <ul class="kill-feed" id="kill-feed"></ul>
-      <div class="ob-toolbar" id="ob-toolbar"></div>
+      <div class="ob-toolbar" id="ob-toolbar">
+        <button class="chip" id="prefs-btn" type="button" title="视觉参数调节面板">⚙ 调节</button>
+      </div>
     </div>
     <div class="tl-wrap">
       <canvas id="tl-canvas"></canvas>
@@ -61,6 +63,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/weapon_meta.js?v={{ static_v }}"></script>
+<script src="/static/js/viewer_prefs.js?v={{ static_v }}"></script>
 <script src="/static/js/viewer_camera.js?v={{ static_v }}"></script>
 <script src="/static/js/viewer_control.js?v={{ static_v }}"></script>
 <script src="/static/js/viewer_overlays.js?v={{ static_v }}"></script>

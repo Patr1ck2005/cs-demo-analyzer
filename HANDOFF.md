@@ -76,15 +76,22 @@ scripts/probe_ammo.py                                        # 弹药字段探�
 
 ## 6. 下一步建议（按优先级）
 
-1. **提交 Phase G 全部改动**（工作区待提交，provenance 待用户确认）。
-2. **更多地图**：从 MurkyYT/cs2-map-icons 取 PNG + radar_info 校准 yaml（控图/路线/热力图都吃地图资源）。
-3. **CT 开局路线页**：数据已算好（ctx 里），加个 UI 切换即可。
-4. **控图算法升级**（用户暂缓）：位置存在性 → 含视线/交战/时间权重。
-5. **可选**：bomb 事件坐标探针脚本；`_module_cache` 加上限或失效策略；经济模块接 `is_warmup` 过滤。
+1. **提交 Phase H 全部改动**（工作区待提交，provenance 待用户确认）。
+2. **更多地图**：从 MurkyYT/cs2-map-icons 取 PNG + radar_info 校准 yaml（对局库卡片墙/控图/路线/热力图都吃地图资源；de_nuke 当前缺图走占位底）。
+3. **控图算法升级**（用户暂缓）：位置存在性 → 含视线/交战/时间权重。
+4. **预留页填充**（Phase H 占位）：收藏标注 /teams 队伍视图 /map-analysis 地图分析 /utility-lab 道具专题 /reports 报告导出。
+5. **可选**：`_module_cache` 加上限或失效策略；经济模块接 `is_warmup` 过滤；高光库加"残局失败"类目。
 
 ## 7. 已验证里程碑（本阶段成果）
 
-- **Phase G 全站美术重设计 "Violet Observatory"（ox-alpha, 2026-08-25，待提交）**：
+- **Phase H 信息架构完全重写（ox-alpha, 2026-08-25，待提交）**：
+  - 用户拍板：页面逻辑完全重写——实体中心三区（仪表盘/对局/选手/高光/对比/系统），对比=大数据思想（个体 vs ≥5 场全库基线分位，非两两 PK），对局详情五 Tab 化，覆盖度降出导航（保留 CLI），URL 全新语义化 + 旧路径 301。
+  - 路由：`/matches` `/match/{h}`（Tab 化）`/match/{h}/viewer|overlap` `/players` `/player/{sid}`（生涯）`/highlights` `/compare` `/system` + 5 占位页；301 重定向 query 透传（回放深链 ?round=&t= 存活）；API 路径零改动；viewer JS 双前缀容忍正则 + replaceState 写新路径 + 源码契约测试。
+  - 数据：`web/aggregation.py` memo（single-flight 锁 + `invalidate_aggregate()` 三调用点）；PlayerRow += HS%/FKPR/Survivals/逐场 demo_hash；`analysis/highlights.py`（多杀 2k-ACE + 残局 1vN 事件推导 + roster 名字回退）；`compare_payload`（≥5 场门槛 percentile-rank + 雷达叠加）；`/api/jobs` 列表、`/api/system/{status,unparsed}.json`、`POST /system/import`。
+  - 页面：仪表盘（KPI 四卡+最近对局卡墙+上传+高光精选）、对局库（卡片/表格双视图 localStorage + 地图筛选 chips）、对局详情五 Tab（`?tab=` 深链 + 面板懒 fetch + 骨架）、选手库（Rating 矩阵+样本量列）、生涯页（KPI+六轴雷达+跨场趋势+场次列表+个人高光）、高光库（类型筛选卡片流）、对比页（排行+分位条+勾选雷达叠加+门槛灰显）、系统页（缓存版本/任务队列 2s 轮询/未入库一键入库/数据质量+即将上线）。
+  - 修复：base.html `{% set p %}` 遮蔽页面 context 的 PlayerRow（改名 nav_path）；缺图地图（de_nuke）卡片占位底；高光卡 map_name/undefined 名字。
+  - 测试 123→**146** 全绿（+23）；playwright 11 页 console 零错误。
+- **Phase G 全站美术重设计 "Violet Observatory"（已提交 04e39a9）**：
   - 用户对美术完全不满意后 AskUserQuestion 定案：电竞数据平台风（Leetify/scope.gg 观感）、**紫罗兰主强调**（`#a78bfa`，渐变 `#c4b5fd→#8b5cf6`；T 橙/CT 蓝阵营语义色保留）、**三字体体系**、顶栏升级、**拉满展示级动效**、纯暗色、一步到位。
   - M1 字体地基：vendor 9 个 woff2（Inter 400-700 / Rajdhani 500-700 / JetBrains Mono 400+600，fontsource CDN 下载，三份 OFL 许可随包）+ `static/fonts.css`；display 字体用于 h1/h2/stat 值/比分/计时器/半场 tab，mono 用于表格数字/弹药/时间戳。
   - M2 外壳：base.html 品牌**准星 SVG 标记**（14s 慢旋转）+ **氛围双光晕**（紫/蓝 blur 漂移，body::before/::after）+ `static_v`（服务启动时间戳，模板 `?v=` 防缓存——根治"浏览器缓存问题"）；`body.wide`（回放器/重叠页版心 1600px）；10 个模板全部重皮，**id 与 JS 消费类名零改动**。

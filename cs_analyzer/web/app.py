@@ -1,16 +1,19 @@
 """LTG-2: local web platform (FastAPI + Jinja2, all-Chinese).
 
-Stage 1: single-match review (upload -> stats / radar / replay / preference).
-Stage 2: cross-match aggregation (player matrix, team comparison, trends).
+Phase H information architecture: entity-centered three zones —
+dashboard (/) / matches / players / highlights / compare / system.
+Legacy /demo/... and /aggregate URLs 301-redirect to the new tree;
+all /api/... paths are unchanged.
 """
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 from pathlib import Path
 
 from fastapi import FastAPI, File, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.gzip import GZipMiddleware
@@ -100,14 +103,148 @@ def _analyze_module(demo: ParsedDemo, module_name: str):
 def index(request: Request):
     _stale_cache_sweep()  # no-op after the first call
     demos = store.list_demos(_cache().cache_dir)
+    # "recent" = parsed_at desc (fallback: filename order already applied)
+    recent = sorted(demos, key=lambda d: d.get("parsed_at") or "", reverse=True)[:8]
+    from cs_analyzer.web.aggregation import aggregated
+
+    agg = aggregated()
+    highlights = _top_highlights(6)
     return TEMPLATES.TemplateResponse(
         request, "index.html",
         {
             "demos": demos,
+            "recent": recent,
+            "highlights": highlights,
             "total": len(demos),
             "map_count": len({d["map_name"] for d in demos}),
             "round_count": sum(d["num_rounds"] for d in demos),
+            "player_count": agg.total_players,
+            **_map_availability(sorted({d["map_name"] for d in demos})),
         },
+    )
+
+
+def _top_highlights(limit: int) -> list[dict]:
+    """Global highlight feed, best-first (dashboard 精选). Fails soft."""
+    from cs_analyzer.web.chart_data import highlights_payload
+
+    merged: list[dict] = []
+    try:
+        for entry in store.list_demos(_cache().cache_dir):
+            demo = _load(entry["demo_hash"])
+            if demo is None:
+                continue
+            try:
+                result = _analyze_module(demo, "highlights")
+            except Exception:  # noqa: BLE001 — one bad demo must not kill the feed
+                logger.exception("highlights failed for %s", entry["demo_hash"][:12])
+                continue
+            merged.extend(highlights_payload(result)["highlights"])
+    except Exception:  # noqa: BLE001
+        logger.exception("dashboard highlights feed failed")
+        return []
+    rank = {"ace": 0, "k4": 1, "1v4": 2, "k3": 3, "1v3": 4, "k2": 5, "1v2": 6}
+    merged.sort(key=lambda h: (rank.get(h["tier"], 99), h["round"]))
+    return merged[:limit]
+
+
+# ---- legacy URL 301 redirects (Phase H): query strings pass through ----
+
+def _redirect(request: Request, target: str) -> RedirectResponse:
+    qs = str(request.url.query)
+    return RedirectResponse(target + ("?" + qs if qs else ""), status_code=301)
+
+
+@app.get("/demo/{demo_hash}", response_class=HTMLResponse)
+def demo_detail_redirect(request: Request, demo_hash: str):
+    return _redirect(request, f"/match/{demo_hash}")
+
+
+@app.get("/demo/{demo_hash}/viewer", response_class=HTMLResponse)
+def demo_viewer_redirect(request: Request, demo_hash: str):
+    return _redirect(request, f"/match/{demo_hash}/viewer")
+
+
+@app.get("/demo/{demo_hash}/overlap", response_class=HTMLResponse)
+def demo_overlap_redirect(request: Request, demo_hash: str):
+    return _redirect(request, f"/match/{demo_hash}/overlap")
+
+
+@app.get("/demo/{demo_hash}/player/{steamid}", response_class=HTMLResponse)
+def player_redirect(request: Request, demo_hash: str, steamid: str):
+    return _redirect(request, f"/player/{steamid}")
+
+
+@app.get("/aggregate", response_class=HTMLResponse)
+def aggregate_redirect(request: Request):
+    return _redirect(request, "/players")
+
+
+# ---- Phase H new pages (M1 skeleton: minimal shells, filled in M3+) ----
+
+@app.get("/matches", response_class=HTMLResponse)
+def matches_page(request: Request):
+    _stale_cache_sweep()
+    demos = store.list_demos(_cache().cache_dir)
+    maps = sorted({d["map_name"] for d in demos})
+    return TEMPLATES.TemplateResponse(
+        request, "matches.html", {"demos": demos, "maps": maps, **_map_availability(maps)}
+    )
+
+
+@app.get("/players", response_class=HTMLResponse)
+def players_page(request: Request):
+    from cs_analyzer.web.aggregation import aggregated
+
+    result = aggregated()
+    return TEMPLATES.TemplateResponse(request, "players.html", {"result": result})
+
+
+@app.get("/player/{steamid}", response_class=HTMLResponse)
+def player_career(request: Request, steamid: str):
+    from cs_analyzer.web.aggregation import aggregated
+
+    result = aggregated()
+    row = next((p for p in result.players if p.steamid == steamid), None)
+    if row is None:
+        return TEMPLATES.TemplateResponse(
+            request, "error.html", {"message": f"未找到选手 {steamid}"}
+        )
+    return TEMPLATES.TemplateResponse(request, "player_career.html", {"p": row})
+
+
+@app.get("/highlights", response_class=HTMLResponse)
+def highlights_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "highlights.html", {})
+
+
+@app.get("/compare", response_class=HTMLResponse)
+def compare_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "compare.html", {})
+
+
+@app.get("/system", response_class=HTMLResponse)
+def system_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "system.html", {})
+
+
+_PLACEHOLDER_PAGES = {
+    "favorites": ("收藏与标注", "对局/选手打标签、收藏与备注，库页按标签筛选。"),
+    "teams": ("队伍视图", "按队伍聚合：胜率/地图池/选手轮换，服务教练场景。"),
+    "map-analysis": ("地图分析", "按地图聚合：胜率/常用路线/点位热力，地图池理解。"),
+    "utility-lab": ("道具专题", "全库道具使用画像：闪光价值榜/烟中击杀/道具协同。"),
+    "reports": ("报告导出", "单场报告一键导出 PDF/长图，或生成只读分享链接。"),
+}
+
+
+@app.get("/{placeholder}", response_class=HTMLResponse)
+def placeholder_page(request: Request, placeholder: str):
+    # /coverage retired from the web (CLI-only now) — 404, not a placeholder
+    if placeholder in ("coverage",) or placeholder not in _PLACEHOLDER_PAGES:
+        return TEMPLATES.TemplateResponse(request, "error.html", {"message": "页面不存在"})
+    title, blurb = _PLACEHOLDER_PAGES[placeholder]
+    return TEMPLATES.TemplateResponse(
+        request, "placeholder.html", {"title": title, "blurb": blurb}
     )
 
 
@@ -181,18 +318,24 @@ async def upload(request: Request, files: list[UploadFile] = File(...)):
 
 
 def _parse_job(path: str) -> str:
-    from cs_analyzer.parser.manager import ParseManager
+    from cs_analyzer.web.aggregation import invalidate_aggregate
 
-    manager = ParseManager(cache=_cache())
-    demo = manager.parse(path, use_cache=True)
-    return demo.metadata.demo_hash
+    try:
+        from cs_analyzer.parser.manager import ParseManager
+
+        manager = ParseManager(cache=_cache())
+        demo = manager.parse(path, use_cache=True)
+        return demo.metadata.demo_hash
+    finally:
+        # success or failure: the cache set may have changed (a failed parse
+        # can still leave a partial cache dir) — drop the aggregate memo
+        invalidate_aggregate()
 
 
-@app.get("/jobs/{job_id}", response_class=HTMLResponse)
-def job_page(request: Request, job_id: str):
-    return TEMPLATES.TemplateResponse(
-        request, "job.html", {"job_id": job_id, "action": "任务"}
-    )
+@app.get("/api/jobs")
+def job_list():
+    """Recent jobs snapshot for the system-page monitor (newest first)."""
+    return JSONResponse([j.as_dict() for j in tasks.tasks.recent(30)])
 
 
 @app.get("/api/jobs/{job_id}")
@@ -203,8 +346,8 @@ def job_status(job_id: str):
     return JSONResponse(job.as_dict())
 
 
-@app.get("/demo/{demo_hash}", response_class=HTMLResponse)
-def demo_detail(request: Request, demo_hash: str):
+@app.get("/match/{demo_hash}", response_class=HTMLResponse)
+def match_detail(request: Request, demo_hash: str):
     demo = _load(demo_hash)
     if demo is None:
         return TEMPLATES.TemplateResponse(
@@ -212,30 +355,54 @@ def demo_detail(request: Request, demo_hash: str):
         )
     analysis = _analyze(demo)
     ctx = _demo_context(demo, analysis)
-    return TEMPLATES.TemplateResponse(request, "demo_detail.html", ctx)
+    return TEMPLATES.TemplateResponse(request, "match_detail.html", ctx)
 
 
-@app.get("/demo/{demo_hash}/player/{steamid}", response_class=HTMLResponse)
-def player_detail(request: Request, demo_hash: str, steamid: str):
+@app.get("/match/{demo_hash}/viewer", response_class=HTMLResponse)
+def match_viewer(request: Request, demo_hash: str):
     demo = _load(demo_hash)
     if demo is None:
         return TEMPLATES.TemplateResponse(
             request, "error.html",
             {"message": f"未找到 demo {demo_hash[:12]}（缓存可能正在后台重解析，请稍后刷新重试）"},
         )
-    analysis = _analyze(demo)
-    ctx = _player_context(demo, analysis, steamid)
-    if ctx is None:
+    meta = demo.metadata
+    reg = demo.regular_rounds
+    return TEMPLATES.TemplateResponse(
+        request, "replay_viewer.html",
+        {
+            "demo": {
+                "hash": meta.demo_hash,
+                "filename": Path(meta.demo_path).name,
+                "map_name": meta.map_name,
+                "t_score": reg[-1].t_score if reg else 0,
+                "ct_score": reg[-1].ct_score if reg else 0,
+                "num_rounds": len(reg),
+            },
+        },
+    )
+
+
+@app.get("/match/{demo_hash}/overlap", response_class=HTMLResponse)
+def match_overlap(request: Request, demo_hash: str):
+    """Round-overlap analysis page (回合重叠): dedicated layout."""
+    demo = _load(demo_hash)
+    if demo is None:
         return TEMPLATES.TemplateResponse(
-            request, "error.html", {"message": f"未找到玩家 {steamid}"}
+            request, "error.html",
+            {"message": f"未找到 demo {demo_hash[:12]}（缓存可能正在后台重解析，请稍后刷新重试）"},
         )
-    return TEMPLATES.TemplateResponse(request, "player_detail.html", ctx)
-
-
-@app.get("/aggregate", response_class=HTMLResponse)
-def aggregate(request: Request):
-    result = compute_aggregate(_cache().cache_dir, _settings().analysis)
-    return TEMPLATES.TemplateResponse(request, "aggregate.html", {"result": result})
+    meta = demo.metadata
+    return TEMPLATES.TemplateResponse(
+        request, "overlap_viewer.html",
+        {
+            "demo": {
+                "hash": meta.demo_hash,
+                "filename": Path(meta.demo_path).name,
+                "map_name": meta.map_name,
+            },
+        },
+    )
 
 
 # ---- chart data (ECharts payloads; rendering happens in the browser) ----
@@ -340,17 +507,97 @@ def routes_charts(demo_hash: str):
     return JSONResponse(payload)
 
 
-@app.get("/coverage", response_class=HTMLResponse)
-def coverage_page(request: Request):
-    """Serve the CLI-generated coverage report; explain how to build it if absent."""
-    report = Path("output") / "coverage" / "coverage.html"
-    if report.exists():
-        return FileResponse(report, media_type="text/html",
-                            headers={"Cache-Control": "no-cache"})
-    return TEMPLATES.TemplateResponse(
-        request, "error.html",
-        {"message": "覆盖度报告尚未生成。请先运行: csa coverage \"demos/*.dem\" --out output/coverage/coverage.html"}
+# ---- Phase H: highlights / compare / system payloads ----
+
+@app.get("/api/demo/{demo_hash}/highlights.json")
+def demo_highlights(demo_hash: str):
+    """Single-demo highlight moments (多杀/残局/ACE), best-first."""
+    from cs_analyzer.web.chart_data import highlights_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    result = _analyze_module(demo, "highlights")
+    return JSONResponse(highlights_payload(result))
+
+
+@app.get("/api/highlights.json")
+def all_highlights():
+    """Global highlight feed across every cached demo, best-first."""
+    return JSONResponse({"highlights": _top_highlights(200)})
+
+
+@app.get("/api/compare/charts.json")
+def compare_charts():
+    """Big-sample leaderboard + percentile ranks + career radar overlay."""
+    from cs_analyzer.web.chart_data import compare_payload
+    from cs_analyzer.web.aggregation import aggregated
+
+    return JSONResponse(compare_payload(aggregated()))
+
+
+@app.get("/api/system/status.json")
+def system_status():
+    """Cache size + pipeline version constants for the system page."""
+    import os
+
+    from cs_analyzer.cache import PARSER_VERSION
+    from cs_analyzer.web import viewer_data
+
+    cache_dir = _cache().cache_dir
+    entries = [d for d in cache_dir.glob("*") if d.is_dir()]
+    total = 0
+    for root, _dirs, files in os.walk(cache_dir):
+        for f in files:
+            try:
+                total += (Path(root) / f).stat().st_size
+            except OSError:
+                continue
+
+    return JSONResponse(
+        {
+            "cache_entries": len(entries),
+            "cache_size_mb": round(total / 1e6, 1),
+            "parser_version": PARSER_VERSION,
+            "viewer_data_version": viewer_data.VIEWER_DATA_VERSION,
+            "layer_version": viewer_data.LAYER_VERSION,
+        }
     )
+
+
+@app.get("/api/system/unparsed.json")
+def system_unparsed():
+    """.dem files in demos/ that have no cache entry yet."""
+    cache = _cache()
+    demos_dir = _demos_dir()
+    files: list[str] = []
+    if demos_dir.is_dir():
+        for dem in sorted(demos_dir.glob("*.dem")):
+            try:
+                if not cache.exists(DemoCache.hash_demo(dem)):
+                    files.append(dem.name)
+            except OSError:
+                continue
+    return JSONResponse({"files": files})
+
+
+@app.post("/system/import")
+def system_import():
+    """Submit parse jobs for every unparsed .dem, then return to /system."""
+    cache = _cache()
+    demos_dir = _demos_dir()
+    if demos_dir.is_dir():
+        for dem in sorted(demos_dir.glob("*.dem")):
+            try:
+                if cache.exists(DemoCache.hash_demo(dem)):
+                    continue
+            except OSError:
+                continue
+            from cs_analyzer.web.aggregation import invalidate_aggregate
+
+            invalidate_aggregate()
+            tasks.tasks.submit(_parse_job, label=dem.name, path=str(dem))
+    return RedirectResponse("/system", status_code=303)
 
 
 # ---- 2D map replay viewer (B2) ----
@@ -419,6 +666,40 @@ def weapons_meta():
     return JSONResponse(weapons.payload())
 
 
+# ---- Phase H+: user-tunable viewer visual preferences ----
+
+def _ui_prefs_path() -> Path:
+    return OUT_DIR / "ui_prefs.json"
+
+
+@app.get("/api/ui-prefs")
+def ui_prefs_get():
+    """Persisted viewer visual preferences (empty object when never saved)."""
+    p = _ui_prefs_path()
+    if not p.exists():
+        return JSONResponse({})
+    try:
+        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError):
+        return JSONResponse({})
+
+
+@app.post("/api/ui-prefs")
+async def ui_prefs_set(request: Request):
+    """Save viewer visual preferences from the tuning panel."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "expected object"}, status_code=400)
+    p = _ui_prefs_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(body, ensure_ascii=False, indent=1), encoding="utf-8")
+    logger.info("ui-prefs saved (%d keys)", len(body))
+    return JSONResponse({"ok": True, "count": len(body)})
+
+
 @app.get("/maps/{map_name}")
 def map_image(map_name: str):
     """Serve official radar PNGs (immutable: images are content-pinned by name)."""
@@ -431,55 +712,15 @@ def map_image(map_name: str):
     return FileResponse(p, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
-@app.get("/demo/{demo_hash}/viewer", response_class=HTMLResponse)
-def demo_viewer(request: Request, demo_hash: str):
-    demo = _load(demo_hash)
-    if demo is None:
-        return TEMPLATES.TemplateResponse(
-            request, "error.html",
-            {"message": f"未找到 demo {demo_hash[:12]}（缓存可能正在后台重解析，请稍后刷新重试）"},
-        )
-    meta = demo.metadata
-    reg = demo.regular_rounds
-    return TEMPLATES.TemplateResponse(
-        request, "replay_viewer.html",
-        {
-            "demo": {
-                "hash": meta.demo_hash,
-                "filename": Path(meta.demo_path).name,
-                "map_name": meta.map_name,
-                "t_score": reg[-1].t_score if reg else 0,
-                "ct_score": reg[-1].ct_score if reg else 0,
-                "num_rounds": len(reg),
-            },
-        },
-    )
-
-
-@app.get("/demo/{demo_hash}/overlap", response_class=HTMLResponse)
-def demo_overlap(request: Request, demo_hash: str):
-    """Round-overlap analysis page (回合重叠): dedicated layout."""
-    demo = _load(demo_hash)
-    if demo is None:
-        return TEMPLATES.TemplateResponse(
-            request, "error.html",
-            {"message": f"未找到 demo {demo_hash[:12]}（缓存可能正在后台重解析，请稍后刷新重试）"},
-        )
-    meta = demo.metadata
-    reg = demo.regular_rounds
-    return TEMPLATES.TemplateResponse(
-        request, "overlap_viewer.html",
-        {
-            "demo": {
-                "hash": meta.demo_hash,
-                "filename": Path(meta.demo_path).name,
-                "map_name": meta.map_name,
-            },
-        },
-    )
-
-
 # ---- helpers ----
+
+def _map_availability(maps: list[str]) -> dict:
+    """Which maps have a radar PNG (missing ones render a flat placeholder)."""
+    from cs_analyzer.maps.loader import MAPS_DATA_DIR
+
+    available = {p.stem for p in MAPS_DATA_DIR.glob("*.png")}
+    return {"map_images": {m: f"/maps/{m}.png" for m in maps if m in available}}
+
 
 def _load(demo_hash: str) -> ParsedDemo | None:
     return store.load_demo(demo_hash, _cache().cache_dir)
@@ -512,6 +753,9 @@ def _stale_cache_sweep() -> None:
         if cache.exists(demo_hash):
             continue
         logger.info("sweep: re-parsing stale demo %s (%s)", dem.name, demo_hash[:12])
+        from cs_analyzer.web.aggregation import invalidate_aggregate
+
+        invalidate_aggregate()
         tasks.tasks.submit(_parse_job, label=dem.name, path=str(dem))
 
 

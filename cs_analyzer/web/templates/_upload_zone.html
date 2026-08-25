@@ -1,0 +1,10 @@
+<!-- upload zone: shared by dashboard (compact) and /matches -->
+<form class="upload-drop" action="/upload" method="post" enctype="multipart/form-data"
+      id="upload-form">
+  <label class="dropzone" id="dropzone">
+    <input type="file" name="files" accept=".dem" required multiple id="file-input">
+    <div class="empty-title">拖拽 .dem 到这里，或点击选择文件（可多选）</div>
+    <div class="sub" style="margin:4px 0 0">上传后自动解析并入库；重复内容自动跳过</div>
+  </label>
+  <div style="margin-top:10px"><button class="btn btn-primary" type="submit">上传并解析</button></div>
+</form>

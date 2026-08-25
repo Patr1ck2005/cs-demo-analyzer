@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}大数据对比{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>大数据对比</h1>
+    <div class="page-meta">个体 vs 全库大样本基线 · 样本量 ≥5 场参与排名与分位 · 勾选选手叠加生涯雷达</div>
+  </div>
+</div>
+<div class="card" style="padding:8px">
+  <div id="rank-table" class="chart-loading" style="min-height:120px"></div>
+</div>
+<div class="section-header"><h2>雷达叠加</h2>
+  <div class="section-actions sub" style="margin:0" id="sel-count">已选 0 名选手</div></div>
+<div class="card" style="padding:8px">
+  <div id="compare-radar" style="height:460px"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
+<script src="/static/charts.js?v={{ static_v }}"></script>
+<script>
+(async function () {
+  let payload;
+  try {
+    const r = await fetch('/api/compare/charts.json');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    payload = await r.json();
+  } catch (e) {
+    document.getElementById('rank-table').classList.remove('chart-loading');
+    document.getElementById('rank-table').innerHTML =
+      '<div class="empty-state"><div class="empty-title">数据加载失败</div></div>';
+    return;
+  }
+  const box = document.getElementById('rank-table');
+  box.classList.remove('chart-loading');
+  const METRICS = [
+    ['rating', 'Rating', (v) => v.toFixed(2)],
+    ['kpr', 'KPR', (v) => v.toFixed(2)],
+    ['adr', 'ADR', (v) => v.toFixed(1)],
+    ['hs', 'HS%', (v) => v.toFixed(1)],
+  ];
+  const rows = payload.players.map((p, i) => {
+    const cells = METRICS.map(([key, , fmt]) => {
+      const m = p.ratings[key];
+      const pct = m ? Math.round(m.pct * 100) : 0;
+      return `<td class="num"><div>${m ? fmt(m.value) : '-'}</div>` +
+        `<div class="pct-bar" title="超越全库 ${pct}% 选手"><i style="width:${pct}%"></i></div></td>`;
+    }).join('');
+    const chk = p.eligible
+      ? `<input type="checkbox" class="sel-player" data-idx="${i}">`
+      : '<span class="badge no" title="样本不足 5 场">少</span>';
+    return `<tr class="${p.eligible ? '' : 'low-sample'}">` +
+      `<td>${chk}</td><td>${p.name}</td><td class="num">${p.demo_count}</td>${cells}</tr>`;
+  }).join('');
+  box.innerHTML = `<table><thead><tr><th></th><th class="sortable">选手</th><th class="sortable num">场次</th>` +
+    METRICS.map(([k, label]) => `<th class="sortable num">${label}</th>`).join('') +
+    `</tr></thead><tbody>${rows}</tbody></table>`;
+
+  // radar overlay of checked players
+  const selected = new Map();
+  const chartDom = document.getElementById('compare-radar');
+  let chart = null;
+  function redraw() {
+    document.getElementById('sel-count').textContent = `已选 ${selected.size} 名选手`;
+    if (!selected.size) { if (chart) { chart.dispose(); chart = null; } return; }
+    const series = [...selected.entries()].map(([idx, p], i) => ({
+      name: p.name, value: p.radar, raw: p.raw,
+      lineStyle: { width: i === 0 ? 2.5 : 1.4, opacity: i === 0 ? 1 : 0.7 },
+      areaStyle: { opacity: i === 0 ? 0.22 : 0.08 },
+    }));
+    const option = {
+      tooltip: { trigger: 'item' },
+      legend: { type: 'scroll', bottom: 0, textStyle: { color: '#9aa0b8', fontSize: 11 } },
+      radar: {
+        indicator: payload.indicators.map((n) => ({ name: n, max: 100 })),
+        radius: '60%', center: ['50%', '46%'],
+        splitArea: { areaStyle: { color: ['rgba(38,41,66,.25)', 'rgba(38,41,66,.08)'] } },
+        axisLine: { lineStyle: { color: '#262942' } },
+        splitLine: { lineStyle: { color: '#262942' } },
+        axisName: { color: '#9aa0b8', fontSize: 11 },
+      },
+      series: [{ type: 'radar', symbolSize: 3, data: series }],
+    };
+    if (chart) chart.setOption(option);
+    else chart = echarts.init(chartDom, 'csa'), chart.setOption(option);
+  }
+  box.addEventListener('change', (e) => {
+    const cb = e.target.closest('.sel-player');
+    if (!cb) return;
+    const idx = Number(cb.dataset.idx);
+    if (cb.checked) selected.set(idx, payload.players[idx]);
+    else selected.delete(idx);
+    redraw();
+  });
+})();
+</script>
+{% endblock %}

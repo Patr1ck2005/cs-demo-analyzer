@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}{{ demo.filename }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="sub" style="margin-bottom:2px"><a href="/matches">← 返回对局库</a></div>
+    <h1>{{ demo.filename }}</h1>
+    <div class="page-meta">{{ demo.map_name }} · {{ demo.provider }} · {{ demo.num_rounds }} 回合</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/match/{{ demo.hash }}/overlap">回合重叠</a>
+    <a class="btn btn-primary" href="/match/{{ demo.hash }}/viewer">▶ 进入实时回放</a>
+  </div>
+</div>
+
+<div class="card score-hero">
+  <div class="score">
+    <span class="t">{{ demo.t_score }}</span>
+    <span class="vs">:</span>
+    <span class="ct">{{ demo.ct_score }}</span>
+  </div>
+  <div class="sub" style="margin:6px 0 0">T&nbsp;·&nbsp;CT</div>
+</div>
+
+<nav class="tabs" id="match-tabs">
+  <button class="tab-btn on" data-tab="overview" type="button">概览</button>
+  <button class="tab-btn" data-tab="kills" type="button">击杀</button>
+  <button class="tab-btn" data-tab="economy" type="button">经济</button>
+  <button class="tab-btn" data-tab="utility" type="button">道具</button>
+  <button class="tab-btn" data-tab="routes" type="button">路线</button>
+</nav>
+
+<!-- ============ tab: overview ============ -->
+<section class="tab-panel" data-panel="overview">
+  <div class="section-header"><h2>选手统计（{{ players|length }}）</h2></div>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th class="sortable">选手</th><th class="sortable">阵营</th>
+          <th class="sortable num">K</th><th class="sortable num">D</th><th class="sortable num">A</th>
+          <th class="sortable num">ADR</th><th class="sortable num">KPR</th>
+          <th class="sortable num">Rating</th><th class="sortable num">RWS</th>
+          <th class="sortable num">KAST%</th><th>回放</th></tr>
+    </thead>
+    <tbody>
+    {% for p in players %}
+      <tr class="row-link" data-href="/player/{{ p.steamid }}">
+        <td><a href="/player/{{ p.steamid }}">{{ p.name }}</a></td>
+        <td><span class="badge {{ 't' if p.team_label=='T' else 'ct' if p.team_label=='CT' else 't0' }}">{{ p.team_label }}</span></td>
+        <td class="num">{{ p.K }}</td><td class="num">{{ p.D }}</td><td class="num">{{ p.A }}</td>
+        <td class="num">{{ p.ADR }}</td><td class="num">{{ p.KPR }}</td><td class="num">{{ p.Rating }}</td>
+        <td class="num">{{ p.RWS }}</td><td class="num">{{ p.KAST }}</td>
+        <td><span class="badge {{ 'ok' if p.replayable else 'no' }}">{{ '可回放' if p.replayable else '无位置' }}</span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <div class="section-header"><h2>属性雷达</h2>
+    <div class="section-actions sub" style="margin:0">悬停查看原始值 · 点击图例切换选手</div></div>
+  <div class="card" style="padding:8px">
+    <div id="radar-chart" style="height:420px" class="chart-loading"></div>
+  </div>
+
+  <div class="section-header"><h2>回合时间线</h2>
+    <div class="section-actions sub" style="margin:0">点击回合 → 回放器定位</div></div>
+  <div class="pill-row">
+    {% for r in rounds %}
+      <a class="badge {{ 't' if r.winner_side=='T' else 'ct' }}"
+         href="/match/{{ demo.hash }}/viewer?round={{ r.number }}&t=0"
+         title="回放器定位到第 {{ r.number }} 回合">R{{ r.number }} {{ r.winner_side }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="section-header"><h2>本场高光</h2>
+    <div class="section-actions sub" style="margin:0">多杀 / 残局 / ACE · 点击直达回放</div></div>
+  <div class="grid hl-grid" id="match-highlights">
+    <div class="empty-state" style="grid-column:1/-1"><div class="empty-title">加载中…</div></div>
+  </div>
+</section>
+
+<!-- ============ tab: kills ============ -->
+<section class="tab-panel" data-panel="kills" hidden>
+  <div class="section-header"><h2>击杀流</h2></div>
+  {% for g in kills %}
+  <details class="kill-group" id="kill-r{{ g.round }}">
+    <summary>R{{ g.round }} · {{ g.kills|length }} 杀
+      <span class="badge kg-winner {{ 't' if g.winner_side=='T' else 'ct' }}">{{ g.winner_side }} 胜</span>
+    </summary>
+    <div class="kill-body">
+      {% for k in g.kills %}
+        <div class="kill-line">{{ k.attacker }} 击杀 {{ k.victim }}
+          <img class="wpn-ico" src="{{ k.weapon|wicon }}" alt="{{ k.weapon }}" title="{{ k.weapon|wlabel }}" draggable="false">
+          {{ k.weapon|wlabel }}</div>
+      {% endfor %}
+    </div>
+  </details>
+  {% else %}
+  <div class="empty-state"><div class="empty-title">无击杀事件</div></div>
+  {% endfor %}
+
+  <div class="section-header"><h2>对枪矩阵</h2>
+    <div class="section-actions sub" style="margin:0">行选手 vs 列选手 · 胜率 = 击杀/(击杀+死亡) · 不足 {{ 3 }} 次对枪显示 ·</div></div>
+  <div class="card" style="padding:8px"><div id="duels-chart" style="height:420px" class="chart-loading" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/duels.json"></div></div>
+</section>
+
+<!-- ============ tab: economy ============ -->
+<section class="tab-panel" data-panel="economy" hidden>
+  <div class="section-header"><h2>经济分析</h2>
+    <div class="section-actions sub" style="margin:0">每回合队伍消费 · 悬停查看买法分类</div></div>
+  <div class="card" style="padding:8px"><div id="economy-chart" style="height:360px" class="chart-loading" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/economy.json"></div></div>
+</section>
+
+<!-- ============ tab: utility ============ -->
+<section class="tab-panel" data-panel="utility" hidden>
+  <div class="section-header"><h2>道具效用</h2>
+    <div class="section-actions sub" style="margin:0">闪光价值 = 致盲敌人秒数 + 0.5×队友秒数</div></div>
+  <div class="card" style="padding:8px"><div id="utility-chart" style="height:360px" class="chart-loading" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/utility.json"></div></div>
+</section>
+
+<!-- ============ tab: routes ============ -->
+<section class="tab-panel" data-panel="routes" hidden>
+  <div class="section-header"><h2>开局路线（T 方）</h2>
+    <div class="section-actions sub" style="margin:0">前 25 秒队伍平均轨迹聚类 · 叠加雷达底图</div></div>
+  <div class="routes-wrap">
+    <div class="map-chart" id="routes-chart" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/routes.json"></div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
+<script src="/static/charts.js?v={{ static_v }}"></script>
+<script src="/static/table_sort.js"></script>
+<script>
+(async function () {
+  const H = '{{ demo.hash }}';
+  const fetchJson = (url) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+
+  // ---- tab engine: ?tab= is the source of truth; panels lazily fetch ----
+  const TABS = ['overview', 'kills', 'economy', 'utility', 'routes'];
+  const loaders = {
+    overview: async () => {
+      try {
+        const payload = await fetchJson(`/api/demo/${H}/charts.json`);
+        if (payload.series && payload.series.length) {
+          CSACharts.mount('radar-chart', CSACharts.radarOption(payload, 10));
+        } else { hideSkeleton('radar-chart'); }
+      } catch (e) { hideSkeleton('radar-chart'); }
+      loadMatchHighlights();
+    },
+    kills: async () => {
+      mountPayloadChart('duels-chart', (p) => p.cells.length ? CSACharts.duelsOption(p) : null);
+    },
+    economy: async () => {
+      mountPayloadChart('economy-chart', (p) => p.rounds.length ? CSACharts.economyOption(p) : null);
+    },
+    utility: async () => {
+      mountPayloadChart('utility-chart', (p) => p.flashers.length ? CSACharts.utilityFlashOption(p) : null);
+    },
+    routes: async () => {
+      try {
+        const p = await fetchJson(`/api/demo/${H}/analysis/routes.json`);
+        const el = document.getElementById('routes-chart');
+        el.classList.remove('chart-loading');
+        if (p.routes.length) CSACharts.mountRoutesChart('routes-chart', p);
+      } catch (e) {
+        const el = document.getElementById('routes-chart');
+        if (el) el.classList.remove('chart-loading');
+      }
+    },
+  };
+  function hideSkeleton(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('chart-loading');
+  }
+  const loaded = new Set();
+  function mountPayloadChart(id, build) {
+    const el = document.getElementById(id);
+    const url = el && el.dataset.chartPayload;
+    if (!el || !url) return;
+    fetchJson(url)
+      .then((p) => {
+        const opt = build(p);
+        el.classList.remove('chart-loading');
+        if (opt) CSACharts.mount(el, opt);
+      })
+      .catch(() => el.classList.remove('chart-loading'));
+  }
+  function activate(tab) {
+    document.querySelectorAll('#match-tabs .tab-btn').forEach((b) =>
+      b.classList.toggle('on', b.dataset.tab === tab));
+    document.querySelectorAll('.tab-panel').forEach((p) =>
+      p.toggleAttribute('hidden', p.dataset.panel !== tab));
+    if (!loaded.has(tab)) {
+      loaded.add(tab);
+      (loaders[tab] || (() => {}))();
+    } else {
+      // re-init charts inside a panel that was hidden (zero-size) at mount time
+      document.querySelectorAll(`[data-panel="${tab}"] .echart`).forEach(() => {});
+    }
+  }
+  document.querySelectorAll('#match-tabs .tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      const url = new URL(location.href);
+      url.searchParams.set('tab', tab);
+      history.replaceState(null, '', url);
+      activate(tab);
+    });
+  });
+  const initial = TABS.includes(new URLSearchParams(location.search).get('tab'))
+    ? new URLSearchParams(location.search).get('tab') : 'overview';
+  activate(initial);
+
+  // ---- per-match highlights (M5 payload; fails soft) ----
+  function loadMatchHighlights() {
+    const box = document.getElementById('match-highlights');
+    if (!box) return;
+    fetchJson(`/api/demo/${H}/highlights.json`)
+      .then((payload) => {
+        const TIER = { ace: 'ACE', k4: '4K', k3: '3K', k2: '2K', '1v2': '1v2', '1v3': '1v3', '1v4': '1v4', '1v5': '1v5' };
+        const hs = payload.highlights || [];
+        box.innerHTML = hs.length ? hs.map((h) =>
+          `<a class="hl-card" href="${h.deep_link}">` +
+          `<div class="hl-tier">${TIER[h.tier] || h.tier}</div>` +
+          `<div class="hl-body"><div class="hl-name">${h.name}</div>` +
+          `<div class="hl-meta">R${h.round} · ${h.kills} 杀 · ${h.side}</div></div>` +
+          `<span class="hl-go">▶ 回放</span></a>`).join('')
+          : '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">本场暂无高光</div></div>';
+      })
+      .catch(() => {
+        box.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">本场暂无高光</div></div>';
+      });
+  }
+
+  document.querySelectorAll('tr.row-link').forEach((tr) => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a') || e.target.closest('button')) return;
+      location.href = tr.dataset.href;
+    });
+  });
+})();
+</script>
+{% endblock %}

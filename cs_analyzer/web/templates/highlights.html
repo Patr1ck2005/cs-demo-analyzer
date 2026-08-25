@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}高光时刻{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>高光时刻</h1>
+    <div class="page-meta">全库多杀 / 残局 / ACE 回合 · 点击直达回放器对应时刻</div>
+  </div>
+  <div class="toolbar" id="hl-filters">
+    <button class="chip on" data-kind="*" type="button">全部</button>
+    <button class="chip" data-kind="ace" type="button">ACE</button>
+    <button class="chip" data-kind="multi_kill" type="button">多杀</button>
+    <button class="chip" data-kind="clutch" type="button">残局</button>
+  </div>
+</div>
+<div class="grid hl-grid" id="hl-wall">
+  <div class="empty-state" style="grid-column:1/-1"><div class="empty-title">加载中…</div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async function () {
+  const wall = document.getElementById('hl-wall');
+  const TIER_LABEL = { ace: 'ACE', k4: '4K', k3: '3K', k2: '2K', '1v2': '1v2', '1v3': '1v3', '1v4': '1v4', '1v5': '1v5' };
+  let all = [];
+  try {
+    const r = await fetch('/api/highlights.json');
+    if (r.ok) all = (await r.json()).highlights || [];
+  } catch (e) { /* wall keeps placeholder */ }
+  function render(kind) {
+    const list = kind === '*' ? all : all.filter((h) => h.kind === kind);
+    wall.innerHTML = list.length ? list.map((h) =>
+      `<a class="hl-card" href="${h.deep_link}">` +
+      `<div class="hl-tier">${TIER_LABEL[h.tier] || h.tier}</div>` +
+      `<div class="hl-body"><div class="hl-name">${h.name}</div>` +
+      `<div class="hl-meta">${h.map_name} · R${h.round} · ${h.kills} 杀 · ${h.side}</div></div>` +
+      `<span class="hl-go">▶ 回放</span></a>`).join('')
+      : '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">暂无高光</div></div>';
+  }
+  document.querySelectorAll('#hl-filters .chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('#hl-filters .chip').forEach((c) => c.classList.remove('on'));
+      chip.classList.add('on');
+      render(chip.dataset.kind);
+    });
+  });
+  render('*');
+})();
+</script>
+{% endblock %}

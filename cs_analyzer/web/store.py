@@ -47,6 +47,7 @@ def list_demos(cache_dir: Path = CACHE_DIR) -> list[dict]:
                 "provider": meta.get("provider", "?"),
                 "demo_path": path,
                 "num_rounds": len([r for r in rounds if not r.get("is_warmup")]),
+                "parsed_at": meta.get("parsed_at", ""),
                 "players": players,
             }
         )

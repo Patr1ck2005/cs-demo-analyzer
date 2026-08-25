@@ -19,6 +19,7 @@
       <div class="ov-toolbar" id="ov-toolbar">
         <button class="chip on" id="ov-chip-trails">轨迹</button>
         <button class="chip" id="ov-chip-ghost">其他选手半透明</button>
+        <button class="chip" id="prefs-btn" type="button" title="视觉参数调节面板">⚙ 调节</button>
       </div>
     </div>
     <div class="ov-controls">
@@ -70,6 +71,7 @@
 {% block scripts %}
 <link rel="stylesheet" href="/static/overlap.css?v={{ static_v }}">
 <script src="/static/js/weapon_meta.js?v={{ static_v }}"></script>
+<script src="/static/js/viewer_prefs.js?v={{ static_v }}"></script>
 <script src="/static/js/viewer_camera.js?v={{ static_v }}"></script>
 <script src="/static/viewer_overlap.js?v={{ static_v }}"></script>
 {% endblock %}

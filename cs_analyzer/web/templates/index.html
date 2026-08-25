@@ -1,10 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Demo 库{% endblock %}
+{% block title %}仪表盘{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Demo 库</h1>
-    <div class="page-meta">基于对局 .dem 的高级分析：定量数据 + 实时 2D 回放。共 {{ total }} 个 demo。</div>
+    <h1>仪表盘</h1>
+    <div class="page-meta">全库概览 · 最近对局 · 高光精选</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/matches">对局库</a>
+    <a class="btn" href="/players">选手库</a>
   </div>
 </div>
 
@@ -12,44 +16,14 @@
   <div class="stat-card"><div class="stat-label">Demo</div><div class="stat-value">{{ total }}</div></div>
   <div class="stat-card"><div class="stat-label">地图</div><div class="stat-value">{{ map_count }}</div></div>
   <div class="stat-card"><div class="stat-label">总回合</div><div class="stat-value">{{ round_count }}</div></div>
+  <div class="stat-card"><div class="stat-label">选手</div><div class="stat-value">{{ player_count }}</div></div>
 </div>
 
-<div class="card">
-  <h2>上传新 Demo</h2>
-  <form class="upload-drop" action="/upload" method="post" enctype="multipart/form-data"
-        id="upload-form">
-    <label class="dropzone" id="dropzone">
-      <input type="file" name="files" accept=".dem" required multiple id="file-input">
-      <div class="empty-title">拖拽 .dem 到这里，或点击选择文件（可多选）</div>
-      <div class="sub" style="margin:4px 0 0">上传后自动解析并入库；重复内容自动跳过</div>
-    </label>
-    <div style="margin-top:10px"><button class="btn btn-primary" type="submit">上传并解析</button></div>
-  </form>
-</div>
-
-<div class="section-header"><h2>已解析 Demo</h2></div>
-{% if demos %}
-<div class="table-wrap">
-<table>
-  <thead>
-    <tr><th>文件</th><th>地图</th><th>平台</th><th class="num">回合</th><th class="num">玩家</th><th>入口</th></tr>
-  </thead>
-  <tbody>
-  {% for d in demos %}
-    <tr class="row-link" data-href="/demo/{{ d.demo_hash }}">
-      <td><a href="/demo/{{ d.demo_hash }}">{{ d.filename }}</a></td>
-      <td>{{ d.map_name }}</td>
-      <td>{{ d.provider }}</td>
-      <td class="num">{{ d.num_rounds }}</td>
-      <td class="num">{{ d.players|length }}</td>
-      <td>
-        <a class="btn btn-sm" href="/demo/{{ d.demo_hash }}">分析</a>
-        <a class="badge ct" href="/demo/{{ d.demo_hash }}/viewer">实时回放 ▶</a>
-      </td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="section-header"><h2>最近对局</h2>
+  <div class="section-actions"><a class="sub" style="margin:0" href="/matches">全部对局 →</a></div></div>
+{% if recent %}
+<div class="grid match-grid">
+  {% for d in recent %}{% include "_match_card.html" %}{% endfor %}
 </div>
 {% else %}
 <div class="empty-state">
@@ -57,10 +31,24 @@
   <div>上传一个 .dem 开始，或把文件放进 demos/ 目录后重启服务。</div>
 </div>
 {% endif %}
+
+<div class="section-header"><h2>上传新 Demo</h2></div>
+<div class="card">{% include "_upload_zone.html" %}</div>
+
+<div class="section-header"><h2>高光精选</h2>
+  <div class="section-actions"><a class="sub" style="margin:0" href="/highlights">高光库 →</a></div></div>
+{% if highlights %}
+<div class="grid hl-grid" id="dash-highlights">
+  {% for h in highlights %}{% include "_highlight_card.html" %}{% endfor %}
+</div>
+{% else %}
+<div class="empty-state"><div class="empty-title">暂无高光</div>
+  <div>解析完成后，多杀/残局/ACE 回合会自动出现在这里。</div></div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
-// dropzone: click-to-browse + drag&drop; row click-through
+// upload zone: click-to-browse + drag&drop (contract ids preserved)
 (function () {
   const dz = document.getElementById('dropzone');
   const input = document.getElementById('file-input');
@@ -85,12 +73,6 @@
       }
     });
   }
-  document.querySelectorAll('tr.row-link').forEach((tr) => {
-    tr.addEventListener('click', (e) => {
-      if (e.target.closest('a') || e.target.closest('button')) return;
-      location.href = tr.dataset.href;
-    });
-  });
 })();
 </script>
 {% endblock %}

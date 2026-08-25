@@ -105,7 +105,7 @@ def test_weapon_icon_served(web_client) -> None:
 
 def test_demo_detail_kill_lines_have_icons(web_client) -> None:
     c, h, _ = web_client
-    r = c.get(f"/demo/{h}")
+    r = c.get(f"/match/{h}")
     assert r.status_code == 200
     assert "wpn-ico" in r.text  # kill lines render <img class="wpn-ico">
 
