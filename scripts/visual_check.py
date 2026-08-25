@@ -22,6 +22,7 @@ PAGES = [
     ("demo_detail", f"/demo/{H}", 800),
     ("player_detail", f"/demo/{H}/player/76561199829611601", 1200),
     ("coverage", "/coverage", 800),
+    ("overlap", f"/demo/{H}/overlap", None),
     ("viewer", f"/demo/{H}/viewer", None),
 ]
 
@@ -49,6 +50,8 @@ def main() -> int:
                 page.wait_for_timeout(2500)
                 page.keyboard.press("Space")
                 page.wait_for_timeout(400)
+            elif name == "overlap":
+                page.wait_for_timeout(5000)  # data fetch + map image + first frames
             elif settle_ms:
                 page.wait_for_timeout(settle_ms)
             else:

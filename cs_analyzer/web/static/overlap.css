@@ -1,18 +1,24 @@
-/* ---- overlap analysis page (回合重叠) ---- */
+/* ---- overlap analysis page (回合重叠, Phase G reskin) ---- */
 .ov-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
 .ov-map-col { min-width: 0; }
 .ov-side-col { display: flex; flex-direction: column; gap: 12px; }
 
 .ov-scoreboard { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
 .ov-half-tab { font-size: var(--fs-md); font-weight: 700; cursor: pointer;
-               padding: 4px 10px; border-radius: 8px; border: 1px solid transparent; }
-.ov-half-tab.active { border-color: currentColor; background: var(--panel2); }
+               padding: 4px 12px; border-radius: 8px; border: 1px solid transparent;
+               font-family: var(--font-display); letter-spacing: .04em;
+               transition: opacity .15s, background .15s, box-shadow .15s; }
+.ov-half-tab.active { border-color: currentColor; background: var(--panel2);
+                      box-shadow: 0 0 12px rgba(167, 139, 250, .15); }
 .ov-half-tab:not(.active) { opacity: .45; }
+.ov-half-tab:hover { opacity: .85; }
 .ov-score-sub { color: var(--muted); font-size: var(--fs-sm); }
 
 .ov-map-wrap { position: relative; aspect-ratio: 16 / 10; overflow: hidden;
                border: 1px solid var(--line); border-radius: var(--r-md);
-               background: #07090d; touch-action: none; }
+               background: #07070d; touch-action: none;
+               box-shadow: var(--shadow-card); transition: border-color .2s; }
+.ov-map-wrap:hover { border-color: var(--line-strong); }
 .ov-map-wrap canvas { position: absolute; inset: 0; }
 .ov-toolbar { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px;
               z-index: 6; }
@@ -22,9 +28,12 @@
 #ov-phase { flex: 1; min-width: 200px; accent-color: var(--accent); }
 
 .ov-block { background: var(--panel); border: 1px solid var(--line);
-            border-radius: var(--r-md); padding: 10px 12px; }
+            border-radius: var(--r-md); padding: 10px 12px;
+            transition: transform .2s cubic-bezier(.22, .9, .3, 1), border-color .2s; }
+.ov-block:hover { transform: translateY(-1px); border-color: var(--line-strong); }
 .ov-block-title { font-size: var(--fs-xs); color: var(--muted); text-transform: uppercase;
-                  letter-spacing: .05em; margin-bottom: 8px; }
+                  letter-spacing: .09em; margin-bottom: 8px;
+                  font-family: var(--font-display); font-weight: 600; font-size: 13px; }
 .ov-round-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
 .ov-round-grid .chip { min-width: 0; text-align: center; padding: 4px 0;
                        position: relative; }
@@ -36,10 +45,12 @@
 .ov-player-grid { display: flex; flex-direction: column; gap: 5px; }
 .ov-player-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px;
                  border-radius: 6px; background: var(--panel2); cursor: pointer;
-                 border: 1px solid transparent; }
+                 border: 1px solid transparent;
+                 transition: background .12s, border-color .15s, box-shadow .15s; }
 .ov-player-row:hover { background: var(--panel3); }
 .ov-player-row.active { border-color: var(--accent);
-                        background: rgba(77, 163, 255, .12); }
+                        background: rgba(167, 139, 250, .12);
+                        box-shadow: inset 2px 0 0 var(--accent); }
 .ov-player-row .ob-num { flex: none; }
 .ov-player-row .ovp-name { font-size: var(--fs-sm); white-space: nowrap; overflow: hidden;
                            text-overflow: ellipsis; }

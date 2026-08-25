@@ -5,10 +5,10 @@
   if (!m) return;
   const HASH = m[1];
 
-  // ---- palette (matches style.css esports tokens) ----
+  // ---- palette (matches style.css Phase G violet tokens) ----
   const C = {
-    t: '#ffb02e', ct: '#3d9bff', text: '#e8edf4', muted: '#8b98ab',
-    err: '#ff4d5e', ok: '#3ddc97', warn: '#ffb02e', accent: '#4da3ff',
+    t: '#ffb02e', ct: '#3d9bff', text: '#eceaf6', muted: '#9aa0b8',
+    err: '#ff4d5e', ok: '#3ddc97', warn: '#ffb02e', accent: '#a78bfa',
     smoke: 'rgba(200,205,215,', fire: 'rgba(255,110,40,', flash: 'rgba(255,255,255,',
     kill: '#ffd166', dead: '#7a8595',
   };
@@ -138,7 +138,7 @@
     const wrap = document.querySelector('.ob-map-wrap');
     const w = wrap.clientWidth, h = wrap.clientHeight;
     const ctx = setupCanvas($('map-layer'), w, h);
-    ctx.fillStyle = '#07090d';
+    ctx.fillStyle = '#07070d';
     ctx.fillRect(0, 0, w, h);
     // geometry must exist before any frame runs (map image loads async);
     // fall back to 1024 dims until the bitmap is decodable
@@ -430,7 +430,7 @@
       ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       ctx.lineWidth = 4 * ms; ctx.strokeStyle = '#000';
       ctx.strokeText(String(st.ammo), sx + 15 * ms, sy - 12 * ms);
-      ctx.fillStyle = st.ammo === 0 ? C.err : '#e8edf4';
+      ctx.fillStyle = st.ammo === 0 ? C.err : C.text;
       ctx.fillText(String(st.ammo), sx + 15 * ms, sy - 12 * ms);
     }
     // weapon icon badge above the dot (zoom >= 3): light plate — the vendored
@@ -564,6 +564,8 @@
     const remain = Math.max(D.round_clock_seconds - (state.tick - seg.start_tick) / D.tick_rate, 0);
     const mm = Math.floor(remain / 60), ss = Math.floor(remain % 60);
     timer.textContent = mm + ':' + String(ss).padStart(2, '0');
+    // final 20s: red pulse (Phase G .ob-timer.low-time)
+    timer.classList.toggle('low-time', remain <= 20);
     setScores(seg);
     setBombTimer(seg);
   }

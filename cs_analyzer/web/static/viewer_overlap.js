@@ -99,7 +99,7 @@
     const wrap = $('ov-map-wrap');
     const w = wrap.clientWidth, h = wrap.clientHeight;
     const ctx = setupCanvas($('map-layer'), w, h);
-    ctx.fillStyle = '#07090d';
+    ctx.fillStyle = '#07070d';
     ctx.fillRect(0, 0, w, h);
     const iw = (mapImg && mapImg.naturalWidth) || 1024;
     const ih = (mapImg && mapImg.naturalHeight) || 1024;
@@ -181,7 +181,7 @@
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.lineWidth = 3 * ms; ctx.strokeStyle = 'rgba(0,0,0,.95)';
         ctx.strokeText(p.num, sx, sy);
-        ctx.fillStyle = alpha > 0.5 ? '#ffffff' : '#0b0e14';
+        ctx.fillStyle = alpha > 0.5 ? '#ffffff' : '#08080f';
         ctx.fillText(p.num, sx, sy);
         if (isFocus) {
           ctx.beginPath(); ctx.arc(sx, sy, 18 * ms, 0, Math.PI * 2);

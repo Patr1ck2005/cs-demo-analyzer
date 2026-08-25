@@ -5,8 +5,8 @@
   'use strict';
 
   const TOKENS = {
-    text: '#e8edf4', muted: '#8b98ab', faint: '#5c6a80',
-    line: '#242e42', accent: '#4da3ff', t: '#ffb02e', ct: '#3d9bff',
+    text: '#eceaf6', muted: '#9aa0b8', faint: '#636a85',
+    line: '#262942', accent: '#a78bfa', t: '#ffb02e', ct: '#3d9bff',
     ok: '#3ddc97', err: '#ff4d5e',
   };
 
@@ -16,6 +16,7 @@
   function mount(el, option) {
     const dom = typeof el === 'string' ? document.getElementById(el) : el;
     if (!dom || typeof echarts === 'undefined') return null;
+    dom.classList.remove('chart-loading'); // drop the skeleton placeholder
     const chart = echarts.init(dom, 'csa');
     chart.setOption(option);
     instances.push(chart);
@@ -34,7 +35,7 @@
         indicator: payload.indicators,
         radius: '62%',
         center: ['50%', '46%'],
-        splitArea: { areaStyle: { color: ['rgba(36,46,66,.25)', 'rgba(36,46,66,.08)'] } },
+        splitArea: { areaStyle: { color: ['rgba(38,41,66,.25)', 'rgba(38,41,66,.08)'] } },
         axisLine: { lineStyle: { color: TOKENS.line } },
         splitLine: { lineStyle: { color: TOKENS.line } },
         axisName: { color: TOKENS.muted, fontSize: 11 },
@@ -56,7 +57,7 @@
               const raw = p.raw || [];
               const names = ['KPR', '存活率', 'ADR', '爆头率%', '首杀/回合', 'Rating'];
               return `<b>${p.name}</b><br/>` + p.value.map((v, i) =>
-                `${names[i]}: ${raw[i]} <span style="color:#5c6a80">(${v})</span>`).join('<br/>');
+                `${names[i]}: ${raw[i]} <span style="color:#636a85">(${v})</span>`).join('<br/>');
             },
           },
         },
@@ -154,7 +155,7 @@
       visualMap: {
         min: 0.4, max: 1.3, calculable: true, orient: 'horizontal',
         left: 'center', bottom: 0,
-        inRange: { color: ['#1a2130', '#4da3ff', '#ffb02e'] },
+        inRange: { color: ['#16182a', '#a78bfa', '#ffb02e'] },
       },
       series: [{ type: 'heatmap', data, label: { show: true, fontSize: 9, color: TOKENS.text } }],
     };
@@ -224,7 +225,7 @@
       visualMap: {
         min: 0, max: 1, calculable: true, orient: 'horizontal',
         left: 'center', bottom: 0,
-        inRange: { color: ['#3d9bff', '#1a2130', '#ffb02e'] },
+        inRange: { color: ['#3d9bff', '#16182a', '#ffb02e'] },
         formatter: (v) => (v * 100).toFixed(0) + '%',
       },
       series: [{
@@ -237,7 +238,7 @@
 
   // economy: per-round team spend bars + buy classification
   function economyOption(payload) {
-    const buyColor = { eco: '#8b98ab', force: '#ffb02e', full: '#3ddc97' };
+    const buyColor = { eco: '#9aa0b8', force: '#ffb02e', full: '#3ddc97' };
     const mk = (side, color) => ({
       name: side + ' 消费',
       type: 'bar',
@@ -282,7 +283,7 @@
       series: [{
         type: 'bar',
         data: f.map((x) => x.value).reverse(),
-        itemStyle: { color: '#e8edf4' },
+        itemStyle: { color: '#eceaf6' },
         barMaxWidth: 16,
         label: { show: true, position: 'right', fontSize: 9, color: TOKENS.muted,
                  formatter: (p) => p.value.toFixed(1) + 's' },

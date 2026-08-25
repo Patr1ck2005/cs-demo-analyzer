@@ -4,20 +4,33 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}CsDemoAnalyzer{% endblock %}</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/fonts.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/style.css?v={{ static_v }}">
+{% block head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 <nav class="topbar">
-  <span class="brand">CsDemoAnalyzer</span>
+  <span class="brand">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" stroke="#a78bfa" stroke-width="1.6"/>
+      <g class="xhair-spin">
+        <path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="#c4b5fd" stroke-width="1.6" stroke-linecap="round"/>
+      </g>
+      <circle cx="12" cy="12" r="2.4" fill="#a78bfa"/>
+    </svg>
+    CsDemoAnalyzer
+  </span>
   {% set p = request.url.path %}
-  <a href="/" class="{{ 'active' if p == '/' or not p.startswith(('/aggregate', '/coverage')) else '' }}">Demo 库</a>
-  <a href="/aggregate" class="{{ 'active' if p.startswith('/aggregate') else '' }}">跨场聚合</a>
-  <a href="/coverage" class="{{ 'active' if p.startswith('/coverage') else '' }}">覆盖度</a>
+  <nav>
+    <a href="/" class="{{ 'active' if p == '/' or not p.startswith(('/aggregate', '/coverage')) else '' }}">Demo 库</a>
+    <a href="/aggregate" class="{{ 'active' if p.startswith('/aggregate') else '' }}">跨场聚合</a>
+    <a href="/coverage" class="{{ 'active' if p.startswith('/coverage') else '' }}">覆盖度</a>
+  </nav>
 </nav>
 <main>
 {% block content %}{% endblock %}
 </main>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{ static_v }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

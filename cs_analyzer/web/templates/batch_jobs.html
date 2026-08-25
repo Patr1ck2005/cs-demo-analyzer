@@ -18,9 +18,9 @@
       <tr data-job="{{ r.job_id or '' }}">
         <td class="bf-label">{{ r.label }}</td>
         <td class="bf-state">
-          {% if r.state == 'duplicate' %}<span class="badge">已解析，跳过</span>
-          {% elif r.state == 'error' %}<span class="badge" style="color:var(--err)">保存失败</span>
-          {% else %}<span class="badge">解析中…</span>{% endif %}
+          {% if r.state == 'duplicate' %}<span class="badge no">已解析，跳过</span>
+          {% elif r.state == 'error' %}<span class="badge t0">保存失败</span>
+          {% else %}<span class="badge ct">解析中…</span>{% endif %}
         </td>
         <td class="bf-result sub">
           {% if r.state == 'duplicate' %}<a href="/demo/{{ r.demo_hash }}">查看分析 →</a>
@@ -46,10 +46,10 @@
     const stateEl = tr.querySelector('.bf-state');
     const resultEl = tr.querySelector('.bf-result');
     if (st.status === 'done') {
-      stateEl.innerHTML = '<span class="badge" style="color:var(--ok)">完成</span>';
+      stateEl.innerHTML = '<span class="badge ok">完成</span>';
       resultEl.innerHTML = '<a href="/demo/' + st.result + '">查看分析 →</a>';
     } else if (st.status === 'error') {
-      stateEl.innerHTML = '<span class="badge" style="color:var(--err)">失败</span>';
+      stateEl.innerHTML = '<span class="badge t0">失败</span>';
       resultEl.textContent = st.error || '未知错误';
     } else {
       return; // still pending/running

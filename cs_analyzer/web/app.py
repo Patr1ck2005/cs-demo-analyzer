@@ -41,6 +41,12 @@ app = FastAPI(title="CsDemoAnalyzer 本地平台", version="0.1.0")
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+# static asset cache-buster: server start time, so a restart always hands the
+# browser fresh CSS/JS (root cause fix for the "styles didn't update" reports)
+import time as _time
+
+TEMPLATES.env.globals["static_v"] = str(int(_time.time()))
+
 _analysis_cache: dict[str, dict] = {}
 _module_cache: dict[str, dict] = {}
 

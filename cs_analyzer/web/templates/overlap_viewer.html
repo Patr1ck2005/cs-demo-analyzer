@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}回合重叠 · {{ demo.map_name }}{% endblock %}
+{% block body_class %}wide{% endblock %}
 {% block content %}
 <div class="sub"><a href="/demo/{{ demo.hash }}">← 返回 demo</a> · <a href="/demo/{{ demo.hash }}/viewer">实时回放</a><span id="load-status"> · 加载回放数据…</span></div>
 
@@ -67,8 +68,8 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<link rel="stylesheet" href="/static/overlap.css">
-<script src="/static/js/weapon_meta.js"></script>
-<script src="/static/js/viewer_camera.js"></script>
-<script src="/static/viewer_overlap.js"></script>
+<link rel="stylesheet" href="/static/overlap.css?v={{ static_v }}">
+<script src="/static/js/weapon_meta.js?v={{ static_v }}"></script>
+<script src="/static/js/viewer_camera.js?v={{ static_v }}"></script>
+<script src="/static/viewer_overlap.js?v={{ static_v }}"></script>
 {% endblock %}

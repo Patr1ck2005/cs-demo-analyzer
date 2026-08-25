@@ -76,14 +76,22 @@ scripts/probe_ammo.py                                        # 弹药字段探�
 
 ## 6. 下一步建议（按优先级）
 
-1. **提交 Phase F 全部改动**（工作区待提交，provenance 待用户确认）。
+1. **提交 Phase G 全部改动**（工作区待提交，provenance 待用户确认）。
 2. **更多地图**：从 MurkyYT/cs2-map-icons 取 PNG + radar_info 校准 yaml（控图/路线/热力图都吃地图资源）。
 3. **CT 开局路线页**：数据已算好（ctx 里），加个 UI 切换即可。
-4. **可选**：bomb 事件坐标探针脚本；coverage.html 样式对齐 v2 组件类；`_module_cache` 加上限或失效策略；经济模块接 `is_warmup` 过滤。
+4. **控图算法升级**（用户暂缓）：位置存在性 → 含视线/交战/时间权重。
+5. **可选**：bomb 事件坐标探针脚本；`_module_cache` 加上限或失效策略；经济模块接 `is_warmup` 过滤。
 
 ## 7. 已验证里程碑（本阶段成果）
 
-- **Phase F 密度/武器语义/控图/进阶分析（ox-alpha, 2026-08-24，待提交）**：
+- **Phase G 全站美术重设计 "Violet Observatory"（ox-alpha, 2026-08-25，待提交）**：
+  - 用户对美术完全不满意后 AskUserQuestion 定案：电竞数据平台风（Leetify/scope.gg 观感）、**紫罗兰主强调**（`#a78bfa`，渐变 `#c4b5fd→#8b5cf6`；T 橙/CT 蓝阵营语义色保留）、**三字体体系**、顶栏升级、**拉满展示级动效**、纯暗色、一步到位。
+  - M1 字体地基：vendor 9 个 woff2（Inter 400-700 / Rajdhani 500-700 / JetBrains Mono 400+600，fontsource CDN 下载，三份 OFL 许可随包）+ `static/fonts.css`；display 字体用于 h1/h2/stat 值/比分/计时器/半场 tab，mono 用于表格数字/弹药/时间戳。
+  - M2 外壳：base.html 品牌**准星 SVG 标记**（14s 慢旋转）+ **氛围双光晕**（紫/蓝 blur 漂移，body::before/::after）+ `static_v`（服务启动时间戳，模板 `?v=` 防缓存——根治"浏览器缓存问题"）；`body.wide`（回放器/重叠页版心 1600px）；10 个模板全部重皮，**id 与 JS 消费类名零改动**。
+  - M3 动效库（全部 `prefers-reduced-motion` 关停）：区块依次入场（main>* nth-child 延迟封顶）、表格行 stagger（`--i` 变量）、卡片 hover 浮起+顶部渐变条、按钮**光泽扫过**（::after 斜切高光）+按压 scale、chips 紫光、**count-up 数字动画**（app.js，纯数字才动 600ms ease-out）、图表骨架 shimmer（`.chart-loading`，`CSACharts.mount()` 自动移除）、dropzone 蚂蚁线、导航玻璃拟态+发光下划线 scaleX、低时间红脉冲（`.ob-timer.low-time`，viewer_canvas 20s 阈值接线）、View Transitions API 渐进增强、暗色细滚动条（紫 thumb）。
+  - M4 图表系统：echarts-theme-csa 紫色板重写（`['#a78bfa','#ffb02e','#3d9bff','#3ddc97','#ff4d5e','#22d3ee','#f472b6','#facc15',...]`）、charts.js TOKENS 对齐、viewer_canvas/viewer_overlap 仅 UI 色同步（**canvas 实体色不动**：T/CT 调色板、烟/火/闪、击杀金）；coverage.html 独立样式同步新 token。
+  - 验证：123 测试全绿（**零测试改动**——文本 token 契约全部保住）；playwright 7 页（新增 overlap）console 零错误；逐页截图人工检查。
+- **Phase F 密度/武器语义/控图/进阶分析（已提交 03c9eb4）**：
   - M1 回放器交互修复：工具条按钮"点不动"根因=拖拽 `setPointerCapture` 无条件劫持（双层修复：`.ob-toolbar` 内跳过 + 4px 阈值后才捕获）；`轨迹` 开关接活；模板补复位视图按钮；dblclick 工具条守卫；速度下拉补齐 3/5/6/7 与数字键同步。
   - M2 多 demo 上传：`list[UploadFile]` + multiple 表单 + 内容哈希去重（重复跳过）+ 文件名冲突后缀；`Job.label`；`batch_jobs.html` 批量结果页（逐行轮询）；测试隔离 `_demos_dir` monkeypatch（不再污染真实 demos/）。
   - M3 武器图标系统：49 个 MIT SVG vendor（akiver/cs-demo-manager，LICENSE.txt 附 provenance）；`weapons.py` 单一事实源（三命名体系归一：事件短名 `ak47` / WMPVP 皮肤 `ak47_txz03` / tick 显示名 `ak-47`，200 真实名全覆盖）；Jinja 过滤器 + `/api/meta/weapons.json` + `weapon_meta.js` 镜像（含异步 Image 缓存）；OB 面板/击杀流/战报页击杀行三路消费。
