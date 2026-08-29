@@ -55,16 +55,33 @@ def test_compute_aggregate(tmp_path) -> None:
 def test_player_row_properties() -> None:
     row = PlayerRow(
         steamid="1", name="A", total_kills=20, total_deaths=5, total_rounds=10,
-        demos=[{"demo": "x.dem", "rounds": 10, "ADR": 85.0, "Rating": 1.1, "KAST": 70.0}],
+        total_damage=850,
+        demos=[{"demo": "x.dem", "rounds": 10, "damage": 850, "ADR": 85.0, "Rating": 1.1, "KAST": 70.0}],
     )
     assert row.demo_count == 1
     assert row.avg_kpr == 2.0
-    assert row.avg_adr == 85.0
+    assert row.avg_adr == 85.0  # pooled damage / pooled rounds (B3)
     assert row.avg_rating == 1.1
     assert row.avg_kast == 70.0
     # empty demos -> zero averages, no division crash
     empty = PlayerRow(steamid="2", name="B")
     assert empty.avg_kpr == 0.0 and empty.avg_adr == 0.0
+
+
+def test_player_row_round_weighted_averages() -> None:
+    """B3: a 30-round demo must outweigh a 4-round demo in Rating/KAST."""
+    row = PlayerRow(
+        steamid="1", name="A", total_rounds=34,
+        total_damage=4 * 100 + 30 * 80,
+        demos=[
+            {"rounds": 4, "damage": 400, "ADR": 100.0, "Rating": 2.0, "KAST": 100.0},
+            {"rounds": 30, "damage": 2400, "ADR": 80.0, "Rating": 1.0, "KAST": 60.0},
+        ],
+    )
+    assert abs(row.avg_rating - (2.0 * 4 + 1.0 * 30) / 34) < 1e-9
+    assert abs(row.avg_kast - (100.0 * 4 + 60.0 * 30) / 34) < 1e-9
+    assert abs(row.avg_adr - 2800 / 34) < 1e-9
+    # plain mean would have given rating 1.5 — weighted gives ~1.176
 
 
 def test_demo_row_win_rate() -> None:

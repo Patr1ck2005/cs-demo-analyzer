@@ -45,48 +45,58 @@ c6ed497 feat: canvas real-time replay viewer + T/CT side fix + esports UI overha
 ## 4. 已知问题 / 技术债务
 
 1. **~~弹药数据缺失~~（Phase F 已解决）**：0.42.0 提供逐 tick `active_weapon_ammo`/`is_in_reload`；viewer-data **v3** 快照带 `am`/`rl` 数组 + 顶层 `ammo` 特性标志；`rl` 用 prop ∪ `weapon_reload` 事件运行段并集（prop 对个别 WMPVP 选手漏报，0762 案例：1 span vs 3 event runs；prop span 97% 经弹药回填验证）。
-2. **道具飞行轨迹为反推**：SourceTV 无道具轨迹实体；投掷起点由投掷者位置按飞行秒数反推（`timeline._reconstruct_throw`），区域时长为真实值（`*_expired` 实体匹配）。
+2. **道具飞行轨迹为反推**：SourceTV 无道具轨迹实体；`*_thrown` 事件在 WMPVP 广播缺失（探针 output/.event_probe.json 证实），投掷起点由投掷者位置按飞行秒数反推（`timeline._reconstruct_throw`），区域时长为真实值（`*_expired` 实体匹配）。
 3. **Team 0 玩家（pawn 未解析）**：某些 WMPVP SourceTV demo 个别玩家全位置 NaN 且不可重建（逐广播特定）。viewer/热力图跳过，统计完整。判定：`cs_analyzer/coverage.py`。
-4. **RWS / Rating 是近似**：自实现 HLTV 公式，与平台数值有差异。
+4. **RWS / Rating 是近似**：自实现 HLTV 公式，与平台数值有差异。Phase I 修正了 KAST trade 语义（旧实现反转：给"杀人后速死"者记 T，标准是"杀我者速死"给受害者记 T）与 ratings 输入过滤口径（warmup/TK 与 basic_stats 对齐）——历史数值与旧版不可直接比较。
 5. **队名为占位**："Team 2/3"；真实队名在 `begin_new_match`（viewer-data 已输出 `teams`，WMPVP demo 该事件常缺失 → 客户端回退 T/CT）。
-6. **bomb 事件坐标三级回退**：事件坐标 → 下包者快照插值 → null（客户端画 site 徽章）。`scripts/probe_bomb_events.py` 尚未编写。
+6. **bomb 事件坐标三级回退**：事件坐标 → 下包者快照插值 → null（客户端画 site 徽章）。
 7. **孤儿产物目录**：`output/web/{hash}/radar|pref|aggregate`（matplotlib 时代 PNG）已无生产者，可手动删除。
 8. **coverage.html 内联样式**：仍是 Phase D token 快照（调色板一致，未引入 v2 组件类）；后续可对齐。
-9. **PARSER_VERSION 1.6.0 缓存失效**：Phase F bump 后旧缓存全部懒重解析（每 demo ~8-14s）；首次访问各页会慢一次。
-10. **开局路线 V1 只出 T 方**：CT 结果已算好挂在 ctx（`OpeningRouteModule.run` 里 `ctx.put(results["CT"])`），未来页面可直接取用。
+9. **PARSER_VERSION 1.7.0 缓存失效**：Phase I bump 后旧缓存已全部懒重解析完成（9/9，含 inventory 列 25 列 ticks、bomb_begindefuse/dropped/pickup、weapon_zoom、cs_win_panel_match 共 25 张事件表）。
+10. **demoparser2 探测死路**（Phase I 实证，勿再试）：CS2 header 无日期/tickrate/match_id；`money` prop 在 0.42 MISSING；`bullet_impact` 与 `*_thrown` 事件在 WMPVP 缺席；`parse_convars()` 在真实 WMPVP demo 上 pyo3 Rust panic——任何探针必须子进程隔离（`scripts/probe_events.py` 模式）。
+11. **tick_rate 为推导值**：header 无 tickrate，`backend._empirical_tick_rate` 用 velocity÷位移中位数推导（实测 64.0，n=116k），样本不足回落 64。match_id 从 WMPVP 文件名 `^(\d{10,})_` 前缀提取（同时是 B8 时序键）。
+12. **拆弹尝试为近似**：postplant 用 `bomb_begindefuse`（含 haskit）计数；表缺失的旧缓存回落为"成功数=尝试数"。
 
 ## 5. 关键入口
 
 ```bash
-"/d/Program Files/Python311/python.exe" -m pytest -q        # 123 全绿
+"/d/Program Files/Python311/python.exe" -m pytest -q        # 181 全绿
 PYTHONIOENCODING=utf-8 "/d/Program Files/Python311/python.exe" -m uvicorn cs_analyzer.web.app:app --port 8000
-scripts/visual_check.py                                      # playwright 全页截图 + console 错误
-scripts/probe_ammo.py                                        # 弹药字段探针（隔离子进程）
+scripts/visual_check.py                                      # playwright 16 页截图 + console 错误
+scripts/probe_events.py                                      # 事件可用性探针（子进程隔离，防 pyo3 panic）
+scripts/probe_ammo.py                                        # 弹药字段探针（同上）
 ```
 
 核心文件：
 - CLI: `cs_analyzer/cli.py`（parse/analyze/coverage/serve/info）
 - 覆盖度: `cs_analyzer/coverage.py` + `scripts/probe_team0.py`
-- 解析: `cs_analyzer/parser/backend.py`（demoparser2；`_parse_ticks` 带 legacy 字段降级重试）, `providers.py`
-- 模型/缓存: `cs_analyzer/model/`, `cache.py`（PARSER_VERSION 1.6.0）
-- 分析: `cs_analyzer/analysis/`（basic_stats, ratings, preference, aggregate + **duels, economy, utility_effect, routes**）
+- 解析: `cs_analyzer/parser/backend.py`（demoparser2；`_parse_ticks` 带 legacy 字段降级重试；`_empirical_tick_rate`/`_match_id_from_filename`）, `providers.py`
+- 模型/缓存: `cs_analyzer/model/`, `cache.py`（PARSER_VERSION **1.7.0**）
+- 分析: `cs_analyzer/analysis/`——基础 8 模块 + Phase I 五模块（**kill_context, hitgroups, aim, postplant, weapon_splits**）+ 共享助手 `util.py`（`round_player_sides` 逐回合阵营，duels/utility/highlights 三处消费）
 - 回放数据层: `cs_analyzer/replay/timeline.py`（PlayerTimeline/UTILITY_END_TABLES/_reconstruct_throw）
-- Web: `cs_analyzer/web/`——`app.py` 路由（含 `/analysis/{duels,economy,utility,routes}.json` + 惰性 `_analyze_module` memo）、`viewer_data.py`（**v3** 数据包+layers v2）、`chart_data.py`（ECharts 载荷+4 个高级分析载荷）、`weapons.py`（**武器单一事实源**）、`store.py`、`tasks.py`（Job.label）、`templates/`（含 batch_jobs.html）、`static/`（viewer_canvas.js + js/viewer_camera.js + viewer_overlays.js + **viewer_control.js** + **weapon_meta.js** + charts.js + img/weapons/ + vendor/echarts）
+- Web: `cs_analyzer/web/`——`app.py` 路由（含 `/analysis/{duels,economy,utility,routes,kill_context,hitgroups,aim,postplant,weapons}.json` + 惰性 `_analyze_module` memo）、`viewer_data.py`（**v3** 数据包+layers v2）、`chart_data.py`（ECharts 载荷+9 个分析载荷）、`weapons.py`（**武器单一事实源**）、`store.py`（`match_key` B8 时序）、`aggregation.py`（memo）、`tasks.py`、`templates/`、`static/`（viewer_canvas.js + js/viewer_camera.js + viewer_overlays.js + viewer_control.js + weapon_meta.js + viewer_prefs.js + charts.js + img/weapons/ + vendor/echarts）
 - 地图: `cs_analyzer/maps/loader.py` + `maps/data/`（mirage/ancient/inferno）
 
 ## 6. 下一步建议（按优先级）
 
-1. **提交 Phase H 全部改动**（工作区待提交，provenance 待用户确认）。
+1. **提交 Phase I 全部改动**（工作区待提交，provenance 待用户确认）。
 2. **更多地图**：从 MurkyYT/cs2-map-icons 取 PNG + radar_info 校准 yaml（对局库卡片墙/控图/路线/热力图都吃地图资源；de_nuke 当前缺图走占位底）。
 3. **控图算法升级**（用户暂缓）：位置存在性 → 含视线/交战/时间权重。
-4. **预留页填充**（Phase H 占位）：收藏标注 /teams 队伍视图 /map-analysis 地图分析 /utility-lab 道具专题 /reports 报告导出。
-5. **可选**：`_module_cache` 加上限或失效策略；经济模块接 `is_warmup` 过滤；高光库加"残局失败"类目。
+4. **预留页填充**（Phase H 占位）：收藏标注 /teams 队伍视图 /map-analysis 地图分析（后端数据已备：aggregate per-map 分组）/utility-lab 道具专题（烟中击杀/闪光价值载荷已就绪）/reports 报告导出。
+5. **可选深化**：aim 模块接 R2 inventory 做武器持有时间线；`_module_cache` 加上限；经济模块接 `is_warmup` 过滤；高光库加"残局失败"类目；KAST 修正后可考虑 Rating 2.1 公式。
 
 ## 7. 已验证里程碑（本阶段成果）
 
-- **Phase H 信息架构完全重写（ox-alpha, 2026-08-25，待提交）**：
+- **Phase I 底层功能全面深化（ox-alpha, 2026-08-26，待提交）**：
+  - 用户拍板：三层审计（分析引擎/解析层/Web 数据面）+ 真机探测后全选 B1-B8 修复 + F1-F8 免费分析 + P1-P6 页面补全 + R1/R2/R3/R5/R6 解析升级（跳过 R4 手雷轨迹）。
+  - **M1 解析 bump 1.7.0**：tick += `inventory`（money 实测 MISSING 跳过）；事件 += bomb_begindefuse(haskit)/abortdefuse/dropped/pickup、weapon_zoom、cs_win_panel_match、bullet_impact（后两类 WMPVP 缺席但保留兼容 Valve demo）；`_empirical_tick_rate`（velocity÷位移中位，实测 64.0）；`_match_id_from_filename`；降级重试剔除集 += inventory。9 demo 懒重解析验证：25 列 ticks + 25 张事件表。
+  - **M2 公式修复**：B1 KAST trade 反转重写（标准语义：杀我者窗内死→我记 T）；B2 共享 `analysis/util.py` `round_player_sides`（逐回合 512t 窗口 team_num 众数，换边安全）改造 duels/utility_effect（事件 tick 解析闭包）/highlights 三处；B3 聚合加权（ADR=Σdamage/Σrounds，Rating/KAST 回合加权均值，PlayerRow.demos += damage）；B4 生涯雷达改服务器 RADAR_AXES 注入；B5 ratings 过滤对齐 basic_stats；B6 preference 三修（pitch 双重转换去除——实测已是度数、engagement 用 weapon_fire 代理、采样 searchsorted 右邻+回合钳制）；B7 routes 窗口起点改 freeze-end + P3 双方聚类直接载入 result（删 ctx hack）；B8 `store.match_key` 文件名 match-id 时序（仪表盘最近对局 + DemoRow.match_key 趋势序）。
+  - **M3 五新模块**（全部 @register_module + `/api/demo/{h}/analysis/{name}.json` + chart_data 载荷）：kill_context（穿墙/烟中/盲狙/空中/距离徽章 + round_mvp + item_pickup 捡枪 + weapon_mix）、hitgroups（hitgroup×dmg 分布 + 护甲效率，仅计 armor 交互命中）、aim（weapon_fire⋈ticks：出手/转化（每杀单认领）/走路/开镜/蹲下开火占比/freeze-end 首发延迟）、postplant（守包率/retake 率/拆弹尝试 begindefuse 计数/拆弹用时）、weapon_splits（皮肤折叠类别拆分 + top-3 武器）；F8 basic_stats += first_deaths/FirstDeathsPerRound；F4 utility_effect += flash_assists（assistedflash 归因，flash-only 玩家也建行）；weapons.py knife 别名补全（knife_bayonet 等 10 个）。
+  - **M4 页面补全**：经济 Tab（消费柱 tooltip 买法/胜负 + win_by_buy 分组柱 + 连败 streak 行）、道具 Tab（烟中击杀/死亡双向条形图）、路线 Tab（T/CT toggle + 样本不足提示 + 下包后四卡）、击杀 Tab（情境徽章 + 武器分布环图 + 部位伤害堆叠条）、新**战术 Tab**（枪法纪律表 + 武器拆分表）、生涯页（RWS 第三序列 + 单场热力图场次选择器接入孤儿 API）、回放器**买装条**（economy 层首次被消费：回合前 20s 底部双方购枪图标+$spend，「买装」chip 开关）；孤儿模板删除（demo_detail/player_detail/aggregate/job.html）。
+  - 测试 148→**181** 全绿（+33）；web_client fixture 提升到 conftest 共享；playwright 16 页 console 零错误（新增五个 Tab 深链截图）；真机截图人工检查（击杀徽章/环图/堆叠条/买装条全部渲染正确）。
+- **Phase H 信息架构完全重写（已提交 d7e7632）**：
   - 用户拍板：页面逻辑完全重写——实体中心三区（仪表盘/对局/选手/高光/对比/系统），对比=大数据思想（个体 vs ≥5 场全库基线分位，非两两 PK），对局详情五 Tab 化，覆盖度降出导航（保留 CLI），URL 全新语义化 + 旧路径 301。
-  - 路由：`/matches` `/match/{h}`（Tab 化）`/match/{h}/viewer|overlap` `/players` `/player/{sid}`（生涯）`/highlights` `/compare` `/system` + 5 占位页；301 重定向 query 透传（回放深链 ?round=&t= 存活）；API 路径零改动；viewer JS 双前缀容忍正则 + replaceState 写新路径 + 源码契约测试。
+  - 路由：`/matches` `/match/{h}`（Tab 化）`/match/{h}/viewer|overlap` `/players` `/player/{sid}`（生涯）`/highlights` `/compare` `/system` + 5 占位页；301 query 透传；API 路径零改动。
   - 数据：`web/aggregation.py` memo（single-flight 锁 + `invalidate_aggregate()` 三调用点）；PlayerRow += HS%/FKPR/Survivals/逐场 demo_hash；`analysis/highlights.py`（多杀 2k-ACE + 残局 1vN 事件推导 + roster 名字回退）；`compare_payload`（≥5 场门槛 percentile-rank + 雷达叠加）；`/api/jobs` 列表、`/api/system/{status,unparsed}.json`、`POST /system/import`。
   - 页面：仪表盘（KPI 四卡+最近对局卡墙+上传+高光精选）、对局库（卡片/表格双视图 localStorage + 地图筛选 chips）、对局详情五 Tab（`?tab=` 深链 + 面板懒 fetch + 骨架）、选手库（Rating 矩阵+样本量列）、生涯页（KPI+六轴雷达+跨场趋势+场次列表+个人高光）、高光库（类型筛选卡片流）、对比页（排行+分位条+勾选雷达叠加+门槛灰显）、系统页（缓存版本/任务队列 2s 轮询/未入库一键入库/数据质量+即将上线）。
   - 修复：base.html `{% set p %}` 遮蔽页面 context 的 PlayerRow（改名 nav_path）；缺图地图（de_nuke）卡片占位底；高光卡 map_name/undefined 名字。

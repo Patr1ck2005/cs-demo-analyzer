@@ -108,6 +108,58 @@ def parsed_demo() -> ParsedDemo:
     return build_parsed_demo()
 
 
+@pytest.fixture
+def web_client(tmp_path, monkeypatch):
+    """Temp-cached synthetic demo + monkeypatched app (cache dir & output).
+
+    Lives in conftest so multiple test modules can share it (Phase I).
+    """
+    from fastapi.testclient import TestClient
+
+    ticks = pd.DataFrame(
+        {
+            "tick": [0, 640, 1280, 1920, 2560, 3200],
+            "steamid": [S_ALICE] * 6,
+            "X": [0.0, 100.0, 200.0, 300.0, 400.0, 500.0],
+            "Y": [0.0] * 6,
+            "is_alive": [True] * 6,
+            "team_num": [3.0] * 6,
+        }
+    )
+    events = {
+        "player_death": pd.DataFrame(
+            {"tick": [1000, 2000, 3000],
+             "attacker_name": ["Bob", "Alice", "Bob"],
+             "user_name": ["Alice", "Bob", "Carol"],
+             "attacker_steamid": [S_BOB, S_ALICE, S_BOB],
+             "user_steamid": [S_ALICE, S_BOB, S_CAROL],
+             "assister_steamid": ["", "", ""],
+             # P5 badge columns: Alice's kill is a penetrating headshot
+             "weapon": ["ak47", "usp", "knife"],
+             "headshot": [False, True, False],
+             "penetrated": [False, True, False],
+             "thrusmoke": [False, False, False],
+             "noscope": [False, False, False],
+             "attackerinair": [False, False, False]}
+        )
+    }
+    from cs_analyzer.cache import DemoCache as _DC
+    from cs_analyzer.web import app as web_app
+
+    demo = build_parsed_demo(ticks=ticks, events=events)
+    demo_hash = demo.metadata.demo_hash
+    cache = _DC(tmp_path / "cache")
+    cache.save(demo_hash, demo)
+    monkeypatch.setattr(web_app, "_cache", lambda: cache)
+    monkeypatch.setattr(web_app, "OUT_DIR", tmp_path / "web")
+    monkeypatch.setattr(web_app, "_demos_dir", lambda: tmp_path / "demos")
+    # aggregate memo must not leak between tests (module-level singleton)
+    from cs_analyzer.web import aggregation
+
+    aggregation.invalidate_aggregate()
+    return TestClient(web_app.app), demo_hash, demo
+
+
 @pytest.fixture(scope="session")
 def real_demo_path() -> Path:
     if not REAL_DEMO.exists():

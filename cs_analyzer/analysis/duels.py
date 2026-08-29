@@ -11,6 +11,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
+from cs_analyzer.analysis.util import round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 logger = logging.getLogger(__name__)
@@ -56,18 +57,19 @@ class DuelsModule(AnalysisModule):
                 names.setdefault(vic, str(row.get("user_name", "") or vic))
 
         players = sorted(kills.keys())
-        # side per player from ticks majority (T=2 / CT=3)
-        ticks = demo.ticks
-        if ticks is not None and not ticks.empty and {"steamid", "team_num"} <= set(ticks.columns):
+        # side per player: majority of per-round sides (swap-safe — the old
+        # whole-demo team_num mean mislabeled everyone after halftime)
+        round_sides = round_player_sides(demo)
+        if round_sides:
+            tally: dict[str, dict[str, int]] = {}
+            for m in round_sides.values():
+                for sid, s in m.items():
+                    tally.setdefault(sid, {}).setdefault(s, 0)
+                    tally[sid][s] += 1
             for sid in players:
-                sub = ticks[ticks["steamid"] == sid]
-                if sub.empty:
-                    continue
-                codes = sub["team_num"].dropna()
-                if codes.empty:
-                    continue
-                mean = float(codes.mean())
-                sides[sid] = "T" if mean < 2.5 else "CT"
+                counts = tally.get(sid)
+                if counts:
+                    sides[sid] = max(counts.items(), key=lambda kv: kv[1])[0]
 
         return DuelMatrixResult(
             module=self.name, demo_hash=demo.metadata.demo_hash,

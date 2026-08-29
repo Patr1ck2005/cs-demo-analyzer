@@ -220,14 +220,54 @@ def routes_payload(result, map_res: MapResource) -> dict:
                         round(py / max(map_res.image_height, 1), 4)])
         return out
 
-    return {
+    def pack(routes: list[dict], k: int) -> dict:
+        return {
+            "k": k,
+            "routes": [
+                {"route": norm(r["route"]), "rounds": r["rounds"], "share": r["share"]}
+                for r in routes
+            ],
+        }
+
+    payload = {
+        # legacy top-level T keys kept so existing consumers don't break
         "side": result.side,
-        "k": result.k,
-        "routes": [
-            {"route": norm(r["route"]), "rounds": r["rounds"], "share": r["share"]}
-            for r in result.routes
-        ],
+        **pack(result.routes, result.k),
+        # P3: both sides in one payload (CT used to be dropped between the
+        # module and this builder)
+        "sides": {
+            "T": pack(result.routes, result.k),
+            "CT": pack(result.ct_routes, result.ct_k),
+        },
     }
+    return payload
+
+
+# ---- Phase I: deepening-module payloads ----
+
+
+def kill_context_payload(result) -> dict:
+    return {
+        "players": result.players,
+        "feed": result.feed,
+        "weapon_mix": result.weapon_mix,
+    }
+
+
+def hitgroups_payload(result) -> dict:
+    return {"players": result.players, "groups": result.groups, "labels": result.labels}
+
+
+def aim_payload(result) -> dict:
+    return {"players": result.players}
+
+
+def postplant_payload(result) -> dict:
+    return {"rounds": result.rounds, "summary": result.summary}
+
+
+def weapon_splits_payload(result) -> dict:
+    return {"players": result.players}
 
 
 # ---- Phase H: highlights / compare payloads ----

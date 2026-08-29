@@ -15,6 +15,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
+from cs_analyzer.analysis.util import round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 logger = logging.getLogger(__name__)
@@ -117,25 +118,9 @@ class HighlightsModule(AnalysisModule):
 
     @staticmethod
     def _round_sides(demo: ParsedDemo) -> dict[int, dict[str, str]]:
-        """round -> steamid -> "T"/"CT" via majority of tick team_num in window."""
-        sides: dict[int, dict[str, str]] = {}
-        ticks = demo.ticks
-        if ticks is None or ticks.empty or "team_num" not in ticks.columns:
-            return sides
-        for rnd in demo.regular_rounds:
-            w = ticks[
-                (ticks["tick"] >= rnd.start_tick) & (ticks["tick"] < rnd.end_tick)
-            ]
-            if w.empty:
-                continue
-            m: dict[str, str] = {}
-            for sid, codes in w.groupby("steamid")["team_num"]:
-                codes = codes.dropna()
-                if codes.empty:
-                    continue
-                m[str(sid)] = "T" if float(codes.mean()) < 2.5 else "CT"
-            sides[rnd.number] = m
-        return sides
+        """round -> steamid -> "T"/"CT" — delegates to the shared swap-safe
+        helper (Phase I: the old whole-round window mean broke at halftime)."""
+        return round_player_sides(demo)
 
     @staticmethod
     def _clutch(window, rnd, side_map: dict[str, str]):

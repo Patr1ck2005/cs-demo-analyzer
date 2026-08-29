@@ -27,6 +27,7 @@
   const N_FIRE_FLAMES = 8;
   const SMOKE_GROW_S = 1.0;
   const SMOKE_FADE_TAIL_S = 2.5;
+  const SMOKE_SCALE = 1.2;  // Phase J: drawn cloud ×1.2 (user-tuned)
   const KILL_DUR_S = 1.2;
   const SHOT_DUR_S = 0.12;
   // combat feedback (Phase F M5): muzzle flash / tracer windows & lengths —
@@ -157,8 +158,10 @@
     const ageT = prog * durT;
     if (u.kind === 'smoke') {
       // multi-circle irregular volume; grow 1s, fade the last 2.5s
+      // Phase J: base radius 120 -> 144 (×1.2, user-tuned — the drawn cloud
+      // read smaller than the in-game smoke)
       const grow = Math.min(ageT / (SMOKE_GROW_S * TICK), 1);
-      const R = env.worldDist(120) * grow;
+      const R = env.worldDist(120 * SMOKE_SCALE) * grow;
       const fadeTail = SMOKE_FADE_TAIL_S * TICK;
       const remain = durT - prog * durT;
       const fade = remain < fadeTail ? remain / fadeTail : 1;
@@ -293,15 +296,21 @@
   }
 
   // ---- bombs: pulsing plant diamond while live; defuse/explode flashes ----
+  // Phase J: the clearing end-event must belong to the SAME segment as the
+  // plant — the old "any later end" match paired a plant with a defuse from
+  // rounds later, keeping the diamond alive across half the map.
   function drawBombs(env) {
     const { ctx, tick, TICK, events } = env;
     const bombs = events.bombs || [];
+    const seg = env.seg;  // current segment (viewer_canvas supplies it)
+    const inSeg = (t) => (!seg || (t >= seg.start_tick && t <= seg.end_tick));
     for (const b of bombs) {
       if (b.type === 'plant') {
         if (b.tick > tick) continue;
+        if (!inSeg(b.tick)) continue;          // not this round -> invisible
         if (!(Number.isFinite(b.x) && Number.isFinite(b.y))) continue;
         const end = bombs.find((o) => o !== b && o.tick >= b.tick &&
-          (o.type === 'defuse' || o.type === 'explode'));
+          (o.type === 'defuse' || o.type === 'explode') && inSeg(o.tick));
         if (end && tick >= end.tick) continue;
         const [sx, sy] = env.toScreen(b.x, b.y);
         const pulse = 0.75 + 0.25 * Math.sin(tick / 8);

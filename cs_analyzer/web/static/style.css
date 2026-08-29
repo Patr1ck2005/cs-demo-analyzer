@@ -566,3 +566,40 @@ tr.low-sample td { opacity: .55; }
 .ovp-side .chip { min-width: 40px; text-align: center; }
 .ovp-hint { margin-left: auto; }
 #ovp-phase { flex: 1; max-width: 260px; accent-color: var(--accent); }
+
+/* ============================= Phase I: kill badges / route toggle / tactics ============================= */
+.kill-line .badge { margin-left: 4px; font-size: 10px; padding: 0 5px; line-height: 16px; }
+.kb-penetrated { color: #ffb02e; border-color: rgba(255, 176, 46, .45); }
+.kb-thrusmoke { color: #9aa0b8; border-color: rgba(154, 160, 184, .45); }
+.kb-noscope { color: #f472b6; border-color: rgba(244, 114, 182, .45); }
+.kb-attackerinair { color: #22d3ee; border-color: rgba(34, 211, 238, .45); }
+.kb-headshot { color: #ff4d5e; border-color: rgba(255, 77, 94, .45); font-weight: 600; }
+.route-side { min-width: 56px; }
+.route-side.on { border-color: var(--accent); color: var(--accent); }
+.routes-empty { margin-top: 6px; }
+.grid.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 900px) { .grid.two-col { grid-template-columns: 1fr; } }
+
+/* P6: replay buy strip (economy layer, first 20s of each round) */
+.buy-strip { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+             display: flex; gap: 10px; pointer-events: none; z-index: 5;
+             background: rgba(10, 10, 18, .72); border: 1px solid var(--line);
+             border-radius: var(--r-md); padding: 5px 10px; backdrop-filter: blur(4px); }
+.bs-side { display: flex; align-items: center; gap: 8px; }
+.bs-side > b { font-size: 11px; font-weight: 700; margin-right: 2px; }
+.bs-t > b { color: var(--t); } .bs-ct > b { color: var(--ct); }
+.bs-item { display: inline-flex; align-items: center; gap: 2px;
+           padding: 2px 5px; border-radius: 6px; background: rgba(255,255,255,.05); }
+.bs-ico { width: 20px; height: 14px; object-fit: contain; filter: invert(.85); }
+.bs-spend { font-style: normal; font-size: 9.5px; color: var(--muted);
+            font-family: var(--font-mono); }
+
+/* Phase J: in-viewer overlap sub-mode — phase bar over the map bottom */
+.ov-phase-bar { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+                display: flex; align-items: center; gap: 8px; z-index: 6;
+                background: rgba(10, 10, 18, .78); border: 1px solid var(--line);
+                border-radius: var(--r-md); padding: 5px 12px; backdrop-filter: blur(4px); }
+.ov-phase-bar[hidden] { display: none; }
+.ov-phase-bar .chip { min-width: 58px; text-align: center; }
+.ov-phase-bar input[type=range] { width: 240px; accent-color: var(--accent); }
+.ov-phase-bar .ovp-phase-val { min-width: 42px; text-align: right; }

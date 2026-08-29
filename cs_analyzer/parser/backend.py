@@ -5,8 +5,10 @@ Provider-agnostic. Source-specific adjustments happen in the Provider layer.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from demoparser2 import DemoParser
 
@@ -49,6 +51,17 @@ WANTED_EVENT_TYPES: tuple[str, ...] = (
     "smokegrenade_expired",
     "inferno_expire",
     "weapon_reload",
+    # Phase I (probed 2026-08-25, output/.event_probe.json): bomb lifecycle
+    # + zoom available on WMPVP broadcasts; bullet_impact / *_thrown are
+    # ABSENT there (empty list) but stay listed so Valve/FACEIT demos get
+    # them for free — the try/except below skips missing types silently.
+    "bomb_begindefuse",   # carries `haskit`
+    "bomb_abortdefuse",
+    "bomb_dropped",
+    "bomb_pickup",
+    "weapon_zoom",
+    "cs_win_panel_match",
+    "bullet_impact",
 )
 
 # Player fields appended to every event (prefixed attacker_/user_/etc. by demoparser)
@@ -129,13 +142,14 @@ class DemoParserBackend:
         except Exception as exc:  # noqa: BLE001
             # Retry with the legacy field list: a future demoparser2 may drop
             # or half-materialize the newer props (active_weapon_ammo /
-            # is_in_reload). Degrade gracefully instead of losing all ticks.
-            legacy = [f for f in self.tick_fields
-                      if f not in ("active_weapon_ammo", "is_in_reload")]
+            # is_in_reload / inventory). Degrade gracefully instead of
+            # losing all ticks.
+            dropped = ("active_weapon_ammo", "is_in_reload", "inventory")
+            legacy = [f for f in self.tick_fields if f not in dropped]
             if legacy == self.tick_fields:
                 logger.warning("parse_ticks failed: %s", exc)
                 return pd.DataFrame()
-            logger.warning("parse_ticks with ammo fields failed (%s); retrying legacy list", exc)
+            logger.warning("parse_ticks with new fields failed (%s); retrying legacy list", exc)
             try:
                 ticks = parser.parse_ticks(legacy)
             except Exception as exc2:  # noqa: BLE001
@@ -170,8 +184,13 @@ class DemoParserBackend:
             provider=ProviderKind.UNKNOWN,  # set by provider layer
             server_name=server_name,
             client_name=client_name,
-            tick_rate=64,
+            # Header carries no tickrate (verified: parse_header() keys are
+            # version/map/server only) — derive from movement samples instead.
+            tick_rate=self._empirical_tick_rate(ticks) or 64,
             demo_duration_ticks=int(rounds[-1].end_tick) if rounds else 0,
+            # CS2 headers also carry no match id; the WMPVP downloader names
+            # files "<matchid>_0.dem" so lift it from the filename when present.
+            match_id=self._match_id_from_filename(dem_path),
             team_a=team_a,
             team_b=team_b,
         )
@@ -181,6 +200,38 @@ class DemoParserBackend:
             players=players,
             rounds=rounds,
         )
+
+    @staticmethod
+    def _empirical_tick_rate(ticks: pd.DataFrame | None) -> int | None:
+        """Derive the demo tick rate from movement samples.
+
+        speed (units/s, `velocity`) divided by per-tick displacement equals
+        ticks per second. Probed on real WMPVP demos: median 64.0 over 116k
+        moving samples. Returns None when evidence is insufficient.
+        """
+        if ticks is None or ticks.empty:
+            return None
+        needed = {"steamid", "tick", "X", "Y", "velocity"}
+        if not needed.issubset(ticks.columns):
+            return None
+        t = ticks[["steamid", "tick", "X", "Y", "velocity"]].sort_values(["steamid", "tick"])
+        dx = t.groupby("steamid")["X"].diff().abs()
+        dy = t.groupby("steamid")["Y"].diff().abs()
+        disp = np.hypot(dx, dy)
+        v = t["velocity"]
+        mask = (disp > 1) & (disp < 20) & (v > 50)
+        ratio = (v[mask] / disp[mask]).replace([np.inf, -np.inf], np.nan).dropna()
+        if len(ratio) < 100:
+            return None
+        median = float(ratio.median())
+        # Snap to the nearest standard CS2 tick rate.
+        return int(min((32, 64, 128), key=lambda r: abs(r - median)))
+
+    @staticmethod
+    def _match_id_from_filename(dem_path: Path) -> str | None:
+        """Extract a WMPVP-style "<matchid>_0.dem" numeric prefix."""
+        m = re.match(r"^(\d{10,})_", Path(dem_path).name)
+        return m.group(1) if m else None
 
     def _build_players(
         self,

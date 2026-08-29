@@ -69,6 +69,7 @@ class PreferenceModule(AnalysisModule):
     def run(self, demo: ParsedDemo, ctx: AnalysisContext) -> AnalysisResult:
         rounds = demo.regular_rounds
         ticks = demo.ticks
+        fires_df = demo.events.get("weapon_fire")
         deaths_df = demo.events.get("player_death")
         utility_events = {
             "smoke": demo.events.get("smokegrenade_detonate"),
@@ -86,8 +87,10 @@ class PreferenceModule(AnalysisModule):
             pref.utility_positions, pref.utility_counts = self._utility_placement(
                 utility_events, player.steamid
             )
+            # B6: first SHOT is the engagement proxy (weapon_fire table was
+            # parsed but never consumed); fall back to kill/death involvement
             pref.avg_first_engagement_fraction, pref.engagement_rounds = self._peek_style(
-                deaths_df, player.steamid, rounds
+                fires_df, deaths_df, player.steamid, rounds
             )
             pref.avg_pitch, pref.pitch_samples = self._crosshair_placement(arr)
             pref.avg_t_side_position = self._t_side_position(arr, rounds, player.steamid, demo)
@@ -120,7 +123,12 @@ class PreferenceModule(AnalysisModule):
 
     @staticmethod
     def _sample_positions(arr: dict, rounds: list) -> list[tuple[float, float]]:
-        """Sample (X, Y) positions at phase fractions of each round (searchsorted)."""
+        """Sample (X, Y) positions at phase fractions of each round.
+
+        Uses nearest-tick lookup so off-grid targets still resolve (the old
+        exact-match check silently dropped samples whenever the phase tick
+        fell between recorded rows).
+        """
         t = arr["tick"]
         if t.size == 0 or arr["X"].size == 0:
             return []
@@ -128,8 +136,10 @@ class PreferenceModule(AnalysisModule):
         for rnd in rounds:
             duration = rnd.end_tick - rnd.start_tick
             for phase in PHASE_SAMPLES:
-                i = int(np.searchsorted(t, rnd.start_tick + int(duration * phase)))
-                if i < t.size and t[i] == rnd.start_tick + int(duration * phase):
+                target = rnd.start_tick + int(duration * phase)
+                i = int(np.searchsorted(t, target, side="right")) - 1
+                # clamp to this round: never leak a position from an earlier round
+                if i >= 0 and rnd.start_tick <= t[i] <= rnd.end_tick:
                     x, y = arr["X"][i], arr["Y"][i]
                     if np.isfinite(x):
                         samples.append((float(x), float(y)))
@@ -167,17 +177,36 @@ class PreferenceModule(AnalysisModule):
         return positions, counts
 
     @staticmethod
-    def _peek_style(
-        deaths_df: pd.DataFrame | None, steamid: str, rounds: list
-    ) -> tuple[float, int]:
-        """Average first-engagement tick fraction (when player first shoots/kills in round).
+    def _first_involvement_tick(df: pd.DataFrame, steamid: str, rnd) -> int | None:
+        """First in-round tick where the player appears (attacker or user)."""
+        in_round = (df["tick"] >= rnd.start_tick) & (df["tick"] <= rnd.end_tick)
+        sub = df[in_round]
+        if sub.empty:
+            return None
+        mask = pd.Series(False, index=sub.index)
+        for col in ("attacker_steamid", "user_steamid", "user_steamid"):
+            if col in sub.columns:
+                mask |= sub[col] == steamid
+        involved = sub[mask]
+        if involved.empty:
+            return None
+        return int(involved["tick"].min())
 
-        Lower fraction = aggressive (engages early); higher = passive.
-        Uses first player_death event involving the player as engagement proxy.
+    @staticmethod
+    def _peek_style(
+        fires_df: pd.DataFrame | None,
+        deaths_df: pd.DataFrame | None,
+        steamid: str,
+        rounds: list,
+    ) -> tuple[float, int]:
+        """Average first-engagement tick fraction of round.
+
+        B6: engagement = first SHOT (weapon_fire); a kill-or-death proxy only
+        when the fire table is absent. Lower = more aggressive.
         """
-        if deaths_df is None or deaths_df.empty:
-            return 0.5, 0
-        if "attacker_steamid" not in deaths_df.columns and "user_steamid" not in deaths_df.columns:
+        primary = fires_df if fires_df is not None and not fires_df.empty else None
+        fallback = deaths_df if deaths_df is not None and not deaths_df.empty else None
+        if primary is None and fallback is None:
             return 0.5, 0
 
         fractions: list[float] = []
@@ -185,20 +214,13 @@ class PreferenceModule(AnalysisModule):
             duration = rnd.end_tick - rnd.start_tick
             if duration <= 0:
                 continue
-            in_round = (deaths_df["tick"] >= rnd.start_tick) & (deaths_df["tick"] <= rnd.end_tick)
-            round_deaths = deaths_df[in_round]
-            if round_deaths.empty:
+            first_tick = None
+            if primary is not None and {"user_steamid"} & set(primary.columns):
+                first_tick = PreferenceModule._first_involvement_tick(primary, steamid, rnd)
+            if first_tick is None and fallback is not None:
+                first_tick = PreferenceModule._first_involvement_tick(fallback, steamid, rnd)
+            if first_tick is None:
                 continue
-            # Find first event where player is attacker or victim
-            mask = pd.Series(False, index=round_deaths.index)
-            if "attacker_steamid" in round_deaths.columns:
-                mask |= round_deaths["attacker_steamid"] == steamid
-            if "user_steamid" in round_deaths.columns:
-                mask |= round_deaths["user_steamid"] == steamid
-            involved = round_deaths[mask]
-            if involved.empty:
-                continue
-            first_tick = int(involved["tick"].min())
             fractions.append((first_tick - rnd.start_tick) / duration)
 
         if not fractions:
@@ -209,8 +231,9 @@ class PreferenceModule(AnalysisModule):
     def _crosshair_placement(arr: dict) -> tuple[float, int]:
         """Average pitch angle (degrees) across alive, finite samples.
 
-        CS2 pitch: 0 = level, positive = looking up, negative = looking down.
-        Good crosshair placement is typically near 0 (level at head height).
+        demoparser2 pitch arrives already in degrees (-89..89; verified on the
+        real cache parquet). Phase I removed the spurious np.degrees()
+        double conversion that crushed every value toward ~0.
         """
         pitch, alive = arr["pitch"], arr["alive"]
         if pitch.size == 0 or alive.size == 0:
@@ -218,7 +241,7 @@ class PreferenceModule(AnalysisModule):
         sel = pitch[np.isfinite(pitch) & alive.astype(bool)]
         if sel.size == 0:
             return 0.0, 0
-        return float(np.degrees(np.mean(sel))), sel.size
+        return float(np.mean(sel)), sel.size
 
     @staticmethod
     def _t_side_position(
@@ -246,8 +269,8 @@ class PreferenceModule(AnalysisModule):
             if side != "T":
                 continue
             target = rnd.start_tick + int((rnd.end_tick - rnd.start_tick) * 0.25)
-            i = int(np.searchsorted(t, target))
-            if i < t.size and t[i] == target and np.isfinite(xs_a[i]):
+            i = int(np.searchsorted(t, target, side="right")) - 1
+            if i >= 0 and rnd.start_tick <= t[i] <= rnd.end_tick and np.isfinite(xs_a[i]):
                 xs.append(float(xs_a[i]))
                 ys.append(float(ys_a[i]))
         if not xs:

@@ -25,6 +25,8 @@ class PlayerRow:
     total_headshot_kills: int = 0
     total_first_kills: int = 0
     total_survival_weighted: float = 0.0  # Survivals x rounds, for the weighted mean
+    # Phase I (B3): pooled damage for round-weighted avg_adr
+    total_damage: int = 0
 
     @property
     def demo_count(self) -> int:
@@ -36,18 +38,24 @@ class PlayerRow:
 
     @property
     def avg_adr(self) -> float:
-        vals = [d["ADR"] for d in self.demos if d.get("rounds")]
-        return sum(vals) / len(vals) if vals else 0.0
+        # round-weighted: total damage / total rounds (B3 fix — a plain mean
+        # let a 4-round demo weigh the same as a 30-round one)
+        return self.total_damage / self.total_rounds if self.total_rounds else 0.0
+
+    def _round_weighted(self, key: str) -> float:
+        # Rating/KAST are non-additive, so pool as Σ(x·rounds)/Σrounds instead
+        # of recomputing the HLTV blend cross-demo.
+        num = sum(d[key] * d["rounds"] for d in self.demos if d.get("rounds"))
+        den = sum(d["rounds"] for d in self.demos if d.get("rounds"))
+        return num / den if den else 0.0
 
     @property
     def avg_rating(self) -> float:
-        vals = [d["Rating"] for d in self.demos if d.get("rounds")]
-        return sum(vals) / len(vals) if vals else 0.0
+        return self._round_weighted("Rating")
 
     @property
     def avg_kast(self) -> float:
-        vals = [d["KAST"] for d in self.demos if d.get("rounds")]
-        return sum(vals) / len(vals) if vals else 0.0
+        return self._round_weighted("KAST")
 
     @property
     def avg_hs_pct(self) -> float:
@@ -72,6 +80,18 @@ class DemoRow:
     ct_score: int
     t_win_rate: float = 0.0  # 0..1
     trend: list[dict] = field(default_factory=list)  # [{round, winner_side, t_score, ct_score}]
+    match_id: str | None = None  # Phase I: WMPVP filename prefix (chronology)
+
+    @property
+    def match_key(self) -> tuple:
+        """Chronological sort key — prefixed files first by id, then others
+        by filename (mirrors web.store.match_key)."""
+        if self.match_id:
+            try:
+                return (0, int(self.match_id), "")
+            except ValueError:
+                pass
+        return (1, 0, self.filename)
 
 
 @dataclass
@@ -111,6 +131,7 @@ def _demo_row(demo) -> DemoRow:
         ct_score=ct_score,
         t_win_rate=t_wins / len(reg) if reg else 0.0,
         trend=trend,
+        match_id=getattr(demo.metadata, "match_id", None),
     )
 
 
@@ -143,6 +164,7 @@ def compute_aggregate(cache_dir: Path = Path(".cache"), analysis: AnalysisConfig
             row.total_headshot_kills += bs.headshot_kills
             row.total_first_kills += bs.first_kills
             row.total_survival_weighted += bs.Survivals * bs.rounds
+            row.total_damage += bs.damage
             row.demos.append(
                 {
                     "demo": Path(demo.metadata.demo_path).name,
@@ -153,10 +175,12 @@ def compute_aggregate(cache_dir: Path = Path(".cache"), analysis: AnalysisConfig
                     "deaths": bs.deaths,
                     "KPR": bs.KPR,
                     "ADR": bs.ADR,
+                    "damage": bs.damage,
                     "Rating": rt.Rating if rt else 0.0,
                     "KAST": rt.KAST if rt else 0.0,
                     "RWS": rt.RWS if rt else 0.0,
                 }
             )
     ordered = sorted(players.values(), key=lambda p: p.avg_rating, reverse=True)
+    demo_rows.sort(key=lambda d: d.match_key)
     return AggregateResult(players=ordered, demos=demo_rows)

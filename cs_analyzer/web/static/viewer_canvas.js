@@ -1,8 +1,9 @@
 // Real-time 2D map replay viewer (Phase C M3): layered canvases, rAF loop,
 // tick-domain timeline. Data: /api/demo/{hash}/viewer-data (8 Hz snapshots).
 (function () {
-  // tolerate both /demo/{h}/viewer (legacy) and /match/{h}/viewer (Phase H)
-  const m = location.pathname.match(/\/(?:demo|match)\/([^/]+)\/viewer/);
+  // tolerate all four route shapes: /demo|match/{h}/viewer (replay) and
+  // /demo|match/{h}/overlap (legacy bookmark → replay in overlap sub-mode)
+  const m = location.pathname.match(/\/(?:demo|match)\/([^/]+)\/(?:viewer|overlap)/);
   if (!m) return;
   const HASH = m[1];
 
@@ -29,7 +30,7 @@
   let D = null;            // viewer-data payload
   let mapImg = null;       // Image
   let totalTicks = 1;      // timeline span
-  const TOGGLE_DEFAULTS = { trails: true, kills: true, nades: true, shots: false, blinds: true, bombs: true, control: false, ctrl3d: false };
+  const TOGGLE_DEFAULTS = { trails: true, kills: true, nades: true, shots: false, blinds: true, bombs: true, control: false, ctrl3d: false, buys: true };
   const state = {
     playing: false,
     tick: 0,
@@ -39,6 +40,9 @@
     toggles: Object.assign({}, TOGGLE_DEFAULTS),  // overlay switches (persisted)
     lastLinkedRound: null, // last round written to the deep-link URL
     focusSid: null,        // clicked player (highlight; others dimmed)
+    overlap: false,        // Phase J: overlap sub-mode (rounds superimposed)
+    ovPhase: 0.15,         // round-relative phase 0..1 in overlap mode
+    ovHalf: 1,             // 1 = first half, 2 = second half
   };
   try { // restore persisted overlay toggles
     const saved = JSON.parse(localStorage.getItem('csa-viewer-toggles') || '{}');
@@ -79,8 +83,15 @@
   }
 
   function segOfTick(tick) {
-    for (const s of D.segments) if (tick >= s.start_tick && tick <= s.end_tick) return s;
-    return null;
+    // Phase J: tail-gap ticks (a few ticks past a round's end, before the
+    // next freeze-end) fall back to the PREVIOUS segment — playback never
+    // flashes "回合 -" while crossing the seam, and bomb state stays put.
+    let last = null;
+    for (const s of D.segments) {
+      if (tick >= s.start_tick && tick <= s.end_tick) return s;
+      if (tick >= s.end_tick) last = s;
+    }
+    return last;
   }
 
   function playerStateAt(p, tick) {
@@ -175,18 +186,49 @@
     const ctx = setupCanvas($('fx-layer'), w, h);
     ctx.clearRect(0, 0, w, h);
     if (!D || !window.ViewerOverlays) return;
-    // map-control layer first (territory wash under all event overlays)
-    if (window.ViewerControl && (state.toggles.control || state.toggles.ctrl3d)) {
+    // map-control layer first (territory wash under all event overlays) —
+    // meaningless against a cross-round synthetic stream, so overlap skips it
+    if (window.ViewerControl && (state.toggles.control || state.toggles.ctrl3d)
+        && !state.overlap) {
       drawControlLayer(ctx, tick, w, h);
     }
     // 2D event overlays are skipped in 3D mode (perspective makes them wrong)
     if (state.toggles.ctrl3d) return;
+    // overlap sub-mode: events from every round of the half, shifted to the
+    // shared phase timeline (same semantics as the standalone overlap page)
+    let events = D.events || {};
+    let fxTick = tick;
+    let seg = segOfTick(tick);
+    if (state.overlap) {
+      const segs = ovHalfRounds(state.ovHalf);
+      const span = segs.length ? Math.max(segs[0].end_tick - segs[0].start_tick - 2, 1) : 1;
+      fxTick = state.ovPhase * span;
+      seg = null; // cross-round synthetic stream — bomb clamping not applicable
+      const rel = (arr) => {
+        const out = [];
+        for (const s of segs) {
+          for (const e of (arr || [])) {
+            if (e.tick < s.start_tick || e.tick > s.end_tick) continue;
+            out.push({ ...e, tick: e.tick - s.start_tick });
+          }
+        }
+        out.sort((a, b) => a.tick - b.tick);
+        return out;
+      };
+      events = {
+        utilities: rel(events.utilities),
+        kills: rel(events.kills),
+        bombs: rel(events.bombs),
+        blinds: rel(events.blinds),
+      };
+    }
     // advanced overlays (ported effect templates) live in viewer_overlays.js
     ViewerOverlays.draw({
       ctx,
-      tick,
+      tick: fxTick,
       TICK: D.tick_rate,
-      events: D.events || {},
+      seg,
+      events,
       layers: layersData || {},
       toggles: state.toggles,
       toScreen,
@@ -312,11 +354,125 @@
     if (window.ViewerOverlays) ViewerOverlays.skull(ctx, x, y);
   }
 
+  // ---- overlap sub-mode (Phase J): all rounds of one half superimposed at
+  // the same round-relative phase. Semantics ported from viewer_overlap.js —
+  // live-side coloring, ghost dimming, focus tracking. ----
+  const OV_T_PALETTE = ['#ffd54f', '#ffb02e', '#ff8f00', '#ff7043', '#f4511e'];
+  const OV_CT_PALETTE = ['#81d4fa', '#3d9bff', '#00bcd4', '#0288d1', '#1565c0'];
+  function ovHalfRounds(half) {
+    const cut = Math.ceil(D.segments.length / 2);
+    return D.segments.filter((s) => (half === 1 ? s.round <= cut : s.round > cut));
+  }
+  function drawOverlapLayer() {
+    const wrap = document.querySelector('.ob-map-wrap');
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    const ctx = setupCanvas($('main-layer'), w, h); // setupCanvas clears
+    if (!D) return;
+    const ms = markerScale();
+    const windowT = 6 * D.tick_rate;
+    const segs = ovHalfRounds(state.ovHalf);
+    const span = segs.length ? Math.max(segs[0].end_tick - segs[0].start_tick - 2, 1) : 1;
+    const phaseTick = state.ovPhase * span;
+    const SIDE_NAME = ['T', 'CT', ''];
+    const ghostA = window.ViewerPrefs ? ViewerPrefs.get('overlap.ghost_alpha') : 0.14;
+    const breakDist = window.ViewerPrefs ? ViewerPrefs.get('overlap.break_dist') : 300;
+
+    for (const seg of segs) {
+      for (const p of players) {
+        const isFocus = state.focusSid === p.steamid;
+        // ghost dimming: focused player full, everyone else at ghost alpha
+        const alpha = state.focusSid ? (isFocus ? 1 : ghostA) : 0.9;
+        const tick = seg.start_tick + phaseTick;
+        const st = playerStateAt(p, tick);
+        if (!st.alive) continue;
+        const liveSide = SIDE_NAME[p.rows.side[st.i]] || 'CT';
+        const color = liveSide === 'T'
+          ? OV_T_PALETTE[parseInt(p.num, 10) % OV_T_PALETTE.length]
+          : OV_CT_PALETTE[parseInt(p.num, 10) % OV_CT_PALETTE.length];
+        if (alpha < 0.03) continue;
+        // trail (round-relative window) — 轨迹 chip gates it like in replay
+        const rows = p.rows;
+        if (state.toggles.trails !== false) {
+          const winSec = isFocus
+            ? (window.ViewerPrefs ? ViewerPrefs.get('trail.focus_window_s') : 10)
+            : (window.ViewerPrefs ? ViewerPrefs.get('trail.window_s') : 6);
+          const win = winSec * D.tick_rate;
+          ctx.lineWidth = (window.ViewerPrefs ? ViewerPrefs.get('trail.width') : 2)
+            * (isFocus ? 1.6 : 1) * ms;
+          let i0 = st.i;
+          while (i0 > 0 && rows.t[st.i] - rows.t[i0] < win) i0--;
+          let prev = null;
+          for (let i = i0; i <= st.i && i < rows.t.length; i++) {
+            if (!rows.alive[i]) break;
+            const [sx, sy] = toScreen(rows.x[i], rows.y[i]);
+            if (prev && Math.hypot(sx - prev.sx, sy - prev.sy) * (1 / drawMapLayer.geom.scale) < breakDist) {
+              const f = (i - i0) / Math.max(st.i - i0, 1);
+              ctx.strokeStyle = hexA(color, alpha * (0.12 + 0.85 * f));
+              ctx.beginPath(); ctx.moveTo(prev.sx, prev.sy); ctx.lineTo(sx, sy); ctx.stroke();
+            }
+            prev = { sx, sy };
+          }
+        }
+        const [sx, sy] = toScreen(st.x, st.y);
+        ctx.beginPath(); ctx.arc(sx, sy, 11 * ms, 0, Math.PI * 2);
+        ctx.fillStyle = hexA(color, alpha); ctx.fill();
+        ctx.lineWidth = 2 * ms; ctx.strokeStyle = '#000'; ctx.stroke();
+        ctx.font = labelFont(ms);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3 * ms; ctx.strokeStyle = 'rgba(0,0,0,.95)';
+        ctx.strokeText(p.num, sx, sy);
+        ctx.fillStyle = alpha > 0.5 ? '#ffffff' : '#08080f';
+        ctx.fillText(p.num, sx, sy);
+        if (isFocus) {
+          ctx.beginPath(); ctx.arc(sx, sy, 18 * ms, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 2.4 * ms; ctx.stroke();
+        }
+      }
+    }
+  }
+  function setOverlapMode(on) {
+    state.overlap = on && D && D.segments.length > 0;
+    state.playing = false;
+    $('btn-play').textContent = '播放';
+    const bar = document.getElementById('ov-phase-bar');
+    const tl = document.getElementById('tl-wrap');
+    if (bar) bar.hidden = !state.overlap;
+    if (tl) tl.hidden = state.overlap;
+    // replay-only HUD bits hide in overlap mode
+    for (const id of ['bomb-timer', 'buy-strip', 'round-timer']) {
+      const el = document.getElementById(id);
+      if (el) el.hidden = state.overlap;
+    }
+    const chip = toolbarChips.overlap;
+    if (chip) chip.classList.toggle('on', state.overlap);
+    // deep link: ?mode=overlap is the truth
+    try {
+      const url = new URL(location.href);
+      if (state.overlap) url.searchParams.set('mode', 'overlap');
+      else url.searchParams.delete('mode');
+      history.replaceState(null, '', url);
+    } catch (e) { /* sandboxed */ }
+    drawMapLayer();
+  }
+  /** Reflect state.ovPhase onto the slider + phase clock readout. */
+  function syncOvPhaseUI() {
+    const slider = document.getElementById('ov-phase');
+    if (slider) slider.value = String(Math.round(state.ovPhase * 1150));
+    const segs = ovHalfRounds(state.ovHalf);
+    const span = segs.length ? Math.max(segs[0].end_tick - segs[0].start_tick - 2, 1) : 1;
+    const val = document.getElementById('ov-phase-val');
+    if (val && D) {
+      const sec = Math.max(0, Math.round(state.ovPhase * span / D.tick_rate));
+      val.textContent = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+    }
+  }
+
   function drawMainLayer(tick) {
     const wrap = document.querySelector('.ob-map-wrap');
     const w = wrap.clientWidth, h = wrap.clientHeight;
     const ctx = setupCanvas($('main-layer'), w, h); // setupCanvas clears
     if (!D) return;
+    if (state.overlap) { drawOverlapLayer(); return; }  // overlap sub-mode
     if (state.toggles.ctrl3d) return; // players render inside the 3D layer
     const windowT = 1.2 * D.tick_rate;
     // zoom-aware marker scale: readable when magnified, unchanged at fit (z=1)
@@ -525,7 +681,18 @@
     try {
       const dt = Math.min((ts - state.lastTs) / 1000, 0.1);
       state.lastTs = ts;
-      if (state.playing && ts >= state.holdUntil) {
+      if (state.overlap) {
+        // overlap sub-mode: 播放 sweeps the shared phase (20s full sweep)
+        if (state.playing) {
+          state.ovPhase += dt / 20;
+          if (state.ovPhase >= 1) {
+            state.ovPhase = 1;
+            state.playing = false;
+            $('btn-play').textContent = '播放';
+          }
+          syncOvPhaseUI();
+        }
+      } else if (state.playing && ts >= state.holdUntil) {
         state.tick += dt * state.speed * D.tick_rate;
         const seg = segOfTick(state.tick);
         if (seg && state.tick > seg.end_tick - 2 && !seg._held) {
@@ -544,6 +711,7 @@
       drawMainLayer(state.tick);
       drawFxLayer(state.tick);
       drawTimeline();
+      updateCamFollow();
       updateHudTexts();
       syncDeepLink();
       schedulePanelFlush(ts);
@@ -554,6 +722,7 @@
 
   /** Keep ?round=N&t=S and the round selector in step with playback. */
   function syncDeepLink() {
+    if (state.overlap) return;  // setOverlapMode owns the URL (mode=overlap)
     const seg = segOfTick(state.tick);
     if (!seg || seg.round === state.lastLinkedRound) return;
     state.lastLinkedRound = seg.round;
@@ -566,7 +735,22 @@
   }
 
   function updateHudTexts() {
+    // overlap sub-mode: replay HUD is meaningless — show the mode banner
+    // instead and keep bomb/buy strips hidden
+    if (state.overlap) {
+      $('round-label').textContent = state.ovHalf === 1 ? '上半场 · 重叠' : '下半场 · 重叠';
+      $('round-timer').hidden = true;
+      $('bomb-timer').hidden = true;
+      const bs = document.getElementById('buy-strip');
+      if (bs) bs.hidden = true;
+      const kf = document.getElementById('kill-feed');
+      if (kf) kf.hidden = true;
+      return;
+    }
+    const kf2 = document.getElementById('kill-feed');
+    if (kf2) kf2.hidden = false;
     const seg = segOfTick(state.tick);
+    updateBuyStrip(seg);
     const rl = $('round-label'), timer = $('round-timer'), cur = $('cur-tick');
     cur.textContent = 'tick ' + Math.round(state.tick);
     if (!seg) { rl.textContent = '回合 -'; timer.textContent = '-'; setScores(null); setBombTimer(null); return; }
@@ -580,16 +764,23 @@
     setBombTimer(seg);
   }
 
-  /** Bomb countdown beside the round clock once the bomb is down (40s fuse). */
+  /** Bomb countdown beside the round clock once the bomb is down (40s fuse).
+   * Phase J: plant AND its clearing end-event must both live inside the
+   * current segment — tail-gap plants (a few ticks past round_end) used to
+   * light the PREVIOUS round's timer, and cross-round end events from later
+   * rounds never cleared the fuse. */
   function setBombTimer(seg) {
     const el = document.getElementById('bomb-timer');
     if (!el) return;
     let planted = null;
     if (seg) {
       for (const b of (D.events.bombs || [])) {
+        if (b.tick > Math.min(state.tick, seg.end_tick)) break;  // sorted: nothing later can matter
         if (b.type === 'plant' && b.tick >= seg.start_tick && b.tick <= state.tick) planted = b;
-        if (planted && (b.type === 'defuse' || b.type === 'explode') &&
-            b.tick > planted.tick && b.tick <= state.tick) { planted = null; break; }
+        else if (planted && (b.type === 'defuse' || b.type === 'explode') &&
+            b.tick > planted.tick && b.tick <= state.tick && b.tick <= seg.end_tick) {
+          planted = null;  // cleared within the same round
+        }
       }
     }
     if (!planted) { el.hidden = true; return; }
@@ -610,6 +801,52 @@
     strip.textContent = (seg.winner_side === 'T' ? 'T' : 'CT') + ' 获胜';
     strip.className = 'round-strip show ' + (seg.winner_side === 'T' ? 'strip-t' : 'strip-ct');
     setTimeout(() => { strip.hidden = true; strip.classList.remove('show'); }, 2200);
+  }
+
+  // ---- P6: per-round buy strip from the (previously unread) economy layer ----
+  let lastBuyKey = '';
+  function updateBuyStrip(seg) {
+    const el = document.getElementById('buy-strip');
+    if (!el) return;
+    if (!state.toggles.buys || !layersData || !layersData.economy || !seg) {
+      el.hidden = true; return;
+    }
+    // show only during the first 20 game-seconds of the round
+    const tInRound = state.tick - seg.start_tick;
+    if (tInRound > 20 * D.tick_rate) { el.hidden = true; return; }
+    const key = seg.round;
+    if (key !== lastBuyKey) {
+      lastBuyKey = key;
+      renderBuyStrip(el, seg.round);
+    }
+    el.hidden = false;
+  }
+  function renderBuyStrip(el, round) {
+    const econ = layersData && layersData.economy && layersData.economy.rounds;
+    const table = layersData && layersData.weapon_table;
+    const roundData = econ && econ[String(round)];
+    if (!roundData || !table) { el.innerHTML = ''; return; }
+    const sideOf = {};
+    for (const p of players) sideOf[p.steamid] = p.sideFirst;
+    for (const p of players) {
+      if (p.sideFirst === 'T') sideOf[p.steamid] = 'T';
+      else if (p.sideFirst === 'CT') sideOf[p.steamid] = 'CT';
+    }
+    const mkSide = (sideName) => {
+      const items = [];
+      for (const [sid, load] of Object.entries(roundData)) {
+        if (sideOf[sid] !== sideName) continue;
+        const icons = (load.weapons || []).slice(0, 4).map((idx) => {
+          const name = table[idx];
+          const url = window.WeaponMeta ? WeaponMeta.iconUrl(name) : '';
+          return url ? `<img class="bs-ico" src="${url}" title="${name}" draggable="false">` : '';
+        }).join('');
+        items.push(`<span class="bs-item" title="${sid}">${icons}` +
+          `<i class="bs-spend">$${load.spend}</i></span>`);
+      }
+      return `<div class="bs-side bs-${sideName.toLowerCase()}"><b>${sideName}</b>${items.join('')}</div>`;
+    };
+    el.innerHTML = mkSide('T') + mkSide('CT');
   }
 
   // ---- spectator panels (DOM, throttled) ----
@@ -638,9 +875,15 @@
       txt.textContent = p.name;
       nameEl.replaceChildren(num, txt);
       // click to focus/highlight this player (works in live + overlap modes)
-      li.title = '点击高亮该选手，再点取消';
+      // Phase J: focusing also glides the camera onto the player (2.5×) —
+      // "聚焦" should move the view, not just recolor markers.
+      // Bound on POINTERDOWN, not click: flushPanels' dead-last reordering
+      // re-parents rows between mousedown and mouseup, and a repressed
+      // target swallows the browser's click event (real-user bug report).
+      li.title = '点击聚焦该选手（镜头跟随），再点取消';
       li.classList.add('ob-row--clickable');
-      li.addEventListener('click', () => {
+      li.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         state.focusSid = state.focusSid === p.steamid ? null : p.steamid;
         syncPanelFocus();
       });
@@ -683,6 +926,43 @@
     for (const [sid, li] of Object.entries(panelRows)) {
       li.classList.toggle('is-focus', state.focusSid === sid);
     }
+    if (state.overlap) return;  // overlap highlights markers only — no cam follow
+    // camera follow: glide onto the focused player at 2.5×; unfocus returns
+    // to the fit view. Manual pan/zoom cancels the glide, not the focus.
+    if (state.focusSid) {
+      const p = players.find((q) => q.steamid === state.focusSid);
+      if (p) {
+        const st = playerStateAt(p, state.tick);
+        camFollow.target = worldToMapPx(st.x, st.y);
+        camFollow.zoom = 2.5;
+        camFollow.active = true;
+      }
+    } else {
+      camFollow.active = false;
+      ViewerCam.reset(cam);
+      drawMapLayer();
+    }
+  }
+  // per-frame camera glide state (lerp toward the focused player)
+  const camFollow = { active: false, target: null, zoom: 1 };
+  function worldToMapPx(wx, wy) {
+    const b = D.map.bounds;
+    return {
+      x: ((wx - b.min_x) / (b.max_x - b.min_x)) * D.map.width,
+      y: (1 - (wy - b.min_y) / (b.max_y - b.min_y)) * D.map.height,
+    };
+  }
+  function updateCamFollow() {
+    if (!camFollow.active || !camFollow.target || !D) return;
+    const p = players.find((q) => q.steamid === state.focusSid);
+    if (!p) { camFollow.active = false; return; }
+    const st = playerStateAt(p, state.tick);
+    camFollow.target = worldToMapPx(st.x, st.y);  // track while they move
+    ViewerCam.resolve(cam, D.map.width, D.map.height);
+    const k = 0.12;  // glide factor per frame
+    cam.cx += (camFollow.target.x - cam.cx) * k;
+    cam.cy += (camFollow.target.y - cam.cy) * k;
+    cam.zoom += (camFollow.zoom - cam.zoom) * k;
   }
 
   function schedulePanelFlush(ts) {
@@ -888,6 +1168,19 @@
                                 seg.end_tick);
         }
       }
+      // deep link / legacy: ?mode=overlap or the standalone /overlap page
+      // path both land in overlap sub-mode (overlap is a child of replay)
+      if (q.get('mode') === 'overlap' || /\/overlap\/?$/.test(location.pathname)) {
+        setOverlapMode(true);
+        const qh = Number(q.get('half'));
+        if (qh === 1 || qh === 2) state.ovHalf = qh;
+        const qp = Number(q.get('phase'));
+        if (qp > 0 && qp <= 1) {
+          state.ovPhase = qp;
+          const slider = document.getElementById('ov-phase');
+          if (slider) slider.value = String(Math.round(qp * 1150));
+        }
+      }
 
       mapImg = new Image();
       mapImg.onload = () => { drawMapLayer(); };
@@ -947,6 +1240,7 @@
         ViewerControl.dolly(Math.exp(e.deltaY * 0.0012)); // wheel = dolly in 3D
         return;
       }
+      camFollow.active = false;  // manual zoom takes over
       if (!drawMapLayer.geom) return;
       const rect = wrap.getBoundingClientRect();
       const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -970,6 +1264,7 @@
       if (!pan.moved) {
         if (Math.hypot(dx, dy) < 4) return; // click vs drag threshold
         pan.moved = true;
+        camFollow.active = false;  // manual pan takes over
         try { wrap.setPointerCapture(pan.id); } catch (err) { /* pointer gone */ }
       }
       pan.x = e.clientX; pan.y = e.clientY;
@@ -1000,6 +1295,23 @@
     };
     wrap.addEventListener('dblclick', resetCam);
     document.getElementById('btn-cam-reset')?.addEventListener('click', resetCam);
+
+    // ---- overlap sub-mode: phase slider + half toggles (Phase J) ----
+    const ovPhase = document.getElementById('ov-phase');
+    if (ovPhase) {
+      ovPhase.addEventListener('input', (e) => {
+        state.ovPhase = Number(e.target.value) / 1150;
+        syncOvPhaseUI();
+      });
+    }
+    for (const [id, half] of [['ov-half-1', 1], ['ov-half-2', 2]]) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', () => {
+        state.ovHalf = half;
+        document.getElementById('ov-half-1')?.classList.toggle('on', half === 1);
+        document.getElementById('ov-half-2')?.classList.toggle('on', half === 2);
+      });
+    }
 
     // ---- timeline scrub + hover tooltip ----
     const tl = $('tl-canvas');
@@ -1050,7 +1362,8 @@
     const labels = [
       ['trails', '轨迹'], ['kills', '击杀线'], ['nades', '道具'],
       ['shots', '枪线'], ['blinds', '闪光'], ['bombs', '炸弹'],
-      ['control', '控图'], ['ctrl3d', '3D'],
+      ['control', '控图'], ['ctrl3d', '3D'], ['buys', '买装'],
+      ['overlap', '重叠'],
     ];
     // keep the static ⚙ prefs button (lives in the same bar)
     const prefsBtn = document.getElementById('prefs-btn');
@@ -1063,6 +1376,8 @@
       chip.className = 'chip' + (state.toggles[key] ? ' on' : '');
       chip.textContent = label;
       chip.addEventListener('click', () => {
+        // overlap is a sub-MODE, not an overlay toggle
+        if (key === 'overlap') { setOverlapMode(!state.overlap); return; }
         state.toggles[key] = !state.toggles[key];
         // 3D and flat tint are mutually exclusive modes of one layer
         if (key === 'control' && state.toggles.control) state.toggles.ctrl3d = false;
@@ -1081,12 +1396,17 @@
       toolbarChips[key] = chip;
       bar.appendChild(chip);
     }
+    // initial chip states must reflect mode/toggles set before this ran
+    // (deep-link overlap entry calls setOverlapMode pre-buildToolbar)
+    syncToolbarChips();
   }
 
   function syncToolbarChips() {
     for (const [key, chip] of Object.entries(toolbarChips)) {
-      chip.classList.toggle('on', !!state.toggles[key]);
-      // 3D chip only meaningful when the control layer is on
+      // overlap chip reflects the mode, not state.toggles; 3D chip only
+      // meaningful when the control layer is on
+      if (key === 'overlap') chip.classList.toggle('on', !!state.overlap);
+      else chip.classList.toggle('on', !!state.toggles[key]);
       if (key === 'ctrl3d') chip.disabled = !state.toggles.control;
     }
   }

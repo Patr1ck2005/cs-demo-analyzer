@@ -18,7 +18,7 @@ from cs_analyzer.web.weapons import (
 )
 
 pytest.importorskip("fastapi.testclient")
-from .test_web import web_client  # noqa: E402,F401 (shared fixture)
+# web_client fixture now lives in conftest.py (shared across modules)
 
 
 def test_canonical_aliases_cover_all_naming_schemes() -> None:

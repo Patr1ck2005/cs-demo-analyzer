@@ -21,6 +21,12 @@ import cs_analyzer.analysis.economy  # noqa: F401
 import cs_analyzer.analysis.utility_effect  # noqa: F401
 import cs_analyzer.analysis.routes  # noqa: F401
 import cs_analyzer.analysis.highlights  # noqa: F401
+# Phase I deepening modules (lazy-fetched per page via _analyze_module)
+import cs_analyzer.analysis.kill_context  # noqa: F401
+import cs_analyzer.analysis.hitgroups  # noqa: F401
+import cs_analyzer.analysis.aim  # noqa: F401
+import cs_analyzer.analysis.postplant  # noqa: F401
+import cs_analyzer.analysis.weapon_splits  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

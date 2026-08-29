@@ -2,7 +2,7 @@
 {% block title %}2D 回放 · {{ demo.map_name }}{% endblock %}
 {% block body_class %}wide{% endblock %}
 {% block content %}
-<div class="sub"><a href="/demo/{{ demo.hash }}">← 返回 demo</a> · <a href="/demo/{{ demo.hash }}/overlap">回合重叠分析</a><span id="load-status"> · 加载回放数据…</span></div>
+<div class="sub"><a href="/match/{{ demo.hash }}">← 返回对局</a><span id="load-status"> · 加载回放数据…</span></div>
 
 <div class="ob-layout" id="ob-root" hidden>
   <aside class="ob-team ob-team--t">
@@ -22,11 +22,20 @@
       <canvas id="fx-layer"></canvas>
       <canvas id="main-layer"></canvas>
       <ul class="kill-feed" id="kill-feed"></ul>
+      <div class="buy-strip" id="buy-strip" hidden></div>
+      <!-- overlap mode: half toggles + phase slider (hidden in replay mode) -->
+      <div class="ov-phase-bar" id="ov-phase-bar" hidden>
+        <button class="chip on" id="ov-half-1" type="button">上半场</button>
+        <button class="chip" id="ov-half-2" type="button">下半场</button>
+        <span class="ovp-label">相位</span>
+        <input type="range" id="ov-phase" min="0" max="1150" value="150">
+        <span class="ovp-phase-val" id="ov-phase-val">0:15</span>
+      </div>
       <div class="ob-toolbar" id="ob-toolbar">
         <button class="chip" id="prefs-btn" type="button" title="视觉参数调节面板">⚙ 调节</button>
       </div>
     </div>
-    <div class="tl-wrap">
+    <div class="tl-wrap" id="tl-wrap">
       <canvas id="tl-canvas"></canvas>
       <div class="tl-tip" id="tl-tip"></div>
     </div>

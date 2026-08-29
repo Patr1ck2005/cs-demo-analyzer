@@ -115,18 +115,28 @@
     return mount(dom, mapChartOption(kind, payload));
   }
 
-  /** Mount the opening-routes chart with the radar PNG background. */
-  function mountRoutesChart(el, payload) {
+  /** Mount the opening-routes chart with the radar PNG background.
+   * side: 'T' | 'CT' (P3) — reads payload.sides[side], falling back to the
+   * legacy top-level keys when `sides` is absent. */
+  function mountRoutesChart(el, payload, side) {
     const dom = typeof el === 'string' ? document.getElementById(el) : el;
     if (!dom) return null;
     if (payload.map_image) dom.style.backgroundImage = `url("${payload.map_image}")`;
-    const chart = mount(dom, routesOption(payload));
+    const pack = (side && payload.sides && payload.sides[side])
+      || { routes: payload.routes, k: payload.k };
+    // drop a stale legend from a previous mount
+    if (dom.parentElement) {
+      const old = dom.parentElement.querySelector('.routes-legend');
+      if (old) old.remove();
+    }
+    const chart = mount(dom, routesOption({ routes: pack.routes || [] }));
     // HTML legend below the square (kept outside so the grid == image box)
     const palette = ['#ffb02e', '#3d9bff', '#3ddc97', '#ff4d5e'];
-    if (dom.parentElement) {
+    const routes = pack.routes || [];
+    if (dom.parentElement && routes.length) {
       const legend = document.createElement('div');
       legend.className = 'routes-legend';
-      legend.innerHTML = payload.routes.map((r, i) =>
+      legend.innerHTML = routes.map((r, i) =>
         `<span><i style="background:${palette[i % palette.length]}"></i>` +
         `路线 ${i + 1} · ${(r.share * 100).toFixed(0)}% · R${r.rounds.join('/R')}</span>`).join('');
       dom.parentElement.appendChild(legend);
@@ -236,30 +246,80 @@
     };
   }
 
-  // economy: per-round team spend bars + buy classification
+  // economy: per-round team spend bars colored BY BUY CLASS (P1) — the
+  // payload's buy/win_by_buy/loss_streaks were fetched but never drawn before
   function economyOption(payload) {
     const buyColor = { eco: '#9aa0b8', force: '#ffb02e', full: '#3ddc97' };
-    const mk = (side, color) => ({
-      name: side + ' 消费',
+    const buyZh = { eco: 'eco', force: '强起', full: '长枪' };
+    const mk = (side) => ({
+      name: side === 'T' ? 'T 消费' : 'CT 消费',
       type: 'bar',
-      data: payload.series[side].spend,
-      itemStyle: { color },
+      data: payload.series[side].spend.map((v, i) => {
+        const buy = payload.series[side].buy[i];
+        return { value: v, buy: buy || '' };
+      }),
+      itemStyle: { color: side === 'T' ? '#ffb02e' : '#3d9bff' },
       barMaxWidth: 14,
     });
     return {
       tooltip: {
         trigger: 'axis',
         formatter: (params) => {
-          const r = params[0].axisValue + ' 回合';
-          return r + '<br/>' + params.map((p) =>
-            `${p.seriesName}: $${p.value == null ? '-' : p.value}`).join('<br/>');
+          let out = params[0].axisValue + ' 回合';
+          for (const p of params) {
+            const row = payload.rounds_info && payload.rounds_info[p.dataIndex];
+            const won = row ? (row.winner === p.seriesName.slice(0, 1) ? ' ✓' : '') : '';
+            out += `<br/>${p.seriesName}: $${p.value == null ? '-' : p.value}`;
+            if (p.data.buy) out += ` <span style="color:#636a85">(${buyZh[p.data.buy] || p.data.buy})</span>${won}`;
+          }
+          if (payload.loss_streaks) {
+            out += `<br/><span style="color:#636a85">最长连败 T:${payload.loss_streaks.T ?? '-'} · CT:${payload.loss_streaks.CT ?? '-'}</span>`;
+          }
+          return out;
         },
       },
       legend: { bottom: 0, textStyle: { color: TOKENS.muted, fontSize: 11 } },
       grid: { left: 8, right: 16, top: 20, bottom: 46, containLabel: true },
-      xAxis: { type: 'category', data: payload.rounds.map((r) => 'R' + r) },
+      xAxis: { type: 'category', data: payload.rounds.map((r) => 'R' + r),
+               axisLabel: { color: (i) => undefined } },
       yAxis: { type: 'value', name: '队伍消费 $' },
-      series: [mk('T', '#ffb02e'), mk('CT', '#3d9bff')],
+      series: [mk('T'), mk('CT')],
+    };
+  }
+
+  // P1: win rate per buy class, grouped bars per side
+  function economyWinByBuyOption(payload) {
+    const classes = ['eco', 'force', 'full'];
+    const zh = { eco: 'eco', force: '强起', full: '长枪' };
+    const sides = ['T', 'CT'];
+    const series = sides.map((side, si) => ({
+      name: side,
+      type: 'bar',
+      barMaxWidth: 18,
+      data: classes.map((c) => {
+        const cell = (payload.win_by_buy || {})[side] || {};
+        const d = cell[c];
+        return d && d.n ? {
+          value: Math.round(d.win_rate * 100),
+          n: d.n, wins: d.wins,
+        } : { value: 0, n: 0 };
+      }),
+      itemStyle: { color: si === 0 ? TOKENS.t : TOKENS.ct },
+    }));
+    return {
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params) => {
+          const c = classes[params[0].dataIndex];
+          return `${zh[c]}局<br/>` + params.map((p) =>
+            `${p.seriesName}: <b>${p.value}%</b> (${p.data.wins ?? 0}/${p.data.n})`).join('<br/>');
+        },
+      },
+      legend: { bottom: 0, textStyle: { color: TOKENS.muted, fontSize: 11 } },
+      grid: { left: 8, right: 16, top: 20, bottom: 46, containLabel: true },
+      xAxis: { type: 'category', data: classes.map((c) => zh[c]) },
+      yAxis: { type: 'value', name: '胜率 %', max: 100 },
+      series,
     };
   }
 
@@ -273,7 +333,8 @@
           const p = params[0];
           const row = payload.flashers[p.dataIndex];
           return `${row.name}<br/>致盲敌人 <b>${row.enemy_blind_s}s</b> · 误伤队友 ${row.friendly_blind_s}s` +
-            `<br/>投掷 ${row.throws} 次 · 场均价值 ${row.value_per_throw}s`;
+            `<br/>投掷 ${row.throws} 次 · 场均价值 ${row.value_per_throw}s` +
+            (row.flash_assists ? `<br/>闪光助攻 <b>${row.flash_assists}</b>` : '');
         },
       },
       grid: { left: 8, right: 30, top: 10, bottom: 24, containLabel: true },
@@ -291,12 +352,42 @@
     };
   }
 
+  // P2: smoke denial ranking — computed since Phase F but never rendered
+  function utilitySmokeOption(payload) {
+    const rows = (payload.smoke || []).filter((r) => r.smoke_kills || r.smoke_deaths)
+      .slice(0, 10);
+    if (!rows.length) return null;
+    return {
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params) => {
+          const row = rows[params[0].dataIndex];
+          return `${row.name}<br/>烟中击杀 <b>${row.smoke_kills}</b> · 烟中死亡 ${row.smoke_deaths}`;
+        },
+      },
+      grid: { left: 8, right: 30, top: 10, bottom: 24, containLabel: true },
+      xAxis: { type: 'value', minInterval: 1 },
+      yAxis: { type: 'category', data: rows.map((x) => x.name).reverse(),
+               axisLabel: { fontSize: 10 } },
+      series: [
+        { name: '烟中击杀', type: 'bar',
+          data: rows.map((x) => x.smoke_kills).reverse(),
+          itemStyle: { color: TOKENS.ok }, barMaxWidth: 12,
+          label: { show: true, position: 'right', fontSize: 9, color: TOKENS.muted } },
+        { name: '烟中死亡', type: 'bar',
+          data: rows.map((x) => -x.smoke_deaths).reverse(),
+          itemStyle: { color: TOKENS.err }, barMaxWidth: 12 },
+      ],
+    };
+  }
+
   // opening routes: centroid polylines over the radar background
   // (image-space coords, same inverse-y convention as the heatmap; the grid
   // must coincide with the background image box, so zero padding + HTML legend)
   function routesOption(payload) {
     const palette = ['#ffb02e', '#3d9bff', '#3ddc97', '#ff4d5e'];
-    const series = payload.routes.map((r, i) => ({
+    const routes = payload.routes || [];
+    const series = routes.map((r, i) => ({
       name: `路线 ${i + 1}`,
       type: 'lines',
       coordinateSystem: 'cartesian2d',
@@ -325,7 +416,9 @@
     trendsOption,
     duelsOption,
     economyOption,
+    economyWinByBuyOption,
     utilityFlashOption,
+    utilitySmokeOption,
     routesOption,
     mountRoutesChart,
     TOKENS,

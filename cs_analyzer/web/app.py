@@ -103,8 +103,9 @@ def _analyze_module(demo: ParsedDemo, module_name: str):
 def index(request: Request):
     _stale_cache_sweep()  # no-op after the first call
     demos = store.list_demos(_cache().cache_dir)
-    # "recent" = parsed_at desc (fallback: filename order already applied)
-    recent = sorted(demos, key=lambda d: d.get("parsed_at") or "", reverse=True)[:8]
+    # "recent" = match-id order (B8: WMPVP filenames are chronological; the
+    # old parsed_at sort was wall-clock parse time, i.e. upload order)
+    recent = sorted(demos, key=store.match_key, reverse=True)[:8]
     from cs_analyzer.web.aggregation import aggregated
 
     agg = aggregated()
@@ -203,6 +204,7 @@ def players_page(request: Request):
 @app.get("/player/{steamid}", response_class=HTMLResponse)
 def player_career(request: Request, steamid: str):
     from cs_analyzer.web.aggregation import aggregated
+    from cs_analyzer.web.chart_data import RADAR_AXES
 
     result = aggregated()
     row = next((p for p in result.players if p.steamid == steamid), None)
@@ -210,7 +212,12 @@ def player_career(request: Request, steamid: str):
         return TEMPLATES.TemplateResponse(
             request, "error.html", {"message": f"未找到选手 {steamid}"}
         )
-    return TEMPLATES.TemplateResponse(request, "player_career.html", {"p": row})
+    # B4: career radar must normalize with the same server-side ranges as the
+    # per-demo radar (the old hardcoded template ranges were wrong).
+    return TEMPLATES.TemplateResponse(
+        request, "player_career.html",
+        {"p": row, "radar_axes": RADAR_AXES},
+    )
 
 
 @app.get("/highlights", response_class=HTMLResponse)
@@ -385,24 +392,13 @@ def match_viewer(request: Request, demo_hash: str):
 
 @app.get("/match/{demo_hash}/overlap", response_class=HTMLResponse)
 def match_overlap(request: Request, demo_hash: str):
-    """Round-overlap analysis page (回合重叠): dedicated layout."""
-    demo = _load(demo_hash)
-    if demo is None:
-        return TEMPLATES.TemplateResponse(
-            request, "error.html",
-            {"message": f"未找到 demo {demo_hash[:12]}（缓存可能正在后台重解析，请稍后刷新重试）"},
-        )
-    meta = demo.metadata
-    return TEMPLATES.TemplateResponse(
-        request, "overlap_viewer.html",
-        {
-            "demo": {
-                "hash": meta.demo_hash,
-                "filename": Path(meta.demo_path).name,
-                "map_name": meta.map_name,
-            },
-        },
-    )
+    """Round-overlap (回合重叠) is a sub-mode of the replay viewer (Phase J).
+
+    The standalone page is retired: this route now serves the replay viewer,
+    whose JS auto-enters overlap mode for the /overlap path. Old bookmarks
+    and deep links keep working with identical semantics.
+    """
+    return match_viewer(request, demo_hash)
 
 
 # ---- chart data (ECharts payloads; rendering happens in the browser) ----
@@ -505,6 +501,64 @@ def routes_charts(demo_hash: str):
     payload["map_image"] = f"/maps/{demo.metadata.map_name}.png"
     payload["has_map_image"] = map_res.image_path is not None
     return JSONResponse(payload)
+
+
+# ---- Phase I: deepening-module endpoints ----
+
+
+@app.get("/api/demo/{demo_hash}/analysis/kill_context.json")
+def kill_context_charts(demo_hash: str):
+    """Kill-context badges + MVP/pickups + weapon mix (击杀情境)."""
+    from cs_analyzer.web.chart_data import kill_context_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    return JSONResponse(kill_context_payload(_analyze_module(demo, "kill_context")))
+
+
+@app.get("/api/demo/{demo_hash}/analysis/hitgroups.json")
+def hitgroups_charts(demo_hash: str):
+    """Hitgroup damage distribution + armor efficiency (部位伤害)."""
+    from cs_analyzer.web.chart_data import hitgroups_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    return JSONResponse(hitgroups_payload(_analyze_module(demo, "hitgroups")))
+
+
+@app.get("/api/demo/{demo_hash}/analysis/aim.json")
+def aim_charts(demo_hash: str):
+    """Fire->kill conversion + movement-state fire shares (枪法纪律)."""
+    from cs_analyzer.web.chart_data import aim_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    return JSONResponse(aim_payload(_analyze_module(demo, "aim")))
+
+
+@app.get("/api/demo/{demo_hash}/analysis/postplant.json")
+def postplant_charts(demo_hash: str):
+    """Post-plant hold/retake/defuse analytics (下包后分析)."""
+    from cs_analyzer.web.chart_data import postplant_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    return JSONResponse(postplant_payload(_analyze_module(demo, "postplant")))
+
+
+@app.get("/api/demo/{demo_hash}/analysis/weapons.json")
+def weapons_splits_charts(demo_hash: str):
+    """Per-player kill/death splits by weapon category (武器拆分)."""
+    from cs_analyzer.web.chart_data import weapon_splits_payload
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    return JSONResponse(weapon_splits_payload(_analyze_module(demo, "weapon_splits")))
 
 
 # ---- Phase H: highlights / compare / system payloads ----
@@ -880,8 +934,24 @@ def _kill_feed(demo: ParsedDemo) -> list[dict]:
     df = demo.events.get("player_death")
     if df is None or df.empty:
         return []
+    # P5: kill-context badges straight off the player_death flag columns
+    _BADGES = (
+        ("penetrated", "穿", "穿墙击杀"),
+        ("thrusmoke", "烟", "烟雾中击杀"),
+        ("noscope", "盲", "未开镜击杀"),
+        ("attackerinair", "空", "空中击杀"),
+        ("headshot", "HS", "爆头"),
+    )
     rows = []
     for _, r in df.iterrows():
+        badges = []
+        for col, label, title in _BADGES:
+            try:
+                hit = bool(r.get(col, False))
+            except (TypeError, ValueError):
+                hit = False
+            if hit:
+                badges.append({"code": col, "label": label, "title": title})
         rows.append(
             {
                 "tick": int(r.get("tick", 0)),
@@ -889,6 +959,7 @@ def _kill_feed(demo: ParsedDemo) -> list[dict]:
                 "attacker": r.get("attacker_name", ""),
                 "victim": r.get("user_name", ""),
                 "weapon": r.get("weapon", ""),
+                "badges": badges,
             }
         )
     rows.sort(key=lambda x: x["tick"])

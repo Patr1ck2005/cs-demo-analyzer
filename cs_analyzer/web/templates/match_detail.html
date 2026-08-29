@@ -8,7 +8,6 @@
     <div class="page-meta">{{ demo.map_name }} · {{ demo.provider }} · {{ demo.num_rounds }} 回合</div>
   </div>
   <div class="page-actions">
-    <a class="btn" href="/match/{{ demo.hash }}/overlap">回合重叠</a>
     <a class="btn btn-primary" href="/match/{{ demo.hash }}/viewer">▶ 进入实时回放</a>
   </div>
 </div>
@@ -28,6 +27,7 @@
   <button class="tab-btn" data-tab="economy" type="button">经济</button>
   <button class="tab-btn" data-tab="utility" type="button">道具</button>
   <button class="tab-btn" data-tab="routes" type="button">路线</button>
+  <button class="tab-btn" data-tab="tactics" type="button">战术</button>
 </nav>
 
 <!-- ============ tab: overview ============ -->
@@ -64,7 +64,7 @@
   </div>
 
   <div class="section-header"><h2>回合时间线</h2>
-    <div class="section-actions sub" style="margin:0">点击回合 → 回放器定位</div></div>
+    <div class="section-actions sub" style="margin:0">点击回合 → 回放器定位 · <a href="/match/{{ demo.hash }}/viewer?mode=overlap">回合重叠对比 →</a></div></div>
   <div class="pill-row">
     {% for r in rounds %}
       <a class="badge {{ 't' if r.winner_side=='T' else 'ct' }}"
@@ -82,7 +82,8 @@
 
 <!-- ============ tab: kills ============ -->
 <section class="tab-panel" data-panel="kills" hidden>
-  <div class="section-header"><h2>击杀流</h2></div>
+  <div class="section-header"><h2>击杀流</h2>
+    <div class="section-actions sub" style="margin:0">徽章：穿甲 · 穿烟 · 盲狙 · 空中 · 爆头</div></div>
   {% for g in kills %}
   <details class="kill-group" id="kill-r{{ g.round }}">
     <summary>R{{ g.round }} · {{ g.kills|length }} 杀
@@ -92,13 +93,26 @@
       {% for k in g.kills %}
         <div class="kill-line">{{ k.attacker }} 击杀 {{ k.victim }}
           <img class="wpn-ico" src="{{ k.weapon|wicon }}" alt="{{ k.weapon }}" title="{{ k.weapon|wlabel }}" draggable="false">
-          {{ k.weapon|wlabel }}</div>
+          {{ k.weapon|wlabel }}
+          {%- if k.badges %}{% for b in k.badges %}<span class="badge kb-{{ b.code }}" title="{{ b.title }}">{{ b.label }}</span>{% endfor %}{% endif %}
+        </div>
       {% endfor %}
     </div>
   </details>
   {% else %}
   <div class="empty-state"><div class="empty-title">无击杀事件</div></div>
   {% endfor %}
+
+  <div class="grid two-col" style="align-items:stretch">
+    <div class="card" style="padding:8px; margin-bottom:0">
+      <h2 style="border:none">武器分布</h2>
+      <div id="weapon-mix-chart" style="height:300px" class="chart-loading" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/kill_context.json"></div>
+    </div>
+    <div class="card" style="padding:8px; margin-bottom:0">
+      <h2 style="border:none">部位伤害</h2>
+      <div id="hitgroups-chart" style="height:300px" class="chart-loading" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/hitgroups.json"></div>
+    </div>
+  </div>
 
   <div class="section-header"><h2>对枪矩阵</h2>
     <div class="section-actions sub" style="margin:0">行选手 vs 列选手 · 胜率 = 击杀/(击杀+死亡) · 不足 {{ 3 }} 次对枪显示 ·</div></div>
@@ -108,23 +122,62 @@
 <!-- ============ tab: economy ============ -->
 <section class="tab-panel" data-panel="economy" hidden>
   <div class="section-header"><h2>经济分析</h2>
-    <div class="section-actions sub" style="margin:0">每回合队伍消费 · 悬停查看买法分类</div></div>
+    <div class="section-actions sub" style="margin:0">柱色随回合走势 · 悬停查看买法与胜负</div></div>
+  <div id="eco-streaks" class="sub" style="margin:4px 2px"></div>
   <div class="card" style="padding:8px"><div id="economy-chart" style="height:360px" class="chart-loading" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/economy.json"></div></div>
+  <div class="section-header"><h2>各买法胜率</h2>
+    <div class="section-actions sub" style="margin:0">eco &lt;$2000 · 强起 &lt;$3700 · 长枪 ≥$3700（队伍均消）</div></div>
+  <div class="card" style="padding:8px"><div id="winbybuy-chart" style="height:320px" class="chart-loading"></div></div>
 </section>
 
 <!-- ============ tab: utility ============ -->
 <section class="tab-panel" data-panel="utility" hidden>
-  <div class="section-header"><h2>道具效用</h2>
+  <div class="section-header"><h2>闪光价值榜</h2>
     <div class="section-actions sub" style="margin:0">闪光价值 = 致盲敌人秒数 + 0.5×队友秒数</div></div>
   <div class="card" style="padding:8px"><div id="utility-chart" style="height:360px" class="chart-loading" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/utility.json"></div></div>
+  <div class="section-header"><h2>烟中击杀 / 死亡</h2>
+    <div class="section-actions sub" style="margin:0">受害者处于活烟雾内而击杀者在外</div></div>
+  <div class="card" style="padding:8px"><div id="smoke-chart" style="height:320px" class="chart-loading"></div></div>
 </section>
 
 <!-- ============ tab: routes ============ -->
 <section class="tab-panel" data-panel="routes" hidden>
-  <div class="section-header"><h2>开局路线（T 方）</h2>
-    <div class="section-actions sub" style="margin:0">前 25 秒队伍平均轨迹聚类 · 叠加雷达底图</div></div>
+  <div class="section-header"><h2>开局路线</h2>
+    <div class="section-actions sub" style="margin:0">冻结结束后 25 秒队伍平均轨迹聚类 · 叠加雷达底图</div>
+    <div class="section-actions">
+      <button class="btn btn-sm route-side on" data-side="T" type="button">T 方</button>
+      <button class="btn btn-sm btn-ghost route-side" data-side="CT" type="button">CT 方</button>
+    </div>
+  </div>
   <div class="routes-wrap">
     <div class="map-chart" id="routes-chart" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/routes.json"></div>
+  </div>
+  <div class="section-header"><h2>下包后攻防</h2>
+    <div class="section-actions sub" style="margin:0">守包胜率 / 拆弹成功率 / 拆弹用时</div></div>
+  <div id="postplant-cards" class="stat-row" style="margin-bottom:12px">
+    <div class="empty-state" style="grid-column:1/-1"><div class="empty-title">加载中…</div></div>
+  </div>
+</section>
+
+<!-- ============ tab: tactics (Phase I) ============ -->
+<section class="tab-panel" data-panel="tactics" hidden>
+  <div class="section-header"><h2>枪法纪律</h2>
+    <div class="section-actions sub" style="margin:0">开火→击杀转化 · 移动状态开火占比 · 冻结结束首发延迟</div></div>
+  <div class="table-wrap">
+    <table id="aim-table">
+      <thead><tr><th>选手</th><th class="num">出手数</th><th class="num">转化击杀</th><th class="num">转化率</th>
+        <th class="num">走路开火%</th><th class="num">开镜开火%</th><th class="num">蹲下开火%</th><th class="num">首发延迟 s</th></tr></thead>
+      <tbody><tr><td colspan="8" class="sub">加载中…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="section-header"><h2>武器拆分</h2>
+    <div class="section-actions sub" style="margin:0">按武器类别的击杀/死亡分布</div></div>
+  <div class="table-wrap">
+    <table id="weapons-table">
+      <thead><tr><th>选手</th><th class="num">狙击</th><th class="num">步枪</th><th class="num">手枪</th>
+        <th class="num">冲锋枪</th><th class="num">重火力</th><th class="num">刀</th><th class="num">投掷物</th><th>常用武器</th></tr></thead>
+      <tbody><tr><td colspan="9" class="sub">加载中…</td></tr></tbody>
+    </table>
   </div>
 </section>
 {% endblock %}
@@ -139,7 +192,8 @@
   const fetchJson = (url) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
 
   // ---- tab engine: ?tab= is the source of truth; panels lazily fetch ----
-  const TABS = ['overview', 'kills', 'economy', 'utility', 'routes'];
+  const TABS = ['overview', 'kills', 'economy', 'utility', 'routes', 'tactics'];
+  let routesPayload = null;
   const loaders = {
     overview: async () => {
       try {
@@ -152,25 +206,169 @@
     },
     kills: async () => {
       mountPayloadChart('duels-chart', (p) => p.cells.length ? CSACharts.duelsOption(p) : null);
+      mountPayloadChart('weapon-mix-chart', weaponMixOption);
+      mountPayloadChart('hitgroups-chart', hitgroupsOption);
     },
     economy: async () => {
-      mountPayloadChart('economy-chart', (p) => p.rounds.length ? CSACharts.economyOption(p) : null);
+      try {
+        const p = await fetchJson(`/api/demo/${H}/analysis/economy.json`);
+        const el = document.getElementById('economy-chart');
+        el.classList.remove('chart-loading');
+        if (p.rounds && p.rounds.length) CSACharts.mount(el, CSACharts.economyOption(p));
+        if (p.win_by_buy) CSACharts.mount('winbybuy-chart', CSACharts.economyWinByBuyOption(p));
+        hideSkeleton('winbybuy-chart');
+        if (p.loss_streaks) {
+          document.getElementById('eco-streaks').textContent =
+            `最长连败 — T: ${p.loss_streaks.T ?? '-'} · CT: ${p.loss_streaks.CT ?? '-'}`;
+        }
+      } catch (e) { hideSkeleton('economy-chart'); hideSkeleton('winbybuy-chart'); }
     },
     utility: async () => {
-      mountPayloadChart('utility-chart', (p) => p.flashers.length ? CSACharts.utilityFlashOption(p) : null);
+      try {
+        const p = await fetchJson(`/api/demo/${H}/analysis/utility.json`);
+        const el = document.getElementById('utility-chart');
+        el.classList.remove('chart-loading');
+        if (p.flashers && p.flashers.length) CSACharts.mount(el, CSACharts.utilityFlashOption(p));
+        const smokeOpt = CSACharts.utilitySmokeOption(p);
+        const smokeEl = document.getElementById('smoke-chart');
+        smokeEl.classList.remove('chart-loading');
+        if (smokeOpt) CSACharts.mount(smokeEl, smokeOpt);
+        else smokeEl.innerHTML =
+          '<div class="empty-state"><div class="empty-title">本场没有烟中击杀</div></div>';
+      } catch (e) { hideSkeleton('utility-chart'); hideSkeleton('smoke-chart'); }
     },
     routes: async () => {
       try {
-        const p = await fetchJson(`/api/demo/${H}/analysis/routes.json`);
+        routesPayload = await fetchJson(`/api/demo/${H}/analysis/routes.json`);
         const el = document.getElementById('routes-chart');
         el.classList.remove('chart-loading');
-        if (p.routes.length) CSACharts.mountRoutesChart('routes-chart', p);
+        renderRoutes('T');
+        loadPostplant();
       } catch (e) {
         const el = document.getElementById('routes-chart');
         if (el) el.classList.remove('chart-loading');
       }
     },
+    tactics: async () => { loadAim(); loadWeaponSplits(); },
   };
+  function renderRoutes(side) {
+    if (!routesPayload) return;
+    CSACharts.mountRoutesChart('routes-chart', routesPayload, side);
+    const pack = routesPayload.sides && routesPayload.sides[side];
+    if (!pack || !pack.routes.length) {
+      const wrap = document.querySelector('#routes-chart').parentElement;
+      let empty = wrap.querySelector('.routes-empty');
+      if (!empty) {
+        empty = document.createElement('div');
+        empty.className = 'sub routes-empty';
+        empty.textContent = '该方样本不足（少于 3 个有效回合），无法聚类';
+        wrap.appendChild(empty);
+      }
+    }
+  }
+  document.querySelectorAll('.route-side').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.route-side').forEach((b) =>
+        b.classList.toggle('on', b === btn));
+      renderRoutes(btn.dataset.side);
+    });
+  });
+  function loadPostplant() {
+    fetchJson(`/api/demo/${H}/analysis/postplant.json`)
+      .then((p) => {
+        const box = document.getElementById('postplant-cards');
+        const s = p.summary || {};
+        if (!s.planted_rounds) {
+          box.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">本场没有下包回合</div></div>';
+          return;
+        }
+        const card = (label, val, sub) =>
+          `<div class="stat-card"><div class="stat-label">${label}</div>` +
+          `<div class="stat-value">${val}</div><div class="sub">${sub || ''}</div></div>`;
+        box.innerHTML =
+          card('下包回合', s.planted_rounds, '') +
+          card('T 守包成功率', s.t_hold_rate != null ? Math.round(s.t_hold_rate * 100) + '%' : '-', `CT 拆弹 ${s.defusal_count ?? 0} 次`) +
+          card('CT 拆弹率', s.defusal_rate != null ? Math.round(s.defusal_rate * 100) + '%' : '',
+               `尝试 ${s.defuse_attempts ?? 0} · 放弃 ${s.defuse_aborts ?? 0}`) +
+          card('平均拆弹用时', s.avg_time_to_defuse_s != null ? s.avg_time_to_defuse_s + 's' : '-', '');
+      })
+      .catch(() => {
+        document.getElementById('postplant-cards').innerHTML =
+          '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">数据不可用</div></div>';
+      });
+  }
+  async function loadAim() {
+    const tb = document.querySelector('#aim-table tbody');
+    try {
+      const p = await fetchJson(`/api/demo/${H}/analysis/aim.json`);
+      const rows = p.players || [];
+      tb.innerHTML = rows.length ? rows.map((r) =>
+        `<tr><td>${r.name}</td><td class="num">${r.shots_fired}</td>` +
+        `<td class="num">${r.fire_kills}</td><td class="num">${(r.fire_kill_rate * 100).toFixed(1)}%</td>` +
+        `<td class="num">${r.walk_share != null ? (r.walk_share * 100).toFixed(0) + '%' : '-'}</td>` +
+        `<td class="num">${r.scope_share != null ? (r.scope_share * 100).toFixed(0) + '%' : '-'}</td>` +
+        `<td class="num">${r.crouch_share != null ? (r.crouch_share * 100).toFixed(0) + '%' : '-'}</td>` +
+        `<td class="num">${r.avg_first_shot_s != null ? r.avg_first_shot_s : '-'}</td></tr>`).join('')
+        : '<tr><td colspan="8" class="sub">无开火数据</td></tr>';
+    } catch (e) { tb.innerHTML = '<tr><td colspan="8" class="sub">数据不可用</td></tr>'; }
+  }
+  const WCAT = [['sniper', '狙击'], ['rifle', '步枪'], ['pistol', '手枪'],
+                ['smg', '冲锋枪'], ['heavy', '重火力'], ['knife', '刀'], ['grenade', '投掷物']];
+  async function loadWeaponSplits() {
+    const tb = document.querySelector('#weapons-table tbody');
+    try {
+      const p = await fetchJson(`/api/demo/${H}/analysis/weapons.json`);
+      const rows = p.players || [];
+      tb.innerHTML = rows.length ? rows.map((r) => {
+        const cells = WCAT.map(([c]) =>
+          `<td class="num">${r.kills_by_category[c] || 0}${r.deaths_by_category[c] ? `<span class="sub">/${r.deaths_by_category[c]}</span>` : ''}</td>`).join('');
+        const tops = (r.top_weapons || []).map((w) => w.weapon).join(' · ');
+        return `<tr><td>${r.name}</td>${cells}<td class="sub" style="text-align:left">${tops}</td></tr>`;
+      }).join('') : '<tr><td colspan="9" class="sub">无击杀数据</td></tr>';
+    } catch (e) { tb.innerHTML = '<tr><td colspan="9" class="sub">数据不可用</td></tr>'; }
+  }
+  // weapon-mix donut + hitgroups stacked bars (both from kill_context/hitgroups)
+  const MIX_ZH = { rifle: '步枪', sniper: '狙击枪', pistol: '手枪', smg: '冲锋枪',
+                   heavy: '重火力', knife: '刀', grenade: '投掷物', gear: '装备',
+                   bomb: 'C4', world: '环境', inferno: '火焰', unknown: '未知' };
+  function weaponMixOption(p) {
+    const mix = p.weapon_mix || {};
+    const cats = {};
+    for (const [w, n] of Object.entries(mix)) cats[w] = (cats[w] || 0) + n;
+    const entries = Object.entries(cats).filter(([, n]) => n > 0);
+    if (!entries.length) return null;
+    return {
+      tooltip: { trigger: 'item', formatter: (q) => `${MIX_ZH[q.name] || q.name}: <b>${q.value}</b> 杀 (${q.percent}%)` },
+      legend: { bottom: 0, textStyle: { color: '#9aa0b8', fontSize: 10 } },
+      series: [{
+        type: 'pie', radius: ['42%', '70%'], center: ['50%', '44%'],
+        data: entries.map(([w, n]) => ({ name: w, value: n })),
+        label: { show: false },
+      }],
+    };
+  }
+  function hitgroupsOption(p) {
+    const groups = p.groups || [];
+    const players = (p.players || []).slice(0, 8).reverse();
+    if (!players.length) return null;
+    const colors = { head: '#ff4d5e', chest: '#a78bfa', stomach: '#3ddc97',
+                     arm: '#3d9bff', leg: '#ffb02e', generic: '#636a85' };
+    return {
+      tooltip: { trigger: 'axis',
+                 formatter: (params) => params[0].name + '<br/>' +
+                   params.filter((q) => q.value).map((q) =>
+                     `${(p.labels || {})[q.seriesName] || q.seriesName}: <b>${q.value}</b>`).join('<br/>') },
+      legend: { bottom: 0, textStyle: { color: '#9aa0b8', fontSize: 10 } },
+      grid: { left: 8, right: 16, top: 12, bottom: 46, containLabel: true },
+      xAxis: { type: 'value', name: '伤害' },
+      yAxis: { type: 'category', data: players.map((x) => x.name), axisLabel: { fontSize: 10 } },
+      series: groups.map((g) => ({
+        name: g, type: 'bar', stack: 'total', barMaxWidth: 14,
+        itemStyle: { color: colors[g] || '#636a85' },
+        data: players.map((x) => x.damage[g] || 0),
+      })),
+    };
+  }
   function hideSkeleton(id) {
     const el = document.getElementById(id);
     if (el) el.classList.remove('chart-loading');

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
 from cs_analyzer.model.parsed_demo import ParsedDemo
+from cs_analyzer.replay.timeline import round_freeze_ends
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,9 @@ class OpeningRouteResult(AnalysisResult):
     # centroid routes: list of {route: [[x,y] × N_POINTS], rounds: [round numbers], share: float}
     routes: list[dict] = Field(default_factory=list)
     map_bounds: dict = Field(default_factory=dict)
+    # Phase I (P3): the CT result ships alongside T instead of being dropped
+    ct_k: int = 0
+    ct_routes: list[dict] = Field(default_factory=list)
 
 
 @register_module
@@ -105,22 +109,25 @@ class OpeningRouteModule(AnalysisModule):
     requires: tuple[str, ...] = ()
 
     def run(self, demo: ParsedDemo, ctx: AnalysisContext) -> AnalysisResult:
-        results: dict[str, OpeningRouteResult] = {}
-        for side_code, side_name in ((2.0, "T"), (3.0, "CT")):
-            results[side_name] = self._cluster_side(demo, side_code, side_name)
-        # V1 ships the T-side result (attack routes are the interesting ones);
-        # the CT result stays available via ctx for future pages.
-        ctx.put(results["CT"])
-        return results["T"]
+        t_res = self._cluster_side(demo, 2.0, "T")
+        ct_res = self._cluster_side(demo, 3.0, "CT")
+        # P3: carry both sides on one result (the old ctx.put hack lost the
+        # CT data between the module memo and the payload builder)
+        t_res.ct_k = ct_res.k
+        t_res.ct_routes = ct_res.routes
+        return t_res
 
     def _cluster_side(self, demo: ParsedDemo, side_code: float, side_name: str) -> OpeningRouteResult:
         ticks = demo.ticks
         res = OpeningRouteResult(module=self.name, demo_hash=demo.metadata.demo_hash, side=side_name)
         if ticks is None or ticks.empty:
             return res
+        freeze_ends = round_freeze_ends(demo)
         paths: list[tuple[int, np.ndarray]] = []  # (round, resampled path)
         for i, r in enumerate(demo.regular_rounds):
-            t0 = r.start_tick
+            # B7: opening window starts at freeze-end — from round_start the
+            # frozen buy-time walking polluted the clusters
+            t0 = freeze_ends.get(r.number, r.start_tick)
             t1 = t0 + int(OPENING_SECONDS * 64)
             sub = ticks[(ticks["tick"] >= t0) & (ticks["tick"] < t1) & (ticks["team_num"] == side_code)]
             if sub.empty:

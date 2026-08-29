@@ -15,7 +15,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
-from cs_analyzer.analysis.basic_stats import BasicStatsResult
+from cs_analyzer.analysis.basic_stats import BasicStatsModule, BasicStatsResult
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,16 @@ class RatingsModule(AnalysisModule):
         rounds = demo.regular_rounds
         hurts_df = demo.events.get("player_hurt")
         deaths_df = demo.events.get("player_death")
+
+        # Phase I (B5): align filtering with basic_stats — warmup rows and
+        # teamkills must not feed RWS damage or KAST. (Previously unfiltered
+        # here, giving ADR/damage inputs a different basis per module.)
+        if hurts_df is not None:
+            hurts_df = BasicStatsModule._filter_warmup(hurts_df)
+            hurts_df = BasicStatsModule._exclude_teamkills(hurts_df)
+        if deaths_df is not None:
+            deaths_df = BasicStatsModule._filter_warmup(deaths_df)
+            deaths_df = BasicStatsModule._exclude_teamkills(deaths_df)
 
         team_members = self._team_members(demo)
         per_round_damage = self._per_round_damage(hurts_df, rounds) if hurts_df is not None else {}
@@ -173,7 +183,13 @@ class RatingsModule(AnalysisModule):
     def _kast_per_player(
         deaths_df: pd.DataFrame, rounds: list, demo: ParsedDemo
     ) -> dict[str, int]:
-        """For each player, count rounds where they K'd/A'd/S'd or were traded."""
+        """For each player, count rounds where they K'd/A'd/S'd or were traded.
+
+        Trade semantics (standard): a victim is "traded" when the killer who
+        killed them dies within TRADE_WINDOW_TICKS afterwards. (Phase I fix:
+        the previous implementation inverted this and credited players who
+        made a kill then died soon after.)
+        """
         if deaths_df is None or deaths_df.empty:
             return {}
         if "tick" not in deaths_df.columns:
@@ -189,42 +205,34 @@ class RatingsModule(AnalysisModule):
                     kast[p.steamid] += 1
                 continue
 
-            killers_after: dict[str, int] = {}  # steamid -> tick they died (if within trade window)
-            for _, row in round_deaths.iterrows():
-                victim = str(row.get("user_steamid", ""))
-                killer = str(row.get("attacker_steamid", ""))
-                # mark killer's death time if they die later in the round within trade window
-                killer_tick = int(row["tick"])
-                # check if killer dies within TRADE_WINDOW_TICKS after this kill
-                later = round_deaths[
-                    (round_deaths["tick"] > killer_tick)
-                    & (round_deaths["tick"] <= killer_tick + TRADE_WINDOW_TICKS)
-                ]
-                if not later.empty:
-                    # find if the killer appears as a victim
-                    killer_dies = later[later["user_steamid"] == killer]
-                    if not killer_dies.empty:
-                        killers_after[killer] = int(killer_dies.iloc[0]["tick"])
+            death_ticks = round_deaths["tick"].tolist()
+            victims = round_deaths["user_steamid"].astype(str).tolist()
+            killers = round_deaths["attacker_steamid"].astype(str).tolist()
+            n = len(round_deaths)
 
-            participants: set[str] = set()
-            for _, row in round_deaths.iterrows():
-                attacker = str(row.get("attacker_steamid", ""))
-                victim = str(row.get("user_steamid", ""))
-                assister = str(row.get("assister_steamid", ""))
-                if attacker:
-                    participants.add(attacker)  # Kill
+            # traded = set of victims whose killer died within the window
+            traded: set[str] = set()
+            for i in range(n):
+                killer_i = killers[i]
+                if not killer_i or killer_i == victims[i]:
+                    continue
+                limit = death_ticks[i] + TRADE_WINDOW_TICKS
+                for j in range(i + 1, n):
+                    if death_ticks[j] > limit:
+                        break
+                    if victims[j] == killer_i:
+                        traded.add(victims[i])
+                        break
+
+            participants: set[str] = set(traded)
+            for i in range(n):
+                if killers[i] and killers[i] != victims[i]:
+                    participants.add(killers[i])  # Kill
+                assister = str(round_deaths.iloc[i].get("assister_steamid", ""))
                 if assister:
                     participants.add(assister)  # Assist
-                if victim and victim not in killers_after:
-                    # Survived? No — they died. Traded? Only if their killer died.
-                    pass
-                else:
-                    # victim was traded (their killer died)
-                    if victim:
-                        participants.add(victim)
 
-            # Survived = didn't die in this round
-            victims_in_round = {str(v) for v in round_deaths["user_steamid"].tolist()}
+            victims_in_round = {v for v in victims if v}
             for p in demo.players:
                 if p.steamid in participants:
                     kast[p.steamid] += 1

@@ -29,6 +29,8 @@ class PlayerStats(BaseModel):
     assists: int = 0
     headshot_kills: int = 0
     first_kills: int = 0
+    # Phase I (F8): died first in round — the cost side of opening duels
+    first_deaths: int = 0
     damage: int = 0
     rounds: int = 0
 
@@ -38,6 +40,7 @@ class PlayerStats(BaseModel):
     ADR: float = 0.0
     headshot_pct: float = 0.0
     FirstKillsPerRound: float = 0.0
+    FirstDeathsPerRound: float = 0.0
 
 
 class BasicStatsResult(AnalysisResult):
@@ -73,6 +76,9 @@ class BasicStatsModule(AnalysisModule):
         first_killers = (
             self._first_killers_per_round(deaths_df, rounds) if deaths_df is not None else {}
         )
+        first_victims = (
+            self._first_victims_per_round(deaths_df, rounds) if deaths_df is not None else {}
+        )
 
         stats: list[PlayerStats] = []
         for player in demo.players:
@@ -85,6 +91,7 @@ class BasicStatsModule(AnalysisModule):
                 assists=self._count_assister(deaths_df, player.steamid),
                 headshot_kills=self._count_headshots(deaths_df, player.steamid),
                 first_kills=first_killers.get(player.steamid, 0),
+                first_deaths=first_victims.get(player.steamid, 0),
                 damage=self._sum_damage(hurts_df, player.steamid),
                 rounds=num_rounds,
             )
@@ -161,6 +168,23 @@ class BasicStatsModule(AnalysisModule):
         return result
 
     @staticmethod
+    def _first_victims_per_round(deaths_df: pd.DataFrame, rounds: list) -> dict[str, int]:
+        """F8: same walk as first kills — who died first each round."""
+        if deaths_df.empty or "tick" not in deaths_df.columns:
+            return {}
+        result: dict[str, int] = {}
+        for rnd in rounds:
+            in_round = (deaths_df["tick"] >= rnd.start_tick) & (deaths_df["tick"] <= rnd.end_tick)
+            round_deaths = deaths_df[in_round]
+            if round_deaths.empty:
+                continue
+            first = round_deaths.sort_values("tick").iloc[0]
+            victim = first.get("user_steamid")
+            if victim and isinstance(victim, str):
+                result[victim] = result.get(victim, 0) + 1
+        return result
+
+    @staticmethod
     def _derive_rates(s: PlayerStats) -> None:
         r = s.rounds if s.rounds > 0 else 1
         s.KPR = s.kills / r
@@ -168,3 +192,4 @@ class BasicStatsModule(AnalysisModule):
         s.ADR = s.damage / r
         s.headshot_pct = (s.headshot_kills / s.kills * 100.0) if s.kills > 0 else 0.0
         s.FirstKillsPerRound = s.first_kills / r
+        s.FirstDeathsPerRound = s.first_deaths / r

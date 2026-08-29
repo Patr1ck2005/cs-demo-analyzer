@@ -1,6 +1,8 @@
 """Tests for the parser layer: player/round building, provider detection, cache."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from cs_analyzer.cache import DemoCache
@@ -290,3 +292,72 @@ def test_cache_save_load_roundtrip(parsed_demo, tmp_path) -> None:
     reloaded = cache.load("cafebabe")
     assert reloaded is not None
     assert reloaded.data == parsed_demo.data
+
+
+# ---- Phase I M1: empirical tick rate + match_id + inventory fallback ----
+
+
+def test_empirical_tick_rate_64() -> None:
+    """Moving samples: velocity / per-tick displacement ≈ 64 on 64-tick demos."""
+    n = 200
+    ticks = pd.DataFrame(
+        {
+            "steamid": [S_ALICE] * n,
+            "tick": list(range(n)),
+            "X": [i * 2.0 for i in range(n)],   # 128 u/s at 64t
+            "Y": [0.0] * n,
+            "velocity": [128.0] * n,
+        }
+    )
+    assert DemoParserBackend._empirical_tick_rate(ticks) == 64
+
+
+def test_empirical_tick_rate_insufficient_samples() -> None:
+    sparse = pd.DataFrame(
+        {"steamid": [S_ALICE] * 5, "tick": [0, 1, 2, 3, 4],
+         "X": [0.0, 2.0, 4.0, 6.0, 8.0], "Y": [0.0] * 5, "velocity": [128.0] * 5}
+    )
+    assert DemoParserBackend._empirical_tick_rate(sparse) is None
+    assert DemoParserBackend._empirical_tick_rate(pd.DataFrame()) is None
+    # missing required columns
+    no_vel = pd.DataFrame({"steamid": [S_ALICE], "tick": [0], "X": [0], "Y": [0]})
+    assert DemoParserBackend._empirical_tick_rate(no_vel) is None
+
+
+def test_match_id_from_filename() -> None:
+    f = DemoParserBackend._match_id_from_filename
+    assert f(Path("9206943388297116556_0.dem")) == "9206943388297116556"
+    assert f(Path("short_0.dem")) is None
+    assert f(Path("match.dem")) is None
+
+
+def test_parse_ticks_retry_drops_inventory(monkeypatch) -> None:
+    """A future demoparser2 dropping `inventory` degrades to the legacy list."""
+    calls: list[list[str]] = []
+
+    class FakeParser:
+        def parse_ticks(self, fields):
+            calls.append(list(fields))
+            if "inventory" in fields:
+                raise RuntimeError("boom: inventory unsupported")
+            return pd.DataFrame({"tick": [1], "steamid": ["765"]})
+
+    backend = DemoParserBackend(tick_fields=["X", "inventory"])
+    df = backend._parse_ticks(FakeParser())
+    assert not df.empty
+    assert len(calls) == 2
+    assert calls[1] == ["X"]
+
+
+def test_parser_version_bumped() -> None:
+    from cs_analyzer.cache import PARSER_VERSION
+
+    assert PARSER_VERSION == "1.7.0"
+
+
+def test_manager_tick_fields_include_inventory() -> None:
+    from cs_analyzer.parser.manager import ParseManager
+
+    fields = ParseManager().backend.tick_fields
+    assert "inventory" in fields
+    assert "money" not in fields  # probed MISSING on 0.42 — stays out

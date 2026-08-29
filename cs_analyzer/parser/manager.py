@@ -37,6 +37,10 @@ class ParseManager:
                 # WMPVP demos materialize both; backend falls back to the
                 # legacy list if a future version drops them)
                 "active_weapon_ammo", "is_in_reload",
+                # Phase I: weapon-held-over-time (probe 2026-08-25: parses OK
+                # on all real WMPVP demos; `money` stays OUT — confirmed
+                # MISSING on 0.42, see output/.event_probe.json)
+                "inventory",
             ]
         )
         self.cache = cache

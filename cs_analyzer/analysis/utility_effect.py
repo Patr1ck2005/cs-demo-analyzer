@@ -13,6 +13,7 @@ import math
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
+from cs_analyzer.analysis.util import round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 from cs_analyzer.replay.timeline import round_freeze_ends
 
@@ -44,19 +45,79 @@ class UtilityEffectModule(AnalysisModule):
     requires: tuple[str, ...] = ()
 
     def run(self, demo: ParsedDemo, ctx: AnalysisContext) -> AnalysisResult:
-        side_at = self._player_sides(demo)
+        # swap-safe per-round side map (Phase I); fall back to a flat
+        # whole-demo map for players/rounds the windowed scan can't resolve
+        round_sides = round_player_sides(demo)
+
+        def side_at(sid: str, tick: int | None = None) -> str:
+            if tick is not None:
+                rnd = demo.data.round_at_tick(int(tick))
+                if rnd is not None:
+                    s = round_sides.get(rnd.number, {}).get(sid, "")
+                    if s:
+                        return s
+                # between rounds / unresolved -> nearest known round
+                known = [m.get(sid, "") for m in round_sides.values() if m.get(sid)]
+                if len(set(known)) == 1 and known:
+                    return known[0]
+                return ""
+            return ""
+
         flashers = self._flash_value(demo, side_at)
         smoke = self._smoke_denial(demo, side_at)
+        self._fold_flash_assists(demo, flashers)
         return UtilityEffectResult(
             module=self.name, demo_hash=demo.metadata.demo_hash,
             flashers=flashers, smoke=smoke,
         )
 
+    @staticmethod
+    def _fold_flash_assists(demo: ParsedDemo, flashers: list[dict]) -> None:
+        """F4: player_death.assistedflash credits the flashing teammate.
+
+        Adds `flash_assists` to each thrower row (0 for players absent from
+        the flash table but credited by a kill — they get a new row so the
+        leaderboard never hides a flash-assist-only performance).
+        """
+        deaths = demo.events.get("player_death")
+        if deaths is None or deaths.empty or "assistedflash" not in deaths.columns:
+            return
+        counts: dict[str, int] = {}
+        names: dict[str, str] = {}
+        rounds = demo.regular_rounds
+        start_tick = rounds[0].start_tick if rounds else 0
+        for _, row in deaths.iterrows():
+            tick = int(row.get("tick", 0) or 0)
+            if tick < start_tick:
+                continue
+            if not bool(row.get("assistedflash", False)):
+                continue
+            assister = str(row.get("assister_steamid", "") or "")
+            if not assister:
+                continue
+            counts[assister] = counts.get(assister, 0) + 1
+            nm = str(row.get("assister_name", "") or "")
+            if nm:
+                names.setdefault(assister, nm)
+        if not counts:
+            return
+        by_sid = {f["steamid"]: f for f in flashers}
+        for sid, n in counts.items():
+            f = by_sid.get(sid)
+            if f is None:
+                f = {"steamid": sid, "name": names.get(sid) or sid, "throws": 0,
+                     "enemy_blind_s": 0.0, "friendly_blind_s": 0.0,
+                     "value": 0.0, "value_per_throw": 0.0, "side": ""}
+                flashers.append(f)
+                by_sid[sid] = f
+            f["flash_assists"] = f.get("flash_assists", 0) + n
+        flashers.sort(key=lambda x: -x["value"])
+
     # ---- flash value ----
-    def _flash_value(self, demo: ParsedDemo, side_at: dict[str, str]) -> list[dict]:
+    def _flash_value(self, demo: ParsedDemo, side_at) -> list[dict]:
         det = demo.events.get("flashbang_detonate")
         blind = demo.events.get("player_blind")
-        if det is None or det is None or blind is None or blind.empty:
+        if blind is None or blind.empty:
             return []
         start_tick = demo.regular_rounds[0].start_tick if demo.regular_rounds else 0
         # index blind rows by tick for windowed scans
@@ -84,7 +145,7 @@ class UtilityEffectModule(AnalysisModule):
             name = str(row.get("user_name", "") or "")
             if name:
                 s["name"] = name
-            thrower_side = side_at.get(thrower)
+            thrower_side = side_at(thrower, t)
             lo = t - FLASH_WINDOW_TICKS
             import bisect
             for i in range(bisect.bisect_left(bticks, lo), len(blind_rows)):
@@ -93,8 +154,10 @@ class UtilityEffectModule(AnalysisModule):
                     break
                 if vic == thrower:
                     continue  # self-blind doesn't count against the throw
-                if side_at.get(vic) == thrower_side:
+                if side_at(vic, bt) == thrower_side and thrower_side:
                     s["friendly_blind_s"] += dur
+                elif not side_at(vic, bt) or not thrower_side:
+                    pass  # unresolved side on either end — don't guess
                 else:
                     s["enemy_blind_s"] += dur
         out = []
@@ -107,13 +170,13 @@ class UtilityEffectModule(AnalysisModule):
                 "friendly_blind_s": round(s["friendly_blind_s"], 2),
                 "value": round(value, 2),
                 "value_per_throw": round(value / s["throws"], 2) if s["throws"] else 0.0,
-                "side": side_at.get(sid, ""),
+                "side": side_at(sid, None) or "",
             })
         out.sort(key=lambda x: -x["value"])
         return out
 
     # ---- smoke denial ----
-    def _smoke_denial(self, demo: ParsedDemo, side_at: dict[str, str]) -> list[dict]:
+    def _smoke_denial(self, demo: ParsedDemo, side_at) -> list[dict]:
         det = demo.events.get("smokegrenade_detonate")
         expired = demo.events.get("smokegrenade_expired")
         deaths = demo.events.get("player_death")
@@ -182,21 +245,21 @@ class UtilityEffectModule(AnalysisModule):
                 out.append({
                     "steamid": sid, "name": s["name"] or sid,
                     "smoke_kills": s["smoke_kills"], "smoke_deaths": s["smoke_deaths"],
-                    "side": side_at.get(sid, ""),
+                    "side": side_at(sid, None) or "",
                 })
         out.sort(key=lambda x: -(x["smoke_kills"] * 2 - x["smoke_deaths"]))
         return out
 
     def _player_sides(self, demo: ParsedDemo) -> dict[str, str]:
+        """Deprecated whole-demo side map (Phase I): kept only for API compat.
+        Callers now use the tick-resolved `side_at` closure built in run()."""
         sides: dict[str, str] = {}
-        ticks = demo.ticks
-        if ticks is None or ticks.empty or not {"steamid", "team_num"} <= set(ticks.columns):
-            return sides
-        grouped = ticks.groupby("steamid")["team_num"]
-        for sid, codes in grouped:
-            codes = codes.dropna()
-            if codes.empty:
-                continue
-            mean = float(codes.mean())
-            sides[str(sid)] = "T" if mean < 2.5 else "CT"
+        round_sides = round_player_sides(demo)
+        tally: dict[str, dict[str, int]] = {}
+        for m in round_sides.values():
+            for sid, s in m.items():
+                tally.setdefault(sid, {}).setdefault(s, 0)
+                tally[sid][s] += 1
+        for sid, counts in tally.items():
+            sides[sid] = max(counts.items(), key=lambda kv: kv[1])[0]
         return sides

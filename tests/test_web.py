@@ -2,57 +2,15 @@
 
 Phase H: entity-centered IA — / matches / players / highlights / compare /
 system; legacy /demo/... URLs 301-redirect; all /api/... paths unchanged.
+The `web_client` fixture lives in conftest.py (shared with Phase I tests).
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
 
-from cs_analyzer.cache import DemoCache
 from cs_analyzer.web import app as web_app
-
-from .conftest import S_ALICE, S_BOB, S_CAROL, build_parsed_demo
-
-
-@pytest.fixture
-def web_client(tmp_path, monkeypatch):
-    """Temp-cached synthetic demo + monkeypatched app (cache dir & output)."""
-    ticks = pd.DataFrame(
-        {
-            "tick": [0, 640, 1280, 1920, 2560, 3200],
-            "steamid": [S_ALICE] * 6,
-            "X": [0.0, 100.0, 200.0, 300.0, 400.0, 500.0],
-            "Y": [0.0] * 6,
-            "is_alive": [True] * 6,
-            "team_num": [3.0] * 6,
-        }
-    )
-    events = {
-        "player_death": pd.DataFrame(
-            {"tick": [1000, 2000, 3000],
-             "attacker_name": ["Bob", "Alice", "Bob"],
-             "user_name": ["Alice", "Bob", "Carol"],
-             "attacker_steamid": [S_BOB, S_ALICE, S_BOB],
-             "user_steamid": [S_ALICE, S_BOB, S_CAROL],
-             "assister_steamid": ["", "", ""],
-             "weapon": ["ak47", "usp", "knife"]}
-        )
-    }
-    demo = build_parsed_demo(ticks=ticks, events=events)
-    demo_hash = demo.metadata.demo_hash
-    cache = DemoCache(tmp_path / "cache")
-    cache.save(demo_hash, demo)
-    monkeypatch.setattr(web_app, "_cache", lambda: cache)
-    monkeypatch.setattr(web_app, "OUT_DIR", tmp_path / "web")
-    monkeypatch.setattr(web_app, "_demos_dir", lambda: tmp_path / "demos")
-    # aggregate memo must not leak between tests (module-level singleton)
-    from cs_analyzer.web import aggregation
-
-    aggregation.invalidate_aggregate()
-    return TestClient(web_app.app), demo_hash, demo
 
 
 def test_dashboard(web_client) -> None:
@@ -113,13 +71,33 @@ def test_removed_routes_gone(web_client) -> None:
 
 
 def test_viewer_js_path_contract() -> None:
-    """viewer JS must accept both /demo and /match prefixes and write /match."""
+    """viewer JS must accept both /demo and /match prefixes and write /match.
+
+    Phase J: overlap is a sub-mode of the replay viewer — the standalone
+    overlap page is retired (route serves replay_viewer.html), so the canvas
+    JS must also tolerate the /overlap path suffix and own the sub-mode.
+    """
     static = Path(web_app.__file__).parent / "static"
     canvas = (static / "viewer_canvas.js").read_text(encoding="utf-8")
-    overlap = (static / "viewer_overlap.js").read_text(encoding="utf-8")
     assert "(?:demo|match)" in canvas
-    assert "(?:demo|match)" in overlap
+    assert "(?:viewer|overlap)" in canvas
     assert "`/match/${HASH}/viewer?round=" in canvas
+    # overlap sub-mode ownership markers
+    assert "setOverlapMode" in canvas
+    assert "mode=overlap" in canvas
+    # the standalone page must be gone
+    assert not (static.parent / "templates" / "overlap_viewer.html").exists()
+    assert not (static / "viewer_overlap.js").exists()
+
+
+def test_overlap_route_serves_replay_viewer(web_client) -> None:
+    """Phase J: /match/{h}/overlap renders the replay viewer (sub-mode deep
+    link), not a separate page."""
+    c, h, _ = web_client
+    r = c.get(f"/match/{h}/overlap")
+    assert r.status_code == 200
+    assert "ob-root" in r.text          # replay viewer shell
+    assert "ov-phase-bar" in r.text     # overlap sub-mode controls present
 
 
 # ---------- Phase H: new pages ----------

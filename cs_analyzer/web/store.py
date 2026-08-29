@@ -7,6 +7,7 @@ objects on demand. The cache is content-addressed (demo_hash -> dir); the
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from cs_analyzer.cache import DemoCache
@@ -14,6 +15,23 @@ from cs_analyzer.model.parsed_demo import ParsedDemo
 
 CACHE_DIR = Path(".cache")
 DEMOS_DIR = Path("demos")
+
+# WMPVP downloader names files "<matchid>_0.dem"; the numeric prefix is a
+# chronologically meaningful match id. CS2 headers carry no date (verified
+# 2026-08-25), so this is our best recency ordering key (B8).
+_MATCH_ID_RE = re.compile(r"^(\d{10,})_")
+
+
+def match_key(entry: dict) -> tuple:
+    """Sort key: numeric match-id prefix first, filename as tiebreak.
+
+    Files without a numeric prefix sort after all prefixed ones by name, so
+    WMPVP matches stay in play order and oddballs remain stable.
+    """
+    m = _MATCH_ID_RE.match(entry.get("filename", ""))
+    if m:
+        return (0, int(m.group(1)), "")
+    return (1, 0, entry.get("filename", ""))
 
 
 def _load_model(demo_dir: Path) -> dict | None:
@@ -48,10 +66,11 @@ def list_demos(cache_dir: Path = CACHE_DIR) -> list[dict]:
                 "demo_path": path,
                 "num_rounds": len([r for r in rounds if not r.get("is_warmup")]),
                 "parsed_at": meta.get("parsed_at", ""),
+                "match_id": meta.get("match_id") or "",
                 "players": players,
             }
         )
-    entries.sort(key=lambda e: e["filename"])
+    entries.sort(key=match_key)
     return entries
 
 

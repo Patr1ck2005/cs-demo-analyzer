@@ -469,7 +469,16 @@ def _blind_events(demo: ParsedDemo) -> list[dict]:
 def _bomb_events(demo: ParsedDemo, ticks) -> list[dict]:
     """Plant/defuse/explode markers with a three-tier coordinate fallback:
     event coordinates -> planter position interpolated from tick rows -> null
-    (client renders a site-label chip instead of a map pin)."""
+    (client renders a site-label chip instead of a map pin).
+
+    Phase J fixes:
+    - `site` on WMPVP demos is a numeric entity code (1008/1009/...), not
+      "A"/"B" — fall back to user_last_place_name inference like the backend
+      round builder does, so clients never see raw codes.
+    - each plant is clamped to the round that owns it: ~8/96 real plant
+      events land a few ticks after round_end (tail gap), which used to make
+      the client show the bomb timer in the WRONG round's tail.
+    """
     out: list[dict] = []
 
     def planter_xy(sid: str, tick: int):
@@ -489,6 +498,18 @@ def _bomb_events(demo: ParsedDemo, ticks) -> list[dict]:
             return None, None
         return round(x, 1), round(y, 1)
 
+    def site_label(row) -> str | None:
+        s = _text(row.get("site", ""))
+        # numeric entity codes (WMPVP) are not site names
+        if s and not s.isdigit():
+            return s
+        place = _text(row.get("user_last_place_name", ""))
+        if "A" in place.upper():
+            return "A"
+        if "B" in place.upper():
+            return "B"
+        return None
+
     for table, type_code in _BOMB_TABLES:
         df = demo.events.get(table)
         if df is None or df.empty:
@@ -496,6 +517,16 @@ def _bomb_events(demo: ParsedDemo, ticks) -> list[dict]:
         for _, row in df.iterrows():
             sid = _text(row.get("user_steamid", "") or row.get("steamid", ""))
             tick = int(row.get("tick", 0) or 0)
+            # clamp tail-gap events into the round they belong to: a plant a
+            # few ticks after round_end still belongs to that round (the
+            # round window itself starts at round_start, so only the END
+            # boundary needs the nudge)
+            if type_code == "plant":
+                rnd = demo.data.round_at_tick(tick)
+                if rnd is None:
+                    earlier = [r for r in demo.regular_rounds if r.end_tick >= tick]
+                    if earlier:
+                        tick = min(tick, earlier[-1].end_tick)
             x = _finite_or_none(row.get("user_X"))
             y = _finite_or_none(row.get("user_Y"))
             if x is None:
@@ -504,7 +535,7 @@ def _bomb_events(demo: ParsedDemo, ticks) -> list[dict]:
                 {
                     "tick": tick,
                     "type": type_code,
-                    "site": _text(row.get("site", "")) or None,
+                    "site": site_label(row),
                     "x": x,
                     "y": y,
                     "sid": sid,

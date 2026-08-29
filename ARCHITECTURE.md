@@ -30,7 +30,7 @@ CsDemoAnalyzer 是一个本地优先的 CS2 demo 分析工具，将 `.dem` 文�
 | 5 层架构 | ✅ Layer 4 渲染层已退役（Phase E）：视频/静态图渲染全部移至浏览器端（canvas + ECharts） |
 | CLI 命令（5 个） | ✅ parse / analyze / coverage / serve / info（视频命令 render/export/run/batch/action-map/replay/recipe 已随管线删除） |
 | provider 链 | ✅ Valve / Faceit / PerfectWorld（单文件 `providers.py`，非子包） |
-| analysis 模块 | ⚠️ 仅 `basic_stats` / `ratings` / `preference` 三个；economy/clutch/refrag/post_plant 未实现，positioning/utility/peek 合并进 `preference.py` |
+| analysis 模块 | ✅ 13 个注册模块：basic_stats / ratings / preference / duels / economy / utility_effect / routes / highlights + Phase I 五个（kill_context / hitgroups / aim / postplant / weapon_splits）；共享助手 `analysis/util.py`（逐回合阵营，换边安全） |
 | maps 数据 | ✅ de_mirage / de_ancient / de_inferno（官方雷达 PNG + yaml bounds，`/maps/{name}` 路由 immutable 缓存） |
 | 解析稳健性 | ✅ 支持无 player_info / 无 round_start 事件的 SourceTV demo（从 spawns 重建玩家、兼容字符串 winner）；T/CT 阵营以正式局逐 tick team_num 多数派为真值（PARSER_VERSION 1.5.1） |
 | 2D 回放系统 | ✅ `cs_analyzer/replay/`（PlayerTimeline：真实道具时长/投掷起点重建）+ `web/viewer_data.py` v2 数据包（击杀坐标/闪光/炸弹/经济分层）+ `static/viewer_canvas.js` 相机（滚轮缩放/拖拽平移）+ `static/js/viewer_overlays.js` 高级覆盖层（道具弧线/枪线/闪光/炸弹/击杀流）；matplotlib 视频管线已删除（`docs/video_pipeline_archive.md` 归档参数规格） |
@@ -339,9 +339,20 @@ CsDemoAnalyzer/
 │   │   ├── __init__.py
 │   │   ├── base.py                    # AnalysisModule ABC + 注册表
 │   │   ├── runner.py                  # AnalysisRunner 模块执行/依赖排序
-│   │   ├── basic_stats.py             # KPR/ADR/Survivals/HS%/FK
+│   │   ├── util.py                    # 共享助手：逐回合阵营（换边安全）
+│   │   ├── basic_stats.py             # KPR/ADR/Survivals/HS%/FK/FD
 │   │   ├── ratings.py                 # RWS, HLTV Rating 2.0, KAST, Impact
-│   │   └── preference.py              # 位置/道具/Peek/准星（合并自 4 个规划模块）
+│   │   ├── preference.py              # 位置/道具/Peek/准星（合并自 4 个规划模块）
+│   │   ├── duels.py                   # 对枪矩阵
+│   │   ├── economy.py                 # 买法分类/胜率/连败
+│   │   ├── utility_effect.py          # 闪光价值/烟中击杀/闪光助攻
+│   │   ├── routes.py                  # 开局路线聚类（T+CT）
+│   │   ├── highlights.py              # 多杀/残局高光
+│   │   ├── kill_context.py            # 击杀情境徽章/MVP/捡枪/武器分布
+│   │   ├── hitgroups.py               # 部位伤害/护甲效率
+│   │   ├── aim.py                     # 枪法纪律（开火转化/移动状态）
+│   │   ├── postplant.py               # 下包后攻防
+│   │   └── weapon_splits.py           # 武器类别拆分
 │   │
 │   ├── render/                        # Layer 4
 │   │   ├── __init__.py

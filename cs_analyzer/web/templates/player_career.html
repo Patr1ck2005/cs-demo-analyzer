@@ -26,9 +26,17 @@
     <div id="career-radar" style="height:360px" class="chart-loading"></div>
   </div>
   <div class="card" style="margin-bottom:0">
-    <h2 style="border:none">跨场趋势（Rating / ADR）</h2>
+    <h2 style="border:none">跨场趋势（Rating / ADR / RWS）</h2>
     <div id="career-trend" style="height:360px" class="chart-loading"></div>
   </div>
+</div>
+
+<div class="section-header"><h2>单场热力图</h2>
+  <div class="section-actions" style="margin:0">
+    <select id="career-match-pick" class="input" style="min-width:220px"></select>
+  </div></div>
+<div class="routes-wrap">
+  <div class="map-chart" id="career-heatmap" style="max-width:480px"></div>
 </div>
 
 <div class="section-header"><h2>场次列表</h2>
@@ -67,6 +75,11 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script id="radar-ranges" type="application/json">[
+{%- for a in radar_axes -%}
+{"key": "{{ a.key }}", "label": "{{ a.label }}", "min": {{ a.min }}, "max": {{ a.max }} }{{ "," if not loop.last }}
+{%- endfor -%}]
+</script>
 <script src="/static/vendor/echarts.min.js"></script>
 <script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
 <script src="/static/charts.js?v={{ static_v }}"></script>
@@ -74,9 +87,9 @@
 <script>
 (async function () {
   const SID = '{{ p.steamid }}';
-  // radar: reuse the demo-wide payload builder via the aggregate charts API is
-  // per-demo; career radar is computed client-side from the career values
-  const axes = ['KPR', '存活率', 'ADR', '爆头率%', '首杀/回合', 'Rating'];
+  // radar: server-injected ranges (RADAR_AXES) — must match the per-demo
+  // radar normalization exactly (B4: old hardcoded ranges were wrong)
+  const AXES = JSON.parse(document.getElementById('radar-ranges').textContent);
   const norm = (v, lo, hi) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
   const raw = [
     {{ '%.4f'|format(p.avg_kpr) }},
@@ -86,8 +99,9 @@
     {{ '%.4f'|format(p.avg_fkpr) }},
     {{ '%.4f'|format(p.avg_rating) }},
   ];
-  const RANGES = [[0, 0.15], [0.4, 0.9], [0, 200], [20, 70], [0, 0.3], [0.6, 1.4]];
-  const values = raw.map((v, i) => Math.round(norm(v, RANGES[i][0], RANGES[i][1])));
+  // raw order matches RADAR_AXES keys; see app.player_career
+  const values = raw.map((v, i) => Math.round(norm(v, AXES[i].min, AXES[i].max)));
+  const axes = AXES.map((a) => a.label);
   try {
     CSACharts.mount('career-radar', {
       tooltip: { trigger: 'item' },
@@ -112,12 +126,12 @@
     });
   } catch (e) { /* radar stays skeleton */ }
 
-  // trend: Rating/ADR per demo (chronological)
+  // trend: Rating/ADR/RWS per demo, chronological by match id (P4)
   const demos = [
     {% for d in p.demos %}
-    { name: {{ ('"' ~ d.map_name ~ ' ' ~ loop.index ~ '"')|safe }}, rating: {{ '%.4f'|format(d.Rating) }}, adr: {{ '%.4f'|format(d.ADR) }}, hash: '{{ d.demo_hash }}' },
+    { name: {{ ('"' ~ d.map_name ~ ' #' ~ loop.index ~ '"')|safe }}, rating: {{ '%.4f'|format(d.Rating) }}, adr: {{ '%.4f'|format(d.ADR) }}, rws: {{ '%.4f'|format(d.RWS) }}, hash: '{{ d.demo_hash }}' },
     {% endfor %}
-  ];
+  ].sort((a, b) => 0); // server already orders demos chronologically (match_key)
   try {
     CSACharts.mount('career-trend', {
       tooltip: { trigger: 'axis' },
@@ -127,16 +141,49 @@
                axisLabel: { rotate: 30, fontSize: 10 } },
       yAxis: [
         { type: 'value', name: 'Rating', min: 0, scale: true },
-        { type: 'value', name: 'ADR', min: 0 },
+        { type: 'value', name: 'ADR / RWS', min: 0 },
       ],
       series: [
         { name: 'Rating', type: 'line', smooth: true, symbolSize: 6,
           data: demos.map((d) => d.rating), lineStyle: { width: 2.5 }, itemStyle: { color: '#a78bfa' } },
         { name: 'ADR', type: 'line', yAxisIndex: 1, smooth: true, symbolSize: 5,
           data: demos.map((d) => d.adr), lineStyle: { width: 1.5 }, itemStyle: { color: '#3d9bff' } },
+        { name: 'RWS', type: 'line', yAxisIndex: 1, smooth: true, symbolSize: 5,
+          data: demos.map((d) => d.rws), lineStyle: { width: 1.5, type: 'dashed' }, itemStyle: { color: '#3ddc97' } },
       ],
     });
   } catch (e) { /* trend stays skeleton */ }
+
+  // P4: per-match deep-dive — wire the orphaned player charts API
+  // (heatmap + utility landings + style metrics) via a match picker
+  const picker = document.getElementById('career-match-pick');
+  if (picker && demos.length) {
+    const opts = [
+      {% for d in p.demos %}
+      { hash: '{{ d.demo_hash }}', label: '{{ d.map_name }} #{{ loop.index }}' },
+      {% endfor %}
+    ];
+    picker.innerHTML = '<option value="">选择场次查看热力图…</option>' +
+      opts.map((o, i) => `<option value="${i}">${o.label}</option>`).join('');
+    let mounted = null;
+    picker.addEventListener('change', async () => {
+      const i = Number(picker.value);
+      const box = document.getElementById('career-heatmap');
+      if (!opts[i]) return;
+      box.classList.add('chart-loading');
+      try {
+        const payload = await fetch(`/api/demo/${opts[i].hash}/player/${SID}/charts.json`)
+          .then((r) => { if (!r.ok) throw r.status; return r.json(); });
+        box.classList.remove('chart-loading');
+        box.style.backgroundImage = payload.heatmap && payload.heatmap.has_map_image
+          ? `url("${payload.map_image}")` : 'none';
+        CSACharts.mountMapChart(box, 'heatmap', payload);
+      } catch (e) {
+        box.classList.remove('chart-loading');
+        box.style.backgroundImage = 'none';
+      }
+    });
+  }
 
   // highlights for this player (M5 payload; fails soft)
   try {

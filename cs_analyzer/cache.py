@@ -23,7 +23,12 @@ _CHUNK_SIZE = 65536
 # 1.5.1: roster side now derived from live in-round team_num majority
 # (warmup/knife-phase spawns no longer define a player's team); added
 # active_weapon_name tick field for the canvas viewer.
-PARSER_VERSION = "1.6.0"
+# 1.6.0: demoparser2 0.42 + active_weapon_ammo/is_in_reload tick fields.
+# 1.7.0: Phase I — inventory tick prop (weapon-held timeline); new bomb
+# events (begindefuse/abortdefuse/dropped/pickup), weapon_zoom,
+# cs_win_panel_match, bullet_impact; empirical tick rate + match_id from
+# filename in metadata.
+PARSER_VERSION = "1.7.0"
 
 
 class DemoCache:
