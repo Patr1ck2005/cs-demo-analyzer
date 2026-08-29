@@ -1,50 +1,69 @@
 @echo off
-chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
 
-rem CsDemoAnalyzer Web æœåŠ¡ä¸€é”®å¯åŠ¨ï¼šåŒå‡»åŽè‡ªåŠ¨èµ·æœåŠ¡å¹¶æ‰“å¼€æµè§ˆå™¨ã€‚
-rem æœåŠ¡å·²åœ¨è¿è¡Œæ—¶åªæ‰“å¼€æµè§ˆå™¨ï¼Œä¸é‡å¤èµ·è¿›ç¨‹ã€‚
-rem ç­‰å¾…ç”¨ ping å®žçŽ°ï¼ˆä¸ä¾èµ– timeout.exeï¼Œé¿å… PATH é®è”½é—®é¢˜ï¼‰ã€‚
+rem CsDemoAnalyzer Web Ò»¼üÆô¶¯£¨Ë«»÷»òÃüÁîÐÐ£©¡£
+rem ÓÃ·¨: start_web.bat [restart]
+rem   restart = ÏÈ½áÊøÒÑÔËÐÐÊµÀýÔÙÆô¶¯¡£¸ÄÁË´úÂëºó¾É½ø³Ì²»»á×Ô¶¯¼ÓÔØÐÂ´úÂë£¬
+rem             ¿´µ½"¹¦ÄÜÃ»±ä»¯"Ê±ÓÃ restart ¼´¿É¡£
+rem ·þÎñÒÑÔËÐÐÇÒÎ´Ö¸¶¨ restart Ê±Ö»´ò¿ªä¯ÀÀÆ÷£¬²»ÖØ¸´Æð½ø³Ì¡£
+rem µÈ´ýÓÃ ping ÊµÏÖ£¨²»ÒÀÀµ timeout.exe£¬±ÜÃâ PATH ÕÚ±ÎÎÊÌâ£©¡£
 
 set PY=D:\Program Files\Python311\python.exe
 set PORT=8000
 
 if not exist "%PY%" (
-  echo [CSA] æœªæ‰¾åˆ° Python: %PY%
+  echo [CSA] Î´ÕÒµ½ Python: %PY%
   pause
   exit /b 1
 )
 
-rem å·²åœ¨è¿è¡Œï¼Ÿ(ç«¯å£ç›‘å¬æ£€æµ‹)
-netstat -ano | findstr /C:":%PORT%" | findstr /C:"LISTENING" >nul 2>&1
-if %errorlevel%==0 (
-  echo [CSA] æœåŠ¡å·²åœ¨è¿è¡Œï¼Œç›´æŽ¥æ‰“å¼€æµè§ˆå™¨...
+set MODE=%~1
+set RUNNING=0
+netstat -ano | findstr /R /C:":%PORT% .*LISTENING" >nul 2>&1
+if not errorlevel 1 set RUNNING=1
+
+set KILL=0
+if /i "%MODE%"=="restart" set KILL=1
+
+rem ÒÑÔÚÔËÐÐÇÒ·Ç restart£ºÖ±½Ó¿ªä¯ÀÀÆ÷×ßÈË
+if "%RUNNING%"=="1" if not "%KILL%"=="1" (
+  echo [CSA] ·þÎñÒÑÔÚÔËÐÐ£¬Ö±½Ó´ò¿ªä¯ÀÀÆ÷...
+  echo [CSA] ¸ÄÁË´úÂëÏë¼ÓÔØÐÂ°æ±¾£¿ÔËÐÐ: start_web.bat restart
   start "" http://127.0.0.1:%PORT%
   ping -n 3 127.0.0.1 >nul
   exit /b 0
 )
 
+rem ½áÊø¶Ë¿ÚÉÏµÄ¾ÉÊµÀý£¨restart »ò¶Ë¿Ú±»Õ¼Ê±£©
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":%PORT% .*LISTENING"') do (
+  echo [CSA] ½áÊø¾É½ø³Ì PID=%%P
+  taskkill /PID %%P /T /F >nul 2>&1
+)
+if "%RUNNING%"=="1" ping -n 3 127.0.0.1 >nul
+
 if not exist output mkdir output
 
-echo [CSA] æ­£åœ¨å¯åŠ¨ CsDemoAnalyzer Web æœåŠ¡ï¼ˆæœ€å°åŒ–çª—å£ï¼Œæ—¥å¿—è§ output\web_server.logï¼‰...
-start "CSA Web" /MIN cmd /c ""%PY%" -m uvicorn cs_analyzer.web.app:app --host 127.0.0.1 --port %PORT% --log-level warning > output\web_server.log 2>&1"
+echo [CSA] ÕýÔÚÆô¶¯ CsDemoAnalyzer Web ·þÎñ£¨×îÐ¡»¯´°¿Ú£¬ÈÕÖ¾¼û output\web_server.log£©...
+start "CSA Web" /MIN cmd /c ""%PY%" -m uvicorn cs_analyzer.web.app:app --host 127.0.0.1 --port %PORT% --log-level info > output\web_server.log 2>&1"
 
-rem ç­‰å¾…ç«¯å£å°±ç»ªï¼ˆæœ€å¤š ~20 ç§’ï¼‰
+rem µÈ´ý¶Ë¿Ú¾ÍÐ÷£¨×î¶à ~75 Ãë£»ÀäÆô¶¯µ¼Èë pandas/numpy ¿ÉÄÜÆ«Âý£©
 set /a tries=0
 :wait
 ping -n 2 127.0.0.1 >nul
-netstat -ano | findstr /C:":%PORT%" | findstr /C:"LISTENING" >nul 2>&1
-if %errorlevel%==0 goto up
+netstat -ano | findstr /R /C:":%PORT% .*LISTENING" >nul 2>&1
+if not errorlevel 1 goto up
 set /a tries+=1
-if %tries% lss 20 goto wait
+if %tries% lss 60 goto wait
 
-echo [CSA] å¯åŠ¨è¶…æ—¶ï¼Œè¯·æŸ¥çœ‹ output\web_server.log
+echo [CSA] Æô¶¯³¬Ê±¡ª¡ªÈÕÖ¾×îºó 15 ÐÐ:
+powershell -NoProfile -Command "Get-Content output\web_server.log -Tail 15" 2>nul
+echo [CSA] ³£¼ûÔ­Òò: ¶Ë¿Ú±»Õ¼ÓÃ / ÒÀÀµÈ±Ê§¡£ÍêÕûÈÕÖ¾: output\web_server.log
 pause
 exit /b 1
 
 :up
-echo [CSA] æœåŠ¡å·²å¯åŠ¨: http://127.0.0.1:%PORT%
+echo [CSA] ·þÎñÒÑÆô¶¯: http://127.0.0.1:%PORT%
 start "" http://127.0.0.1:%PORT%
 ping -n 3 127.0.0.1 >nul
 exit /b 0

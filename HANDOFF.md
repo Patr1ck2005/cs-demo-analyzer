@@ -84,6 +84,7 @@ scripts/probe_ammo.py                                        # 弹药字段探�
 3. **控图算法升级**（用户暂缓）：位置存在性 → 含视线/交战/时间权重。
 4. **预留页填充**（Phase H 占位）：收藏标注 /teams 队伍视图 /map-analysis 地图分析（后端数据已备：aggregate per-map 分组）/utility-lab 道具专题（烟中击杀/闪光价值载荷已就绪）/reports 报告导出。
 5. **可选深化**：aim 模块接 R2 inventory 做武器持有时间线；`_module_cache` 加上限；经济模块接 `is_warmup` 过滤；高光库加"残局失败"类目；KAST 修正后可考虑 Rating 2.1 公式。
+6. **在线发布（用户 2026-08-30 拍板：暂缓，方向已定）**：GitHub Pages 只能托管静态文件（无 Python/Rust 服务端），完整产品上不去；可行路线 = `csa export-static` 静态快照导出（预渲染页面 + viewer-data/图表载荷落静态 JSON + fetch 路径改写 → gh-pages 分支，只读分享版）。**用户已确认：公开仓库 + steamid/昵称匿名化导出**。注意：GitHub 远程仓库名仍是早期项目名 `CS-Radar-Map-Generation`（Patr1ck2005），发布前建议 rename 为 CsDemoAnalyzer。main 已推送至该仓库（60e47c9）。
 
 ## 7. 已验证里程碑（本阶段成果）
 

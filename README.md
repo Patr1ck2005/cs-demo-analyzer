@@ -1,222 +1,178 @@
-# CsDemoAnalyzer
+<div align="center">
 
-Local-first CS2 demo analysis toolkit. Parses `.dem` files into typed intermediate data, computes quantitative stats, and serves a dark analytics web platform with an interactive real-time 2D replay viewer.
+# 🎯 CsDemoAnalyzer
 
-## Features
+**本地优先的 CS2 Demo 分析平台** —— 解析 `.dem`，产出定量统计 + 电竞 OB 级实时 2D 回放
 
-**P0 - Core**
-- Multi-demo parsing with content-addressed cache (JSON + Parquet)
-- Provider abstraction: auto-detects Valve MM / Faceit / Perfect World demos
-- Robust SourceTV handling: roster rebuilt from spawns when `player_info` is absent; T/CT sides from live per-tick `team_num` majority
-- Multi-file upload with content-hash dedup + batch job progress page
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-182_passing-3DDC97)](#)
+[![License](https://img.shields.io/badge/License-MIT-a78bfa)](#license)
+[![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows11&logoColor=white)](#)
+[![ECharts](https://img.shields.io/badge/charts-Apache_ECharts-AA344D?logo=apacheecharts&logoColor=white)](https://echarts.apache.org/)
 
-**P1 - Quantitative Analysis**
-- Basic stats: K/D/A, KPR, ADR, Survivals, HS%, First Kills Per Round
-- Ratings: RWS, HLTV Rating 2.0 approximation, KAST, Impact
-- Player preference: position heatmap, utility placement, peek aggressiveness, crosshair placement
-- Advanced: duel matrix (pairwise win rates), economy buy classification (eco/force/full + win rates), utility effectiveness (flash value, smoke kills), opening route clustering (seeded k-means)
-- Cross-demo aggregation matched by SteamID
+**实时回放 · 控图染色 · 枪法纪律 · 经济博弈 · 下包攻防 · 大数据对比**
 
-**P2 - Local Web Platform**
-- FastAPI + Jinja2 all-Chinese SSR UI (`csa serve`), no node toolchain
-- Demo 库: drag-drop upload, stat strip, dense demo table
-- Demo detail: score hero, sortable player table, ECharts six-axis radar, round timeline deep-linking into the viewer, per-round kill feed
-- Player detail: stat tiles, personal radar, map-position heatmap + utility scatter (ECharts over the official radar PNG)
-- Cross-match aggregation: player×demo Rating matrix, per-player bars, T-side score trends, sortable detail table
-- Charts are pure JSON payloads (`web/chart_data.py`) rendered by vendored Apache ECharts — fully offline, no matplotlib
+![replay](docs/screenshots/replay_hero.gif)
 
-**P3 - Real-Time 2D Replay Viewer (Phase C/E/F)**
-- Esports OB layout: 2D map center, T/CT 5-player panels (name/weapon icon/ammo/HP/armor/reload badge), scoreboard + round clock + bomb countdown
-- Zero prerender wait: viewer-data v3 snapshot pack (8Hz, ~0.73MB gzip) built on first open (<3s)
-- Per-tick ammo + reload windows from demoparser2 0.42 (`active_weapon_ammo`/`is_in_reload`/`weapon_reload`)
-- Camera: mouse-wheel zoom-to-cursor, drag pan, R/double-click reset
-- Advanced overlays (ported from the archived video pipeline): grenade flight arcs + real-duration smoke/fire zones, kill connection lines with headshot accent, muzzle flash + gold tracers (shot yaw from layers v2), blind rings, bomb plant/defuse/explode markers, kill feed widget with weapon icons
-- **Map control (控图)**: real-time territory tinting (Gaussian influence kernels + EMA smoothing) with a switchable pseudo-3D extrusion view, football pitch-control style
-- Zoom LOD: HP ring, ammo counter, weapon-icon badges fade in as you zoom (≥2.5×/≥3×)
-- Overlay toggle toolbar (persisted), tick-domain timeline with side-colored kill dots
-- Round deep links `?round=N&t=S`; real team names from the demo header when present
+*实时回放器：OB 视角 + 轨迹 + 道具/击杀覆盖层 + 买装条（回合 13 实录）*
 
-## Installation
+</div>
+
+---
+
+## 这是什么
+
+把 CS2 比赛录像（`.dem`）变成**可交互的分析平台**：
+
+- **定量视角** —— 评分雷达、对枪矩阵、经济博弈、部位伤害、枪法纪律、下包攻防、武器拆分
+- **空间-时间视角** —— 电竞转播级 2D 实时回放：相机缩放平移、道具弧线、枪线曳光、控图染色、伪 3D 视图
+- **大数据对比** —— 个体 vs 全库基线（≥5 场样本）的分位对比，不是两两 PK
+- 全部本地运行，**不需要任何在线服务**；浏览器打开 `http://127.0.0.1:8000` 即用
+
+## 界面一览
+
+### 📺 实时回放器
+![回放器](docs/screenshots/replay_viewer.png)
+
+电竞 OB 布局：中央 2D 地图 + 两侧选手面板（武器图标/弹药/血甲/换弹徽标），比分板 + 回合时钟 + 炸弹倒计时。
+相机缩放至光标/拖拽平移；道具飞行弧、烟/火真实时长区域、枪线曳光、闪光环、下包/拆弹/爆炸标记；
+**控图染色**（高斯影响核 + EMA 平滑）与**伪 3D 挤出视图**一键切换；缩放 LOD 逐级浮现血量环/弹药/武器徽章。
+点击任一选手**镜头跟随聚焦**，其余选手自动变暗。
+
+### 🧩 回合重叠（回放器子模式）
+工具条「重叠」一键切换：同半场全部回合按相同相对时刻叠加，暖色 = T 方 / 冷色 = CT 方，
+编号跨回合锚定选手身份——开局路线、默认站位、重复决策一目了然。
+
+### 📊 对局详情 · 六 Tab
+| 概览 | 击杀 |
+| :---: | :---: |
+| ![概览](docs/screenshots/match_overview.png) | ![击杀](docs/screenshots/tab_kills.png) |
+| **经济** | **路线 + 下包攻防** |
+| ![经济](docs/screenshots/tab_economy.png) | ![路线](docs/screenshots/tab_routes.png) |
+
+- **击杀**：逐杀情境徽章（穿墙/穿烟/盲狙/空中/爆头）+ 武器分布环图 + 部位伤害堆叠条 + 对枪矩阵
+- **经济**：每回合消费按买法（eco/强起/长枪）标注、各买法胜率、连败追踪
+- **路线**：开局轨迹 k-means 聚类（T/CT 双方），下包后攻防四卡（守包率/拆弹率/尝试/用时）
+- **战术**：开火→击杀转化率、移动/开镜/蹲下开火占比、首发延迟、武器类别拆分
+
+### 📈 跨场生涯与大数据对比
+| 生涯页 | 对比页 |
+| :---: | :---: |
+| ![生涯](docs/screenshots/player_career.png) | ![对比](docs/screenshots/compare.png) |
+
+生涯页聚合每位选手的全部场次（雷达/趋势/单场热力图/个人高光）；对比页基于 ≥5 场有效样本计算
+全库**百分位分位**，可勾选多名选手雷达叠加。
+
+## 快速开始
 
 ```bash
-# Requires Python 3.11+ (no ffmpeg needed — there is no server-side rendering)
+# Python 3.11+（无需 ffmpeg —— 没有任何服务端渲染）
 pip install -e .
-
-# Or with dev dependencies
-pip install -e ".[dev]"
 ```
 
-## Quick Start
+**最省事**：双击仓库根目录 **`start_web.bat`** —— 自动起服务并打开浏览器。
 
-最省事的方式：双击仓库根目录的 **`start_web.bat`**（自动起服务 + 打开浏览器；重复点击只开浏览器不会重复起进程），**`stop_web.bat`** 一键关闭。
+| 命令 | 说明 |
+| :--- | :--- |
+| `start_web.bat` | 启动服务 + 开浏览器（已在运行则只开浏览器） |
+| `start_web.bat restart` | **改了代码后用这个**：结束旧进程并加载新代码 |
+| `stop_web.bat` | 一键关闭服务 |
+
+或手动：
 
 ```bash
-# Show demo metadata (quick, no full parse)
-csa info path/to/demo.dem
-
-# Parse a demo (cached for reuse)
-csa parse path/to/demo.dem
-
-# Run analysis and show stats tables
-csa analyze path/to/demo.dem
-
-# Parse-coverage HTML report (which demos/players are fully replayable)
-csa coverage "demos/*.dem" --out output/coverage/coverage.html
-
-# Run the local web platform (open http://127.0.0.1:8000 in a browser)
-csa serve
+csa serve                          # 本地平台 → http://127.0.0.1:8000
+csa info path/to/demo.dem          # 看 demo 元信息
+csa parse path/to/demo.dem         # 解析并缓存
+csa analyze path/to/demo.dem       # 终端输出统计表
+csa coverage "demos/*.dem" --out report.html   # 解析覆盖度报告
 ```
 
-## CLI Commands
+然后把 `.dem` 拖进网页上传（支持多文件、内容哈希去重），或直接放入 `demos/` 目录。
 
-| Command | Description |
-| :--- | :--- |
-| `csa info <demo>` | Show demo metadata (map, server, provider) |
-| `csa parse <demo>` | Parse demo, cache result (JSON + Parquet) |
-| `csa analyze <demo>` | Run analysis modules, print stats tables |
-| `csa coverage [DEMOS...] [--out html]` | Scan parse coverage -> HTML report (Team 0 / replayability) |
-| `csa serve [--host X --port Y]` | Run the local web platform (FastAPI, browser UI) |
+## 功能全景
 
-Global options: `--config <path>`, `--verbose`, `--provider <valve|faceit|...>`
+**解析层**
+- demoparser2（Rust）+ Provider 自动识别（Valve MM / Faceit / Perfect World / 5E）
+- 内容寻址缓存（JSON + Parquet），重复分析 <1s
+- SourceTV 容错：无 `player_info` 时从 spawn 重建名单；阵营以逐 tick `team_num` 多数派为真值（换边安全）
+- 经验 tick rate 推导（velocity ÷ 位移中位数），match_id 自动提取
 
-The legacy matplotlib/manim video pipeline (replay videos, radar video, ffmpeg compositing, recipes, /studio) was retired in Phase E. Its capability catalog and the overlay porting spec live in [docs/video_pipeline_archive.md](docs/video_pipeline_archive.md).
+**定量分析（13 个可插拔模块）**
+- 基础：K/D/A、KPR、ADR、HS%、首杀/首死率
+- 评分：RWS、HLTV Rating 2.0 近似、KAST（标准 trade 语义）、Impact
+- 进阶：对枪矩阵、经济买法分类与胜率、闪光价值 + 闪光助攻、烟中击杀、开局路线聚类（T/CT）、
+  多杀/残局高光库、击杀情境徽章、部位伤害 + 护甲效率、枪法纪律、下包攻防、武器拆分
 
-## Configuration
+**实时回放器**
+- viewer-data 快照包（8Hz，gzip ~0.7MB）首次打开 <3s 构建
+- 逐 tick 弹药/换弹（demoparser2 0.42）、枪口焰 + 曳光、缩放 LOD
+- 控图实时染色 + 伪 3D（帧预算 p95 0.2ms）
+- **⚙ 视觉参数调节面板**：19 个渲染参数滑杆实时可调，保存后可固化为新默认
+- 买装条：回合前 20 秒显示双方购枪配置
 
-```yaml
-parser:
-  provider: null  # null = auto-detect
+## 界面语言与兼容性
 
-analysis:
-  enabled_modules:
-    - basic_stats
-    - ratings
-```
+全中文界面。已端到端验证：**Valve SourceTV** 测试 demo 与 **完美世界 (WMPVP)** SourceTV 真实对局
+（后者无 `player_info` 表、事件列表缺项——引擎已自动容错）。
 
-See [configs/default.yaml](configs/default.yaml) for all options.
+已知限制：个别 SourceTV 广播中某些玩家的 pawn 实体无法解析（Team 0）——位置类分析跳过该玩家，
+统计与击杀数据仍完整；`bomb_exploded` 事件部分广播缺失（客户端已按回合边界容错）。
 
-## Demo 兼容性
-
-已用以下类型的真实 `.dem` 端到端验证：
-- **Valve SourceTV**（`tutorial/` 内测试 demo，勿删——测试 fixture 依赖）
-- **完美世界平台 (WMPVP)** SourceTV：此类 demo 无 `player_info` 表和 `round_start/round_end` 事件列表项，引擎自动从 `player_spawn` 重建名单、兼容字符串 winner。
-
-已知限制：个别 SourceTV demo 中某些玩家的 pawn 实体无法解析（Team 0）——位置类分析跳过该玩家，统计与击杀数据仍完整。
-
-## Architecture
+## 架构
 
 ```
 .dem file
     │
     ▼
 [Parser] ── demoparser2 + Provider ──> ParsedDemo (DemoData + DataFrames)
-    │                                      │
-    │                                      ▼
-    │                            .cache/{hash}/ (JSON + Parquet)
+    │                                    │
+    │                                    ▼
+    │                          .cache/{hash}/ (JSON + Parquet)
+    ▼
+[Analysis] ── 可插拔模块（拓扑排序 + 惰性 memo）──> typed AnalysisResult
     │
     ▼
-[Analysis] ── pluggable modules ──> typed AnalysisResult (JSON-serializable)
-    │
-    ▼
-[Web] ── FastAPI + Jinja2 SSR ──> browser rendering
-    ├── viewer-data v2 JSON  ──> canvas replay viewer (camera + overlays)
-    └── charts.json payloads ──> vendored Apache ECharts (dark theme)
+[Web] ── FastAPI + Jinja2 SSR ──> 浏览器渲染
+    ├── viewer-data v3 JSON  ──> canvas 回放器（相机/覆盖层/控图/买装条）
+    └── charts.json 载荷     ──> vendored Apache ECharts（全离线暗色主题）
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
+完整设计文档见 [ARCHITECTURE.md](ARCHITECTURE.md)，阶段历史见 [HANDOFF.md](HANDOFF.md) 与 [dev_log.md](dev_log.md)。
 
-### Layers
+### 分析模块
 
-| Layer | Responsibility | Key files |
-| :--- | :--- | :--- |
-| Parser | `.dem` -> typed data | `cs_analyzer/parser/` |
-| Model | Pydantic models + serialization | `cs_analyzer/model/` |
-| Analysis | Pluggable metric modules | `cs_analyzer/analysis/` |
-| Web | SSR pages + JSON data endpoints | `cs_analyzer/web/` |
-
-### Analysis Modules
-
-| Module | Output | Description |
-| :--- | :--- | :--- |
-| `basic_stats` | `BasicStatsResult` | K/D/A, KPR, ADR, HS%, FKPR |
-| `ratings` | `RatingsResult` | RWS, Rating 2.0, KAST, Impact |
-| `preference` | `PreferenceResult` | Position heatmap, utility, peek, crosshair |
-| `duels` | `DuelMatrixResult` | Pairwise attacker-vs-victim kill matrix |
-| `economy` | `EconomyResult` | Per-round eco/force/full buy classification + win rates |
-| `utility_effect` | `UtilityEffectResult` | Flash value (enemy/friendly blind seconds), smoke kills |
-| `routes` | `OpeningRouteResult` | Opening path clustering (seeded k-means, T side) |
-
-## Caching
-
-Parsed demos are cached by content hash under `.cache/{demo_hash}/`:
-
-```
-.cache/
-├── {hash}/
-│   ├── model.json          # DemoData (metadata, players, rounds)
-│   ├── ticks.parquet       # per-tick player state
-│   └── events/
-│       ├── player_death.parquet
-│       ├── player_hurt.parquet
-│       └── ...
-```
-
-Re-running analysis on the same demo hits cache (< 1s). Use `--no-cache` to force re-parse.
-
-## Map Resources
-
-Each map needs a radar image + coordinate bounds in `cs_analyzer/maps/data/`:
-
-```yaml
-# de_mirage.yaml
-map_name: de_mirage
-image_width: 1024
-image_height: 1024
-bounds: {min_x: -3230, max_x: 1890, min_y: -3407, max_y: 1713}
-```
-
-The PNG backs the viewer basemap and the ECharts map-position charts. Without it, the viewer falls back to a dark canvas with percentile-derived bounds.
-
-## Provider Detection
-
-| Provider | Detection hint |
+| 模块 | 输出 |
 | :--- | :--- |
-| Faceit | "faceit" in server/client name |
-| Perfect World | "perfect" / "完美" / "5eplay" in header |
-| Valve | "valve" in server/client name (fallback) |
+| `basic_stats` | K/D/A、KPR、ADR、HS%、FKPR/FDPR |
+| `ratings` | RWS、Rating 2.0、KAST、Impact |
+| `preference` | 位置热力、道具落点、接敌风格、准星高度 |
+| `duels` | 选手 × 选手对枪胜率矩阵 |
+| `economy` | 逐回合 eco/force/full 分类 + 各买法胜率 + 连败 |
+| `utility_effect` | 闪光价值榜、闪光助攻、烟中击杀/死亡 |
+| `routes` | 开局路线聚类（种子化 k-means，T/CT 双方） |
+| `highlights` | 多杀 2K-ACE、残局 1vN、ACE 高光库 |
+| `kill_context` | 穿墙/穿烟/盲狙/空中/距离徽章、MVP、捡枪 |
+| `hitgroups` | 部位伤害分布、护甲减伤效率 |
+| `aim` | 开火转化、移动状态开火、首发延迟 |
+| `postplant` | 守包/retake 胜率、拆弹尝试与用时 |
+| `weapon_splits` | 武器类别击杀/死亡拆分 |
 
-Override with `--provider faceit` or `parser.provider` in config.
+## 缓存
 
-## RWS and Rating Notes
+按内容哈希缓存于 `.cache/{demo_hash}/`（`model.json` + `ticks.parquet` + `events/*.parquet`），
+同一 demo 重复分析 <1s；解析器版本升级自动失效重解析。
 
-RWS and Rating are approximations of proprietary metrics:
-- **RWS**: Round Win Shares computed as damage share in won rounds (ESEA-style formula)
-- **Rating**: HLTV Rating 2.0 approximation using KAST, KPR, DPR, Impact, ADR
+## RWS / Rating 说明
 
-External platforms compute these differently; values are close but not identical.
+RWS 与 Rating 为自实现的专有公式近似（HLTV 2.0 / ESEA RWS 风格），与外部平台数值接近但不完全一致。
 
-## Development
+## 开发
 
 ```bash
 pip install -e ".[dev]"
-pytest
+pytest                    # 182 tests
 ruff check cs_analyzer/
-```
-
-## Project Structure
-
-```
-cs_analyzer/
-├── parser/          # .dem parsing + provider abstraction
-├── model/           # pydantic models + JSON/Parquet IO
-├── analysis/        # pluggable metric modules
-├── replay/          # PlayerTimeline (real utility durations, throw reconstruction)
-├── maps/            # radar images + coordinate mappings
-├── web/             # FastAPI app, templates, static (canvas viewer + ECharts)
-├── coverage.py      # parse-coverage scanner + HTML report
-├── cli.py           # typer CLI (parse/analyze/coverage/serve/info)
-├── cache.py         # content-addressed cache
-└── config.py        # pydantic settings
 ```
 
 ## License
