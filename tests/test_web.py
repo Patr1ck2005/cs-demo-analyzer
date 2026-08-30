@@ -90,6 +90,52 @@ def test_viewer_js_path_contract() -> None:
     assert not (static / "viewer_overlap.js").exists()
 
 
+def test_viewer_k2_overlap_ui_contract() -> None:
+    """Phase K2: overlap sub-mode UI — segmented mode switcher, round grid,
+    formation-metrics phase chart, pattern clusters, focus deviation readout."""
+    web_dir = Path(web_app.__file__).parent
+    canvas = (web_dir / "static" / "viewer_canvas.js").read_text(encoding="utf-8")
+    # K2e: segmented mode switcher replaces the single overlap chip
+    assert "ob-mode-switch" in canvas
+    assert 'data-mode="overlap"' in canvas
+    # K2a: round grid with explicit selection; empty = all; quick filters
+    assert "ovRounds" in canvas
+    assert "effectiveOvSegs" in canvas
+    assert "buildOvRoundStrip" in canvas
+    assert "ovr-first4" in canvas
+    # K2b: formation metrics phase chart (spread + centroid gap + cursor)
+    assert "drawOvMetrics" in canvas
+    assert "computeOvMetrics" in canvas
+    # K2c: deterministic k-means pattern clusters recolor chips + trails
+    assert "computeOvClusters" in canvas
+    assert "CLUSTER_COLORS" in canvas
+    # K2d: focused-player deviation readout next to the phase bar
+    assert "ov-focus-dev" in canvas
+    # template carries the new overlap chrome
+    tpl = (web_dir / "templates" / "replay_viewer.html").read_text(encoding="utf-8")
+    for token in ("ov-rounds-bar", "ov-rounds-count", "ov-metrics-wrap", "ov-focus-dev",
+                  "ov-controls", "ov-play"):
+        assert token in tpl, token
+    # styles ship for the new components
+    css = (web_dir / "static" / "style.css").read_text(encoding="utf-8")
+    for token in (".ob-mode-switch", ".ov-rounds-bar", ".ov-metrics-wrap", ".chip-sm",
+                  ".ov-controls"):
+        assert token in css, token
+    # K2 acceptance fixes: the pan/dblclick gesture guards must exempt the
+    # overlap controls (dragging the phase slider used to pan the map), and a
+    # play button lives in the phase bar
+    canvas = canvas  # already read above
+    assert ".ob-toolbar, .ov-controls" in canvas
+    assert "ovRenderSig" in canvas          # static-state redraw skip
+    assert "lastOverlapSig" in canvas
+    # halves split at the SIDE SWAP (starting-T roster majority), not n/2
+    assert "ovHalfGroupsOf" in canvas
+    assert "sideFirst === 'T'" in canvas
+    # [hidden] must beat component display rules (buy-strip leaked through in
+    # overlap mode when a replay session had populated it first)
+    assert "[hidden] { display: none !important; }" in css
+
+
 def test_overlap_route_serves_replay_viewer(web_client) -> None:
     """Phase J: /match/{h}/overlap renders the replay viewer (sub-mode deep
     link), not a separate page."""
@@ -282,11 +328,12 @@ def test_viewer_layers_route(web_client) -> None:
     r = c.get(f"/api/demo/{h}/viewer-layers?with=shots,economy")
     assert r.status_code == 200
     data = r.json()
-    assert data["layer_version"] == 2  # v2: shots carry shooter yaw
+    # v3: economy rounds rebuilt on warmup-free round spans (PARSER 1.8.0)
+    assert data["layer_version"] == 3
     assert "shots" in data and "economy" in data and "weapon_table" in data
     r2 = c.get(f"/api/demo/{h}/viewer-layers?with=shots")
     assert r2.status_code == 200
-    assert r2.json()["layer_version"] == 2
+    assert r2.json()["layer_version"] == 3
 
 
 def test_maps_route(web_client) -> None:

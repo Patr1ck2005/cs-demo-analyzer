@@ -39,6 +39,9 @@
 
 /* ============================= base ============================= */
 * { box-sizing: border-box; }
+/* the hidden attribute must always win over component display rules —
+   JS toggles [hidden] all over the viewer (buy-strip/kill-feed phase J+K2) */
+[hidden] { display: none !important; }
 html { color-scheme: dark; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
@@ -248,6 +251,7 @@ tr.row-link { cursor: pointer; }
         border-radius: 999px; padding: 3px 11px; font-size: var(--fs-xs); font-weight: 600;
         cursor: pointer; user-select: none; font-family: var(--font-ui);
         transition: color .15s, border-color .15s, box-shadow .18s, background .15s; }
+.chip-sm { padding: 2px 8px; font-size: 11px; }
 .chip:hover { color: var(--text); border-color: var(--accent); }
 .chip.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft);
            box-shadow: 0 0 10px rgba(167, 139, 250, .28); }
@@ -594,12 +598,78 @@ tr.low-sample td { opacity: .55; }
 .bs-spend { font-style: normal; font-size: 9.5px; color: var(--muted);
             font-family: var(--font-mono); }
 
-/* Phase J: in-viewer overlap sub-mode — phase bar over the map bottom */
-.ov-phase-bar { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
-                display: flex; align-items: center; gap: 8px; z-index: 6;
-                background: rgba(10, 10, 18, .78); border: 1px solid var(--line);
-                border-radius: var(--r-md); padding: 5px 12px; backdrop-filter: blur(4px); }
+/* Phase K2: overlap bottom control stack — ONE wrapper so the round grid and
+   the phase bar can never overlap each other (user-reported K2 defect). */
+.ov-controls { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+               display: flex; flex-direction: column; align-items: center; gap: 6px;
+               z-index: 6; max-width: 96%; pointer-events: none; }
+.ov-controls[hidden] { display: none; }
+.ov-controls > div { pointer-events: auto; }
+
+/* Phase J: in-viewer overlap sub-mode — phase bar (inside .ov-controls) */
+.ov-phase-bar { display: flex; align-items: center; gap: 10px;
+                background: rgba(12, 12, 22, .88); border: 1px solid rgba(167, 139, 250, .45);
+                box-shadow: 0 0 14px rgba(167, 139, 250, .22), 0 4px 16px rgba(0, 0, 0, .45);
+                border-radius: var(--r-md); padding: 7px 14px; backdrop-filter: blur(6px); }
 .ov-phase-bar[hidden] { display: none; }
 .ov-phase-bar .chip { min-width: 58px; text-align: center; }
-.ov-phase-bar input[type=range] { width: 240px; accent-color: var(--accent); }
-.ov-phase-bar .ovp-phase-val { min-width: 42px; text-align: right; }
+.ov-phase-bar .chip.ov-play { min-width: 76px; color: var(--accent); border-color: var(--accent);
+                              font-weight: 700; }
+.ov-phase-bar .chip.ov-play.on { color: #08080f; background: linear-gradient(135deg, #c4b5fd, #8b5cf6); }
+.ov-phase-bar input[type=range] { width: 300px; accent-color: var(--accent); height: 4px; }
+.ov-phase-bar .ovp-phase-val { min-width: 46px; text-align: right; font-size: var(--fs-sm);
+                               font-weight: 600; font-family: var(--font-mono); }
+.ov-phase-bar .ov-focus-dev { font-size: var(--fs-xs); color: var(--accent);
+                              font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+                              border-left: 1px solid var(--line); padding-left: 10px;
+                              white-space: nowrap; }
+.ov-phase-bar .ov-focus-dev[hidden] { display: none; }
+
+/* Phase K2: toolbar mode switcher (replay | overlap) — segmented control */
+.ob-mode-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 999px;
+                  overflow: hidden; background: rgba(255, 255, 255, .03); }
+.ob-mode-switch button { border: 0; background: transparent; color: var(--muted);
+                         font: inherit; font-size: var(--fs-xs); font-weight: 600;
+                         padding: 4px 12px; cursor: pointer; letter-spacing: .04em; }
+.ob-mode-switch button + button { border-left: 1px solid var(--line); }
+.ob-mode-switch button.on { color: #08080f; background: linear-gradient(135deg, #c4b5fd, #8b5cf6); }
+.ob-mode-switch button:not(.on):hover { color: var(--text); }
+
+/* Phase K2a: overlap round grid — horizontal scrolling chip strip (inside
+   .ov-controls, above the phase bar) */
+.ov-rounds-bar { display: flex; align-items: center; gap: 8px; max-width: 100%;
+                 background: rgba(12, 12, 22, .88); border: 1px solid var(--line);
+                 border-radius: var(--r-md); padding: 5px 12px; backdrop-filter: blur(6px); }
+.ov-rounds-bar[hidden] { display: none; }
+.ov-rounds { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin;
+             padding: 1px 0; }
+.ov-rounds .chip { min-width: 36px; text-align: center; flex: none; position: relative;
+                   font-family: var(--font-mono); font-size: 11px; }
+.ov-rounds .chip.off { opacity: .3; }
+/* winner-side corner tick (legacy overlap-page semantics) */
+.ov-rounds .chip.rs-t::after, .ov-rounds .chip.rs-ct::after {
+  content: ''; position: absolute; top: 0; right: 0; width: 0; height: 0;
+  border-style: solid; }
+.ov-rounds .chip.rs-t::after { border-width: 0 7px 7px 0; border-color: transparent var(--t) transparent transparent; }
+.ov-rounds .chip.rs-ct::after { border-width: 0 7px 7px 0; border-color: transparent var(--ct) transparent transparent; }
+/* K2c: pattern-cluster coloring overrides the corner with a full border tint */
+.ov-rounds .chip.clu-0 { border-color: #a78bfa; color: #c4b5fd; }
+.ov-rounds .chip.clu-1 { border-color: #f472b6; color: #f9a8d4; }
+.ov-rounds .chip.clu-2 { border-color: #2dd4bf; color: #5eead4; }
+.ov-rounds-quick { display: flex; gap: 4px; flex: none; }
+.ov-rounds-quick .chip { min-width: 40px; text-align: center; font-size: 11px; }
+.ov-rounds-count { font-size: var(--fs-xs); color: var(--muted); flex: none;
+                   font-family: var(--font-mono); min-width: 64px; text-align: right; }
+
+/* Phase K2b: formation metrics mini-chart (overlap mode, replaces timeline) */
+.ov-metrics-wrap { margin: 10px 0 2px; }
+.ov-metrics-wrap[hidden] { display: none; }
+#ov-metrics { width: 100%; height: 110px; display: block; border: 1px solid var(--line);
+              border-radius: 6px; background: rgba(255, 255, 255, .02); cursor: crosshair; }
+.ovm-legend { display: flex; gap: 14px; align-items: center; margin-top: 4px;
+              font-size: var(--fs-xs); color: var(--muted); }
+.ovm-legend .ln { display: inline-block; width: 16px; height: 2px; border-radius: 1px;
+                  vertical-align: 3px; margin-right: 4px; }
+.ovm-legend .ln-spread { background: #a78bfa; }
+.ovm-legend .ln-gap { background: #3ddc97; }
+.ovm-legend .sub { margin-left: auto; }

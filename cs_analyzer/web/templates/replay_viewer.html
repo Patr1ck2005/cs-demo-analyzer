@@ -23,13 +23,28 @@
       <canvas id="main-layer"></canvas>
       <ul class="kill-feed" id="kill-feed"></ul>
       <div class="buy-strip" id="buy-strip" hidden></div>
-      <!-- overlap mode: half toggles + phase slider (hidden in replay mode) -->
-      <div class="ov-phase-bar" id="ov-phase-bar" hidden>
-        <button class="chip on" id="ov-half-1" type="button">上半场</button>
-        <button class="chip" id="ov-half-2" type="button">下半场</button>
-        <span class="ovp-label">相位</span>
-        <input type="range" id="ov-phase" min="0" max="1150" value="150">
-        <span class="ovp-phase-val" id="ov-phase-val">0:15</span>
+      <!-- overlap mode: single bottom control stack (K2a/K2e; never overlaps
+           itself — rounds grid above, phase bar below, both in one wrapper) -->
+      <div class="ov-controls" id="ov-controls" hidden>
+        <div class="ov-rounds-bar" id="ov-rounds-bar">
+          <span class="ovp-label">回合</span>
+          <div class="ov-rounds" id="ov-rounds"></div>
+          <div class="ov-rounds-quick">
+            <button class="chip chip-sm" id="ovr-all" type="button">全选</button>
+            <button class="chip chip-sm" id="ovr-clear" type="button">清空</button>
+            <button class="chip chip-sm" id="ovr-first4" type="button">前4</button>
+          </div>
+          <span class="ov-rounds-count" id="ov-rounds-count"></span>
+        </div>
+        <div class="ov-phase-bar" id="ov-phase-bar">
+          <button class="chip ov-play" id="ov-play" type="button">▶ 播放</button>
+          <button class="chip on" id="ov-half-1" type="button">上半场</button>
+          <button class="chip" id="ov-half-2" type="button">下半场</button>
+          <span class="ovp-label">相位</span>
+          <input type="range" id="ov-phase" min="0" max="1150" value="150">
+          <span class="ovp-phase-val" id="ov-phase-val">0:15</span>
+          <span class="ov-focus-dev" id="ov-focus-dev" hidden></span>
+        </div>
       </div>
       <div class="ob-toolbar" id="ob-toolbar">
         <button class="chip" id="prefs-btn" type="button" title="视觉参数调节面板">⚙ 调节</button>
@@ -38,6 +53,15 @@
     <div class="tl-wrap" id="tl-wrap">
       <canvas id="tl-canvas"></canvas>
       <div class="tl-tip" id="tl-tip"></div>
+    </div>
+    <!-- K2b: formation metrics across the shared phase (overlap mode only) -->
+    <div class="ov-metrics-wrap" id="ov-metrics-wrap" hidden>
+      <canvas id="ov-metrics"></canvas>
+      <div class="ovm-legend">
+        <span><i class="ln ln-spread"></i>全体散开度</span>
+        <span><i class="ln ln-gap"></i>T/CT 重心间距</span>
+        <span class="sub">拖动设置相位 · 纵轴 u（1u≈0.019m）</span>
+      </div>
     </div>
     <div class="viewer-controls">
       <button class="btn btn-ghost" id="btn-play">播放</button>

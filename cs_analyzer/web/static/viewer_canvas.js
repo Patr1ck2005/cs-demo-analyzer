@@ -30,7 +30,7 @@
   let D = null;            // viewer-data payload
   let mapImg = null;       // Image
   let totalTicks = 1;      // timeline span
-  const TOGGLE_DEFAULTS = { trails: true, kills: true, nades: true, shots: false, blinds: true, bombs: true, control: false, ctrl3d: false, buys: true };
+  const TOGGLE_DEFAULTS = { trails: true, kills: true, nades: true, shots: false, blinds: true, bombs: true, control: false, ctrl3d: false, buys: true, ovpatterns: false };
   const state = {
     playing: false,
     tick: 0,
@@ -43,6 +43,7 @@
     overlap: false,        // Phase J: overlap sub-mode (rounds superimposed)
     ovPhase: 0.15,         // round-relative phase 0..1 in overlap mode
     ovHalf: 1,             // 1 = first half, 2 = second half
+    ovRounds: new Set(),   // K2a: explicitly included rounds; EMPTY = all shown
   };
   try { // restore persisted overlay toggles
     const saved = JSON.parse(localStorage.getItem('csa-viewer-toggles') || '{}');
@@ -200,8 +201,8 @@
     let fxTick = tick;
     let seg = segOfTick(tick);
     if (state.overlap) {
-      const segs = ovHalfRounds(state.ovHalf);
-      const span = segs.length ? Math.max(segs[0].end_tick - segs[0].start_tick - 2, 1) : 1;
+      const segs = effectiveOvSegs();   // K2a: honor the round-grid filter
+      const span = ovSpanOf(segs);
       fxTick = state.ovPhase * span;
       seg = null; // cross-round synthetic stream — bomb clamping not applicable
       const rel = (arr) => {
@@ -359,9 +360,111 @@
   // live-side coloring, ghost dimming, focus tracking. ----
   const OV_T_PALETTE = ['#ffd54f', '#ffb02e', '#ff8f00', '#ff7043', '#f4511e'];
   const OV_CT_PALETTE = ['#81d4fa', '#3d9bff', '#00bcd4', '#0288d1', '#1565c0'];
+  // Halves are NOT half-of-count (the naive ceil(n/2) split put MR12 rounds
+  // 9-12 into "half 2" — user-caught). The real split is the side swap:
+  // classify each segment by where the STARTING-T roster actually plays that
+  // round — majority on T = first half, majority on CT = second half.
+  // (Overtime alternates per pair of rounds after 24; this library has none.)
+  let ovHalfGroups = null;  // [[firstHalfSegs], [secondHalfSegs]]
+  function ovHalfGroupsOf() {
+    if (ovHalfGroups) return ovHalfGroups;
+    const starters = players.filter((p) => p.sideFirst === 'T');
+    const groups = [[], []];
+    for (const s of D.segments) {
+      const mid = s.start_tick + (s.end_tick - s.start_tick) / 2;
+      let onT = 0, onCT = 0;
+      for (const p of starters) {
+        const st = playerStateAt(p, mid);
+        if ((SIDE_NAME[p.rows.side[st.i]] || '') === 'CT') onCT++;
+        else onT++;
+      }
+      groups[onCT > onT ? 1 : 0].push(s);
+    }
+    ovHalfGroups = groups;
+    return groups;
+  }
   function ovHalfRounds(half) {
-    const cut = Math.ceil(D.segments.length / 2);
-    return D.segments.filter((s) => (half === 1 ? s.round <= cut : s.round > cut));
+    return ovHalfGroupsOf()[half === 2 ? 1 : 0];
+  }
+  /** K2a: rounds of the current half AFTER the round-grid filter.
+   *  Empty selection = every round (legacy overlap-page semantics). */
+  function effectiveOvSegs() {
+    const segs = ovHalfRounds(state.ovHalf);
+    if (!state.ovRounds.size) return segs;
+    return segs.filter((s) => state.ovRounds.has(s.round));
+  }
+  function ovSpanOf(segs) {
+    return segs.length ? Math.max(segs[0].end_tick - segs[0].start_tick - 2, 1) : 1;
+  }
+  // K2c: opening-route pattern clusters (pure-JS k-means, deterministic)
+  const CLUSTER_COLORS = ['#a78bfa', '#f472b6', '#2dd4bf'];
+  let ovClusterCache = { key: null, assign: new Map() };
+  function computeOvClusters() {
+    // Feature: the ATTACKING (T-side) team-centroid path — 6 samples over the
+    // opening phase 0..0.3 of each round (live side, so halftime swaps work).
+    const segs = ovHalfRounds(state.ovHalf);
+    const feats = segs.map((seg) => {
+      const pts = [];
+      for (let k = 0; k < 6; k++) {
+        const tick = seg.start_tick + (0.3 * k) / 5 * (seg.end_tick - seg.start_tick);
+        let sx = 0, sy = 0, n = 0;
+        for (const p of players) {
+          const st = playerStateAt(p, tick);
+          if (!st.alive) continue;
+          if ((SIDE_NAME[p.rows.side[st.i]] || '') !== 'T') continue;
+          sx += st.x; sy += st.y; n++;
+        }
+        pts.push(n ? [sx / n, sy / n] : [0, 0]);
+      }
+      return pts.flat();
+    });
+    const assign = new Map();
+    if (!feats.length) { ovClusterCache = { key: state.ovHalf, assign }; return assign; }
+    const dist2 = (a, b) => a.reduce((s, v, i) => s + (v - b[i]) * (v - b[i]), 0);
+    const kMeans = (k) => {
+      // deterministic farthest-first init (fixed seed semantics — no RNG)
+      const cent = [feats[0].slice()];
+      while (cent.length < k) {
+        let best = 0, bestD = -1;
+        for (let i = 0; i < feats.length; i++) {
+          const d = Math.min(...cent.map((c) => dist2(feats[i], c)));
+          if (d > bestD) { bestD = d; best = i; }
+        }
+        cent.push(feats[best].slice());
+      }
+      const lab = new Array(feats.length).fill(0);
+      for (let it = 0; it < 12; it++) {
+        let moved = false;
+        for (let i = 0; i < feats.length; i++) {
+          let bi = 0, bd = Infinity;
+          for (let c = 0; c < cent.length; c++) {
+            const d = dist2(feats[i], cent[c]);
+            if (d < bd) { bd = d; bi = c; }
+          }
+          if (lab[i] !== bi) { lab[i] = bi; moved = true; }
+        }
+        for (let c = 0; c < cent.length; c++) {
+          const members = feats.filter((_, i) => lab[i] === c);
+          if (!members.length) continue;
+          cent[c] = members[0].map((_, dim) => members.reduce((s, f) => s + f[dim], 0) / members.length);
+        }
+        if (!moved && it > 0) break;
+      }
+      const inertia = feats.reduce((s, f, i) => s + dist2(f, cent[lab[i]]), 0);
+      return { lab, inertia };
+    };
+    const k2 = kMeans(2), k3 = kMeans(3);
+    // elbow: k=3 only pays for itself when inertia drops substantially
+    const useK3 = k2.inertia > 0 && k3.inertia / k2.inertia < 0.55 && feats.length >= 6;
+    const pick = useK3 ? k3 : k2;
+    segs.forEach((s, i) => assign.set(s.round, pick.lab[i] % CLUSTER_COLORS.length));
+    ovClusterCache = { key: state.ovHalf, assign };
+    return assign;
+  }
+  function clusterOfRound(round) {
+    if (ovClusterCache.key !== state.ovHalf) computeOvClusters();
+    const c = ovClusterCache.assign.get(round);
+    return (c == null) ? 0 : c;
   }
   function drawOverlapLayer() {
     const wrap = document.querySelector('.ob-map-wrap');
@@ -370,14 +473,57 @@
     if (!D) return;
     const ms = markerScale();
     const windowT = 6 * D.tick_rate;
-    const segs = ovHalfRounds(state.ovHalf);
-    const span = segs.length ? Math.max(segs[0].end_tick - segs[0].start_tick - 2, 1) : 1;
+    const segs = effectiveOvSegs();          // K2a: round-grid filter
+    const span = ovSpanOf(segs);
     const phaseTick = state.ovPhase * span;
     const SIDE_NAME = ['T', 'CT', ''];
     const ghostA = window.ViewerPrefs ? ViewerPrefs.get('overlap.ghost_alpha') : 0.14;
     const breakDist = window.ViewerPrefs ? ViewerPrefs.get('overlap.break_dist') : 300;
+    const usePatterns = !!state.toggles.ovpatterns && segs.length > 1;
+
+    // K2d: focused player vs own-side centroid deviation lines (violet, faint)
+    let devSum = 0, devN = 0;
+    if (state.focusSid) {
+      const fp = players.find((q) => q.steamid === state.focusSid);
+      if (fp) {
+        ctx.save();
+        ctx.setLineDash([4 * ms, 4 * ms]);
+        ctx.strokeStyle = 'rgba(167,139,250,.55)';
+        ctx.lineWidth = 1.6 * ms;
+        for (const seg of segs) {
+          const tick = seg.start_tick + phaseTick;
+          const fst = playerStateAt(fp, tick);
+          if (!fst.alive) continue;
+          const side = SIDE_NAME[fp.rows.side[fst.i]] || 'CT';
+          let cx = 0, cy = 0, n = 0;
+          for (const p of players) {
+            const st = playerStateAt(p, tick);
+            if (!st.alive) continue;
+            if ((SIDE_NAME[p.rows.side[st.i]] || '') !== side) continue;
+            cx += st.x; cy += st.y; n++;
+          }
+          if (!n) continue;
+          cx /= n; cy /= n;
+          const [ax, ay] = toScreen(fst.x, fst.y);
+          const [bx, by] = toScreen(cx, cy);
+          ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+          devSum += Math.hypot(fst.x - cx, fst.y - cy); devN++;
+        }
+        ctx.restore();
+      }
+    }
+    const devEl = document.getElementById('ov-focus-dev');
+    if (devEl) {
+      if (state.focusSid && devN) {
+        const meanU = devSum / devN;
+        devEl.textContent = '偏差 ' + Math.round(meanU) + 'u · ' + (meanU * 0.019).toFixed(1) + 'm';
+        devEl.hidden = false;
+      } else devEl.hidden = true;
+    }
 
     for (const seg of segs) {
+      // K2c: pattern coloring recolors the trail strokes per round cluster
+      const cluColor = usePatterns ? CLUSTER_COLORS[clusterOfRound(seg.round)] : null;
       for (const p of players) {
         const isFocus = state.focusSid === p.steamid;
         // ghost dimming: focused player full, everyone else at ghost alpha
@@ -402,12 +548,15 @@
           let i0 = st.i;
           while (i0 > 0 && rows.t[st.i] - rows.t[i0] < win) i0--;
           let prev = null;
-          for (let i = i0; i <= st.i && i < rows.t.length; i++) {
+          // stride 3 (~2.7Hz effective): 8 rounds × 10 players × 6s windows
+          // would otherwise push ~30k line segments per redraw
+          for (let i = i0; i <= st.i && i < rows.t.length; i += 3) {
             if (!rows.alive[i]) break;
             const [sx, sy] = toScreen(rows.x[i], rows.y[i]);
             if (prev && Math.hypot(sx - prev.sx, sy - prev.sy) * (1 / drawMapLayer.geom.scale) < breakDist) {
               const f = (i - i0) / Math.max(st.i - i0, 1);
-              ctx.strokeStyle = hexA(color, alpha * (0.12 + 0.85 * f));
+              const base = cluColor || color;
+              ctx.strokeStyle = hexA(base, alpha * (0.12 + 0.85 * f));
               ctx.beginPath(); ctx.moveTo(prev.sx, prev.sy); ctx.lineTo(sx, sy); ctx.stroke();
             }
             prev = { sx, sy };
@@ -434,17 +583,27 @@
     state.overlap = on && D && D.segments.length > 0;
     state.playing = false;
     $('btn-play').textContent = '播放';
-    const bar = document.getElementById('ov-phase-bar');
     const tl = document.getElementById('tl-wrap');
-    if (bar) bar.hidden = !state.overlap;
+    const controls = document.getElementById('ov-controls');
+    const metricsWrap = document.getElementById('ov-metrics-wrap');
     if (tl) tl.hidden = state.overlap;
+    if (controls) controls.hidden = !state.overlap;
+    if (metricsWrap) metricsWrap.hidden = !state.overlap;
     // replay-only HUD bits hide in overlap mode
     for (const id of ['bomb-timer', 'buy-strip', 'round-timer']) {
       const el = document.getElementById(id);
       if (el) el.hidden = state.overlap;
     }
-    const chip = toolbarChips.overlap;
-    if (chip) chip.classList.toggle('on', state.overlap);
+    if (state.overlap) {
+      buildOvRoundStrip();   // K2a: per-half round grid
+      ovMetricsCache = null; // K2b: recompute for this half
+      ovClusterCache = { key: null, assign: new Map() };
+      lastOverlapSig = '';   // force a fresh overlay render
+      syncOvPhaseUI();
+      const ovPlay = document.getElementById('ov-play');
+      if (ovPlay) { ovPlay.textContent = '▶ 播放'; ovPlay.classList.remove('on'); }
+    }
+    syncToolbarChips();
     // deep link: ?mode=overlap is the truth
     try {
       const url = new URL(location.href);
@@ -458,12 +617,168 @@
   function syncOvPhaseUI() {
     const slider = document.getElementById('ov-phase');
     if (slider) slider.value = String(Math.round(state.ovPhase * 1150));
-    const segs = ovHalfRounds(state.ovHalf);
-    const span = segs.length ? Math.max(segs[0].end_tick - segs[0].start_tick - 2, 1) : 1;
     const val = document.getElementById('ov-phase-val');
     if (val && D) {
+      const span = ovSpanOf(effectiveOvSegs());
       const sec = Math.max(0, Math.round(state.ovPhase * span / D.tick_rate));
       val.textContent = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+    }
+    drawOvMetrics();   // K2b: phase cursor follows the slider (and playback)
+  }
+
+  // ---- K2a: round grid (horizontal chip strip, legacy overlap semantics) --
+  function buildOvRoundStrip() {
+    const holder = document.getElementById('ov-rounds');
+    if (!holder) return;
+    holder.innerHTML = '';
+    for (const s of ovHalfRounds(state.ovHalf)) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      const winCls = s.winner_side === 'T' ? 'rs-t' : s.winner_side === 'CT' ? 'rs-ct' : '';
+      chip.className = 'chip chip-sm rs-chip ' + winCls;
+      chip.textContent = 'R' + s.round;
+      chip.dataset.round = String(s.round);
+      chip.title = 'R' + s.round + ' · 胜方 ' + (s.winner_side || '-');
+      chip.addEventListener('click', () => {
+        if (state.ovRounds.has(s.round)) state.ovRounds.delete(s.round);
+        else state.ovRounds.add(s.round);
+        syncOvRoundStrip();
+      });
+      holder.appendChild(chip);
+    }
+    syncOvRoundStrip();
+  }
+  function syncOvRoundStrip() {
+    const holder = document.getElementById('ov-rounds');
+    if (!holder) return;
+    const total = ovHalfRounds(state.ovHalf).length;
+    for (const chip of holder.querySelectorAll('.rs-chip')) {
+      const round = Number(chip.dataset.round);
+      // empty explicit selection = everything shown → all chips read "on"
+      const shown = !state.ovRounds.size || state.ovRounds.has(round);
+      chip.classList.toggle('off', !shown);
+      // K2c: pattern-cluster border replaces the winner corner when enabled
+      chip.classList.remove('clu-0', 'clu-1', 'clu-2');
+      if (state.toggles.ovpatterns && total > 1) {
+        chip.classList.add('clu-' + clusterOfRound(round));
+      }
+    }
+    const count = document.getElementById('ov-rounds-count');
+    if (count) {
+      count.textContent = state.ovRounds.size
+        ? '已选 ' + state.ovRounds.size + '/' + total
+        : '全部 ' + total;
+    }
+    ovMetricsCache = null;  // selection changed → metrics recompute
+    drawOvMetrics();
+  }
+
+  // ---- K2b: formation metrics across the shared phase ---------------------
+  const OV_METRIC_PHASES = 96;
+  let ovMetricsCache = null;  // { key, phases[], spread[], gap[] } in units
+  function ovMetricsKey() {
+    const sel = [...state.ovRounds].sort((a, b) => a - b).join(',');
+    return state.ovHalf + '|' + (state.ovRounds.size ? sel : 'all');
+  }
+  function computeOvMetrics() {
+    const segs = effectiveOvSegs();
+    const N = OV_METRIC_PHASES;
+    const spread = new Array(N).fill(0), gap = new Array(N).fill(0), cnt = new Array(N).fill(0);
+    for (const seg of segs) {
+      const span = ovSpanOf([seg]);
+      for (let k = 0; k < N; k++) {
+        const tick = seg.start_tick + (k / (N - 1)) * span;
+        const alive = [];
+        for (const p of players) {
+          const st = playerStateAt(p, tick);
+          if (st.alive) alive.push([st.x, st.y, SIDE_NAME[p.rows.side[st.i]] || '']);
+        }
+        if (alive.length < 2) continue;
+        let sum = 0, pairs = 0;
+        for (let a = 0; a < alive.length; a++) {
+          for (let b = a + 1; b < alive.length; b++) {
+            sum += Math.hypot(alive[a][0] - alive[b][0], alive[a][1] - alive[b][1]);
+            pairs++;
+          }
+        }
+        let tx = 0, ty = 0, tn = 0, cx = 0, cy = 0, cn = 0;
+        for (const [x, y, s] of alive) {
+          if (s === 'T') { tx += x; ty += y; tn++; }
+          else if (s === 'CT') { cx += x; cy += y; cn++; }
+        }
+        spread[k] += sum / pairs;
+        gap[k] += (tn && cn) ? Math.hypot(tx / tn - cx / cn, ty / tn - cy / cn) : 0;
+        cnt[k]++;
+      }
+    }
+    const phases = [], sp = [], gp = [];
+    for (let k = 0; k < N; k++) {
+      phases.push(k / (N - 1));
+      sp.push(cnt[k] ? spread[k] / cnt[k] : 0);
+      gp.push(cnt[k] ? gap[k] / cnt[k] : 0);
+    }
+    ovMetricsCache = { key: ovMetricsKey(), phases, spread: sp, gap: gp };
+    return ovMetricsCache;
+  }
+  function ovMetrics() {
+    const key = ovMetricsKey();
+    if (!ovMetricsCache || ovMetricsCache.key !== key) computeOvMetrics();
+    return ovMetricsCache;
+  }
+  function drawOvMetrics() {
+    const wrap = document.getElementById('ov-metrics-wrap');
+    const canvas = document.getElementById('ov-metrics');
+    if (!wrap || !canvas || wrap.hidden || !D || !players.length) return;
+    const m = ovMetrics();
+    const dpr = DPR;
+    const w = wrap.clientWidth, h = 110;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const padL = 44, padR = 10, padT = 8, padB = 16;
+    const iw = w - padL - padR, ih = h - padT - padB;
+    const maxV = Math.max(1, ...m.spread, ...m.gap) * 1.12;
+    const xOf = (ph) => padL + ph * iw;
+    const yOf = (v) => padT + ih - (v / maxV) * ih;
+    // horizontal grid + unit labels
+    ctx.strokeStyle = 'rgba(255,255,255,.07)';
+    ctx.fillStyle = '#9aa0b8';
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let g = 0; g <= 3; g++) {
+      const v = (maxV * g) / 3;
+      const y = yOf(v);
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+      ctx.fillText(Math.round(v) + 'u', padL - 6, y);
+    }
+    // x time ticks (round clock is D.round_clock_seconds)
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (const frac of [0, 0.25, 0.5, 0.75, 1]) {
+      const sec = Math.round(frac * (D.round_clock_seconds || 115));
+      const lbl = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+      ctx.fillText(lbl, xOf(frac), h - padB + 4);
+    }
+    const line = (vals, color, width) => {
+      ctx.strokeStyle = color; ctx.lineWidth = width;
+      ctx.beginPath();
+      vals.forEach((v, i) => {
+        const x = xOf(m.phases[i]), y = yOf(v);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    };
+    line(m.spread, '#a78bfa', 1.8);
+    line(m.gap, '#3ddc97', 1.6);
+    // phase cursor (slider + playback linked)
+    const px = xOf(state.ovPhase);
+    ctx.strokeStyle = 'rgba(236,234,246,.85)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(px, padT - 2); ctx.lineTo(px, h - padB); ctx.stroke();
+    for (const [vals, color] of [[m.spread, '#c4b5fd'], [m.gap, '#7ee2bb']]) {
+      const idx = Math.round(state.ovPhase * (vals.length - 1));
+      const v = vals[Math.max(0, Math.min(idx, vals.length - 1))];
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(px, yOf(v), 3, 0, Math.PI * 2); ctx.fill();
     }
   }
 
@@ -675,6 +990,17 @@
   }
 
   // ---- main loop ----
+  // Overlap layers are expensive (rounds × players × trails) — skip the
+  // redraw entirely when nothing visible changed (paused + static camera).
+  let lastOverlapSig = '';
+  function ovRenderSig() {
+    const sel = state.ovRounds.size
+      ? [...state.ovRounds].sort((a, b) => a - b).join(',') : 'all';
+    return [state.ovPhase.toFixed(4), state.focusSid || '', state.ovHalf, sel,
+            !!state.toggles.trails, !!state.toggles.ovpatterns,
+            (cam.cx ?? 0).toFixed(2), (cam.cy ?? 0).toFixed(2),
+            (cam.zoom ?? 1).toFixed(4)].join('|');
+  }
   function frame(ts) {
     requestAnimationFrame(frame);
     if (!D) return;
@@ -689,6 +1015,8 @@
             state.ovPhase = 1;
             state.playing = false;
             $('btn-play').textContent = '播放';
+            const ovPlay = document.getElementById('ov-play');
+            if (ovPlay) { ovPlay.textContent = '▶ 播放'; ovPlay.classList.remove('on'); }
           }
           syncOvPhaseUI();
         }
@@ -713,8 +1041,17 @@
       // map layer only repainted on wheel/pan/resize)
       const camMoved = updateCamFollow();
       if (camMoved) drawMapLayer();
-      drawMainLayer(state.tick);
-      drawFxLayer(state.tick);
+      if (state.overlap) {
+        const sig = ovRenderSig();
+        if (sig !== lastOverlapSig) {
+          lastOverlapSig = sig;
+          drawMainLayer(state.tick);
+          drawFxLayer(state.tick);
+        }
+      } else {
+        drawMainLayer(state.tick);
+        drawFxLayer(state.tick);
+      }
       drawTimeline();
       updateHudTexts();
       syncDeepLink();
@@ -958,9 +1295,10 @@
     if (!p) { camFollow.active = false; return; }
     if (state.overlap) {
       // K1a: overlap target = the player's mean map-px across the half's
-      // rounds at the shared phase — the centroid of their identity traces
-      const segs = ovHalfRounds(state.ovHalf);
-      const span = segs.length ? Math.max(segs[0].end_tick - segs[0].start_tick - 2, 1) : 1;
+      // rounds at the shared phase — the centroid of their identity traces.
+      // K2a: honors the round-grid filter (only selected rounds pull).
+      const segs = effectiveOvSegs();
+      const span = ovSpanOf(segs);
       let sx = 0, sy = 0, n = 0;
       for (const s of segs) {
         const st = playerStateAt(p, s.start_tick + state.ovPhase * span);
@@ -1243,10 +1581,20 @@
 
   function wireControls() {
     const btnPlay = $('btn-play');
+    // K2 fix: one play state, two buttons (bottom bar + overlap phase bar)
+    const syncPlayLabels = () => {
+      btnPlay.textContent = state.playing ? '暂停' : '播放';
+      const ovPlay = document.getElementById('ov-play');
+      if (ovPlay) {
+        ovPlay.textContent = state.playing ? '⏸ 暂停' : '▶ 播放';
+        ovPlay.classList.toggle('on', state.playing);
+      }
+    };
     btnPlay.addEventListener('click', () => {
       state.playing = !state.playing;
-      btnPlay.textContent = state.playing ? '暂停' : '播放';
+      syncPlayLabels();
     });
+    document.getElementById('ov-play')?.addEventListener('click', () => btnPlay.click());
     $('sel-speed').addEventListener('change', (e) => { state.speed = Number(e.target.value); });
 
     // ---- camera: wheel zoom-to-cursor + drag pan + reset (R / dblclick) ----
@@ -1272,8 +1620,10 @@
     const pan = { on: false, id: -1, x: 0, y: 0, moved: false };
     wrap.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
-      // toolbar chips are interactive DOM inside the wrap — they own their gestures
-      if (e.target.closest && e.target.closest('.ob-toolbar')) return;
+      // toolbar chips + overlap controls are interactive DOM inside the wrap —
+      // they own their gestures. Missing .ov-controls here made dragging the
+      // phase slider pan the map at the same time (user-reported jank).
+      if (e.target.closest && e.target.closest('.ob-toolbar, .ov-controls')) return;
       pan.on = true; pan.id = e.pointerId; pan.moved = false;
       pan.x = e.clientX; pan.y = e.clientY;
     });
@@ -1304,8 +1654,9 @@
       try { if (wrap.hasPointerCapture && wrap.hasPointerCapture(pan.id)) wrap.releasePointerCapture(pan.id); } catch (err) { /* noop */ }
     });
     const resetCam = (e) => {
-      // dblclick on toolbar chips must not reset the camera
-      if (e && e.target && e.target.closest && e.target.closest('.ob-toolbar')) return;
+      // dblclick on toolbar chips / overlap controls must not reset the camera
+      if (e && e.target && e.target.closest
+          && e.target.closest('.ob-toolbar, .ov-controls')) return;
       if (state.toggles.ctrl3d && window.ViewerControl) {
         ViewerControl.reset3d(D.map); // 3D has its own camera
         return;
@@ -1329,7 +1680,37 @@
         state.ovHalf = half;
         document.getElementById('ov-half-1')?.classList.toggle('on', half === 1);
         document.getElementById('ov-half-2')?.classList.toggle('on', half === 2);
+        // K2a/K2b/K2c: round numbers differ per half — reset the selection
+        // and rebuild every dependent view
+        state.ovRounds.clear();
+        buildOvRoundStrip();
+        ovClusterCache = { key: null, assign: new Map() };
+        ovMetricsCache = null;
+        syncOvPhaseUI();
       });
+    }
+    // K2a quick filters (legacy semantics: empty selection = all rounds)
+    const q = (id) => document.getElementById(id);
+    q('ovr-all')?.addEventListener('click', () => { state.ovRounds.clear(); syncOvRoundStrip(); });
+    q('ovr-clear')?.addEventListener('click', () => { state.ovRounds.clear(); syncOvRoundStrip(); });
+    q('ovr-first4')?.addEventListener('click', () => {
+      state.ovRounds = new Set(ovHalfRounds(state.ovHalf).slice(0, 4).map((s) => s.round));
+      syncOvRoundStrip();
+    });
+    // K2b: drag on the metrics chart sets the shared phase
+    const mCanvas = document.getElementById('ov-metrics');
+    if (mCanvas) {
+      const mWrap = document.getElementById('ov-metrics-wrap');
+      const seekPhase = (e) => {
+        const r = mCanvas.getBoundingClientRect();
+        state.ovPhase = Math.max(0, Math.min((e.clientX - r.left) / r.width, 1));
+        syncOvPhaseUI();
+      };
+      const drag = { on: false };
+      mCanvas.addEventListener('mousedown', (e) => { drag.on = true; seekPhase(e); });
+      window.addEventListener('mousemove', (e) => { if (drag.on) seekPhase(e); });
+      window.addEventListener('mouseup', () => { drag.on = false; });
+      void mWrap;
     }
 
     // ---- timeline scrub + hover tooltip ----
@@ -1370,11 +1751,14 @@
         }
       }
     });
-    window.addEventListener('resize', () => { drawMapLayer(); });
+    window.addEventListener('resize', () => { drawMapLayer(); drawOvMetrics(); });
+    // prefs panel tweaks marker/trail visuals live — force overlap redraw
+    document.addEventListener('prefs-changed', () => { lastOverlapSig = ''; });
   }
 
   // ---- overlay toolbar: chip toggles bound to state.toggles + localStorage ----
   let toolbarChips = {}; // key -> chip element
+  let modeSwitchBtns = null; // K2e: { replay, overlap } segmented control
   function buildToolbar() {
     const bar = document.getElementById('ob-toolbar');
     if (!bar) return;
@@ -1382,21 +1766,33 @@
       ['trails', '轨迹'], ['kills', '击杀线'], ['nades', '道具'],
       ['shots', '枪线'], ['blinds', '闪光'], ['bombs', '炸弹'],
       ['control', '控图'], ['ctrl3d', '3D'], ['buys', '买装'],
-      ['overlap', '重叠'],
+      ['ovpatterns', '模式着色'],
     ];
     // keep the static ⚙ prefs button (lives in the same bar)
     const prefsBtn = document.getElementById('prefs-btn');
     bar.innerHTML = '';
     if (prefsBtn) bar.appendChild(prefsBtn);
     toolbarChips = {};
+    // K2e: prominent segmented mode switcher FIRST — replay vs overlap is a
+    // mode, not an overlay toggle, so it gets its own control shape.
+    const modeSwitch = document.createElement('div');
+    modeSwitch.className = 'ob-mode-switch';
+    modeSwitch.innerHTML =
+      '<button type="button" data-mode="replay">实时回放</button>' +
+      '<button type="button" data-mode="overlap">回合重叠</button>';
+    modeSwitchBtns = {
+      replay: modeSwitch.querySelector('[data-mode="replay"]'),
+      overlap: modeSwitch.querySelector('[data-mode="overlap"]'),
+    };
+    modeSwitchBtns.replay.addEventListener('click', () => setOverlapMode(false));
+    modeSwitchBtns.overlap.addEventListener('click', () => setOverlapMode(true));
+    bar.appendChild(modeSwitch);
     for (const [key, label] of labels) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'chip' + (state.toggles[key] ? ' on' : '');
       chip.textContent = label;
       chip.addEventListener('click', () => {
-        // overlap is a sub-MODE, not an overlay toggle
-        if (key === 'overlap') { setOverlapMode(!state.overlap); return; }
         state.toggles[key] = !state.toggles[key];
         // 3D and flat tint are mutually exclusive modes of one layer
         if (key === 'control' && state.toggles.control) state.toggles.ctrl3d = false;
@@ -1409,6 +1805,8 @@
         // 2D basemap <-> 3D ground texture swap lives on the map-layer canvas;
         // it only repaints on explicit redraws, so force one on mode change
         if (key === 'ctrl3d' || key === 'control') drawMapLayer();
+        // K2c: pattern coloring recolors round chips + trail strokes in place
+        if (key === 'ovpatterns') syncOvRoundStrip();
         syncToolbarChips();
         try { localStorage.setItem('csa-viewer-toggles', JSON.stringify(state.toggles)); } catch (e) {}
       });
@@ -1421,11 +1819,15 @@
   }
 
   function syncToolbarChips() {
+    // K2e: the segmented mode switch mirrors state.overlap; 模式着色 only
+    // means something in overlap mode (disabled otherwise)
+    if (modeSwitchBtns) {
+      modeSwitchBtns.replay.classList.toggle('on', !state.overlap);
+      modeSwitchBtns.overlap.classList.toggle('on', !!state.overlap);
+    }
     for (const [key, chip] of Object.entries(toolbarChips)) {
-      // overlap chip reflects the mode, not state.toggles; 3D chip only
-      // meaningful when the control layer is on
-      if (key === 'overlap') chip.classList.toggle('on', !!state.overlap);
-      else chip.classList.toggle('on', !!state.toggles[key]);
+      chip.classList.toggle('on', !!state.toggles[key]);
+      if (key === 'ovpatterns') chip.disabled = !state.overlap;
       if (key === 'ctrl3d') chip.disabled = !state.toggles.control;
     }
   }
