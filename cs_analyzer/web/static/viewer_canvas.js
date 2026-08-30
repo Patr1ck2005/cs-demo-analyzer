@@ -708,10 +708,14 @@
           $('btn-play').textContent = '播放';
         }
       }
+      // K1b: camera moves BEFORE the draws — the basemap used to lag the
+      // markers by a frame (updateCamFollow ran after everything, and the
+      // map layer only repainted on wheel/pan/resize)
+      const camMoved = updateCamFollow();
+      if (camMoved) drawMapLayer();
       drawMainLayer(state.tick);
       drawFxLayer(state.tick);
       drawTimeline();
-      updateCamFollow();
       updateHudTexts();
       syncDeepLink();
       schedulePanelFlush(ts);
@@ -926,17 +930,13 @@
     for (const [sid, li] of Object.entries(panelRows)) {
       li.classList.toggle('is-focus', state.focusSid === sid);
     }
-    if (state.overlap) return;  // overlap highlights markers only — no cam follow
     // camera follow: glide onto the focused player at 2.5×; unfocus returns
     // to the fit view. Manual pan/zoom cancels the glide, not the focus.
+    // Phase K1a: works in overlap mode too (target = phase-mean position,
+    // computed per-frame inside updateCamFollow).
     if (state.focusSid) {
-      const p = players.find((q) => q.steamid === state.focusSid);
-      if (p) {
-        const st = playerStateAt(p, state.tick);
-        camFollow.target = worldToMapPx(st.x, st.y);
-        camFollow.zoom = 2.5;
-        camFollow.active = true;
-      }
+      camFollow.zoom = 2.5;
+      camFollow.active = true;  // target computed per-frame in updateCamFollow
     } else {
       camFollow.active = false;
       ViewerCam.reset(cam);
@@ -953,16 +953,35 @@
     };
   }
   function updateCamFollow() {
-    if (!camFollow.active || !camFollow.target || !D) return;
+    if (!camFollow.active || !D) return;
     const p = players.find((q) => q.steamid === state.focusSid);
     if (!p) { camFollow.active = false; return; }
-    const st = playerStateAt(p, state.tick);
-    camFollow.target = worldToMapPx(st.x, st.y);  // track while they move
+    if (state.overlap) {
+      // K1a: overlap target = the player's mean map-px across the half's
+      // rounds at the shared phase — the centroid of their identity traces
+      const segs = ovHalfRounds(state.ovHalf);
+      const span = segs.length ? Math.max(segs[0].end_tick - segs[0].start_tick - 2, 1) : 1;
+      let sx = 0, sy = 0, n = 0;
+      for (const s of segs) {
+        const st = playerStateAt(p, s.start_tick + state.ovPhase * span);
+        if (!st.alive || !Number.isFinite(st.x)) continue;
+        const mp = worldToMapPx(st.x, st.y);
+        sx += mp.x; sy += mp.y; n++;
+      }
+      if (!n) return;
+      camFollow.target = { x: sx / n, y: sy / n };
+    } else {
+      const st = playerStateAt(p, state.tick);
+      camFollow.target = worldToMapPx(st.x, st.y);  // track while they move
+    }
     ViewerCam.resolve(cam, D.map.width, D.map.height);
     const k = 0.12;  // glide factor per frame
+    const pcx = cam.cx, pcy = cam.cy, pz = cam.zoom;
     cam.cx += (camFollow.target.x - cam.cx) * k;
     cam.cy += (camFollow.target.y - cam.cy) * k;
     cam.zoom += (camFollow.zoom - cam.zoom) * k;
+    return Math.abs(cam.cx - pcx) + Math.abs(cam.cy - pcy) > 0.25
+        || Math.abs(cam.zoom - pz) > 0.002;
   }
 
   function schedulePanelFlush(ts) {
