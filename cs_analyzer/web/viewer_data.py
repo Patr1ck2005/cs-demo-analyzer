@@ -33,8 +33,11 @@ logger = logging.getLogger(__name__)
 TICK_RATE = 64
 SNAPSHOT_STRIDE = 8  # ticks between snapshots (8 Hz; 64/8 exact)
 ROUND_CLOCK_SECONDS = 115.0
-VIEWER_DATA_VERSION = 3
-LAYER_VERSION = 2  # v2: shots carry shooter yaw ("ya") for tracer rendering
+# v4: round segments rebuilt from warmup-free rounds (PARSER_VERSION 1.8.0)
+# + team-0 origin snapshots marked not-alive.
+VIEWER_DATA_VERSION = 4
+# v3: economy/shot rounds rebuilt on warmup-free round spans.
+LAYER_VERSION = 3  # v2: shots carry shooter yaw ("ya") for tracer rendering
 
 # demoparser2 >= 0.42 exposes per-tick ammo (probed on all real demos,
 # output/.ammo_probe.json). Detection is dynamic: older caches re-parse lazily
@@ -258,6 +261,12 @@ def build_viewer_data(demo: ParsedDemo) -> dict:
             xs = sub["X"].to_numpy(dtype=float)[vp]
             ys = sub["Y"].to_numpy(dtype=float)[vp]
             finite = np.isfinite(xs) & np.isfinite(ys)
+            # (0,0) while team_num is still 0 = pawn not yet assigned (players
+            # connect mid-demo, e.g. 5E warmup): not a real position. Left as
+            # a valid sample these rows projected to a mid-map dot cluster.
+            if "team_num" in sub.columns:
+                tn = sub["team_num"].to_numpy(dtype=float)[vp]
+                finite &= ~((xs == 0.0) & (ys == 0.0) & (tn == 0.0))
 
             def col(name: str, default=0.0) -> np.ndarray:
                 if name in sub.columns:

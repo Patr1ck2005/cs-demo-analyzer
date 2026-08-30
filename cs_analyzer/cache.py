@@ -28,7 +28,10 @@ _CHUNK_SIZE = 65536
 # events (begindefuse/abortdefuse/dropped/pickup), weapon_zoom,
 # cs_win_panel_match, bullet_impact; empirical tick rate + match_id from
 # filename in metadata.
-PARSER_VERSION = "1.7.0"
+# 1.8.0: warmup pseudo-rounds no longer pollute rounds — warmup round_end
+# rows are skipped, warmup round_start no longer claims starts_by_round, so
+# real round 1 no longer spans the whole warmup (5E g161-* demos).
+PARSER_VERSION = "1.8.0"
 
 
 class DemoCache:

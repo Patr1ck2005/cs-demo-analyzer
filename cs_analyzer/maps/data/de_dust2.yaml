@@ -1,0 +1,21 @@
+# de_dust2 radar map coordinate calibration.
+# Image: official CS2 overview radar (de_dust2_radar_psd.png, 1024x1024 RGBA),
+# sourced from MurkyYT/cs2-map-icons (extracted from game VPKs).
+# Bounds derived from the game's official radar_info metadata:
+#   pos_x=-2476, pos_y=3239, scale=4.4
+# Standard Source mapping px=(x-pos_x)/scale, py=(pos_y-y)/scale is exactly
+# equivalent to the loader's bounds formula with:
+#   min_x=pos_x, max_x=pos_x+scale*W, max_y=pos_y, min_y=pos_y-scale*H
+# Empirically verified: full-demo player position bbox fits inside the image
+# with this formula (Phase K4, 5E de_dust2 demo). The overview txt's
+# rotate/zoom flags describe the in-game render pipeline only — the
+# extracted PNG is already in displayed orientation.
+
+map_name: de_dust2
+image_width: 1024
+image_height: 1024
+bounds:
+  min_x: -2476.0
+  max_x: 2029.6
+  min_y: -1266.6
+  max_y: 3239.0

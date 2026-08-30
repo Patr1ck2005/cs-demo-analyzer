@@ -157,3 +157,41 @@ def test_empty_ticks_ok() -> None:
     tl = build_timeline(demo, S_ALICE)
     assert len(tl.ticks) == 0
     assert tl.shots == []
+
+
+def test_round_freeze_ends_pairs_by_span_not_index() -> None:
+    """Warmup leaves an extra freeze_end; containment pairing must skip it.
+
+    Regression: index zip paired round 1 with the warmup freeze end (171) and
+    shifted every later round one event back, so viewer replays started in
+    the previous round's live play.
+    """
+    from cs_analyzer.model.types import DemoData, MatchMetadata, ProviderKind, Team
+    from cs_analyzer.replay.timeline import round_freeze_ends
+
+    from .conftest import make_round
+
+    data = DemoData(
+        metadata=MatchMetadata(
+            map_name="de_dust2",
+            demo_path="warm.dem",
+            demo_hash="warmhash",
+            provider=ProviderKind.UNKNOWN,
+            team_a=Team(name="Team 3", starting_side="CT"),
+            team_b=Team(name="Team 2", starting_side="T"),
+        ),
+        players=[],
+        rounds=[
+            make_round(1, 8838, 12493, "T", t_score=1),
+            make_round(2, 12941, 18282, "CT", ct_score=1, t_score=1),
+        ],
+    )
+    from cs_analyzer.model.parsed_demo import ParsedDemo
+
+    demo = ParsedDemo(
+        data=data,
+        events={"round_freeze_end": pd.DataFrame({"tick": [171, 10214, 13901]})},
+        ticks=pd.DataFrame(),
+    )
+    out = round_freeze_ends(demo)
+    assert out == {1: 10214, 2: 13901}

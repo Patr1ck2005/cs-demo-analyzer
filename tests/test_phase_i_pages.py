@@ -10,10 +10,11 @@ from cs_analyzer.web import store
 
 
 def test_match_key_ordering() -> None:
-    """B8: WMPVP numeric filename prefixes sort chronologically; unprefixed
-    files sort after by name."""
+    """B8: platform numeric match ids sort chronologically; unprefixed
+    files sort after by name. Covers WMPVP + 5E (g161-) shapes + stored id."""
     entries = [
         {"filename": "9211306538981998348_0.dem"},
+        {"filename": "g161-20260828233826747829917_de_cache.dem"},
         {"filename": "9206943388297116556_0.dem"},
         {"filename": "faceit-match.dem"},
     ]
@@ -21,8 +22,12 @@ def test_match_key_ordering() -> None:
     assert [e["filename"] for e in ordered] == [
         "9206943388297116556_0.dem",
         "9211306538981998348_0.dem",
+        "g161-20260828233826747829917_de_cache.dem",
         "faceit-match.dem",
     ]
+    # stored metadata match_id wins over filename patterns
+    stored = dict(entries[0], match_id="9999999999999999999")
+    assert store.match_key(stored) == (0, 9999999999999999999, "")
 
 
 def test_demo_row_match_key() -> None:

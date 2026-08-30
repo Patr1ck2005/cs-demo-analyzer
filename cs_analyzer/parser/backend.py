@@ -227,11 +227,23 @@ class DemoParserBackend:
         # Snap to the nearest standard CS2 tick rate.
         return int(min((32, 64, 128), key=lambda r: abs(r - median)))
 
-    @staticmethod
-    def _match_id_from_filename(dem_path: Path) -> str | None:
-        """Extract a WMPVP-style "<matchid>_0.dem" numeric prefix."""
-        m = re.match(r"^(\d{10,})_", Path(dem_path).name)
-        return m.group(1) if m else None
+    # platform match-id shapes found in filenames:
+    #   WMPVP: "9206943388297116556_0.dem"
+    #   5E:    "g161-20260828233826747829917_de_cache.dem" (digits embed date)
+    _MATCH_ID_PATTERNS = (
+        re.compile(r"^(\d{10,})_"),
+        re.compile(r"^g161-(\d{15,})_"),
+    )
+
+    @classmethod
+    def _match_id_from_filename(cls, dem_path: Path) -> str | None:
+        """Extract a platform match id from the demo filename (Phase K3)."""
+        name = Path(dem_path).name
+        for pat in cls._MATCH_ID_PATTERNS:
+            m = pat.match(name)
+            if m:
+                return m.group(1)
+        return None
 
     def _build_players(
         self,
@@ -456,13 +468,30 @@ class DemoParserBackend:
 
         # Exact round-start ticks keyed by round number when round_start events
         # are present (their `round` field maps 1:1 to round_end's).
+        # Warmup restarts reuse round numbers (round_start@43 round=1 warmup,
+        # then the real round_start@... also round=1 after begin_new_match),
+        # so a warmup start must never claim the slot from the real one:
+        # non-warmup starts win per round number, warmup only fills gaps.
         starts_by_round: dict[int, int] = {}
+        warmup_starts: dict[int, int] = {}
         round_starts = events.get("round_start")
         if round_starts is not None and not round_starts.empty and "tick" in round_starts.columns:
             for _, row in round_starts.iterrows():
-                rn = int(row.get("round", 0))
-                if rn > 0:
-                    starts_by_round.setdefault(rn, int(row["tick"]))
+                try:
+                    rn = int(row.get("round", 0))
+                except (TypeError, ValueError):
+                    continue
+                if rn <= 0:
+                    continue
+                warmup = (
+                    bool(row.get("is_warmup_period", False))
+                    if "is_warmup_period" in row.index
+                    else False
+                )
+                target = warmup_starts if warmup else starts_by_round
+                target.setdefault(rn, int(row["tick"]))
+        for rn, tick in warmup_starts.items():
+            starts_by_round.setdefault(rn, tick)
 
         # Fallback match-start tick (used when round_start is absent).
         begin_new_match = events.get("begin_new_match")
@@ -474,9 +503,23 @@ class DemoParserBackend:
         prev_end = match_start_tick
         t_score = 0
         ct_score = 0
-        for i, (_, end_row) in enumerate(ends.iterrows()):
+        n_real = 0
+        for _, end_row in ends.iterrows():
+            # Warmup pseudo-rounds (round_end fires while is_warmup_period is
+            # set, sometimes with round=0 / NaN winner) never form a round of
+            # their own — emitting them produced spans like 8839..43 and let
+            # the warmup round_start pollute real round 1's start tick.
+            if "is_warmup_period" in end_row.index and bool(end_row["is_warmup_period"]):
+                continue
+            n_real += 1
             end_tick = int(end_row["tick"])
-            round_num = int(end_row.get("round", i + 1)) if "round" in end_row else i + 1
+            raw_num = end_row.get("round", n_real) if "round" in end_row.index else n_real
+            try:
+                round_num = int(raw_num)
+            except (TypeError, ValueError):
+                round_num = n_real
+            if round_num <= 0:
+                round_num = n_real
             start_tick = starts_by_round.get(round_num, prev_end)
             winner_side = self._winner_side(end_row)
 

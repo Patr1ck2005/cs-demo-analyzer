@@ -227,6 +227,56 @@ def test_build_rounds_empty_when_no_round_end() -> None:
     assert rounds == []
 
 
+def test_build_rounds_warmup_restart_does_not_pollute_round1() -> None:
+    """5E g161-* shape: warmup round_start reuses round=1 and its round_end
+    (round=0, warmup) must not spawn a pseudo-round or claim round 1's start.
+
+    Regression: real round 1 was built as warmup_start..real_end (43..12493),
+    swallowing the whole warmup phase into the viewer's round-1 replay.
+    """
+    round_start = pd.DataFrame(
+        {
+            "tick": [43, 8838, 12941],
+            "round": [1, 1, 2],
+            "is_warmup_period": [True, False, False],
+        }
+    )
+    round_end = pd.DataFrame(
+        {
+            "tick": [43, 12493, 18282],
+            "winner": [float("nan"), "T", "CT"],
+            "round": [0, 1, 2],
+            "is_warmup_period": [True, False, False],
+        }
+    )
+    begin_new_match = pd.DataFrame({"tick": [8839]})
+    rounds = DemoParserBackend(tick_fields=[])._build_rounds(
+        {
+            "round_start": round_start,
+            "round_end": round_end,
+            "begin_new_match": begin_new_match,
+        },
+        [],
+    )
+    assert len(rounds) == 2
+    assert (rounds[0].number, rounds[0].start_tick, rounds[0].end_tick) == (1, 8838, 12493)
+    assert (rounds[1].number, rounds[1].start_tick, rounds[1].end_tick) == (2, 12941, 18282)
+    assert all(not r.is_warmup for r in rounds)
+    assert rounds[0].t_score == 1 and rounds[0].ct_score == 0
+
+
+def test_build_rounds_warmup_start_falls_back_when_only_warmup_start_exists() -> None:
+    """Without a non-warmup round_start for a round number, the warmup start
+    is still better than the prev-end fallback."""
+    round_start = pd.DataFrame({"tick": [50], "round": [1], "is_warmup_period": [True]})
+    round_end = pd.DataFrame({"tick": [500], "winner": ["CT"], "is_warmup_period": [False]})
+    rounds = DemoParserBackend(tick_fields=[])._build_rounds(
+        {"round_start": round_start, "round_end": round_end}, []
+    )
+    assert len(rounds) == 1
+    assert (rounds[0].start_tick, rounds[0].end_tick) == (50, 500)
+
+
 def test_provider_detection_valve() -> None:
     header = {"server_name": "Valve Counter-Strike 2 helsinki Server", "client_name": "SourceTV Demo"}
     provider = detect_provider(header, DEFAULT_PROVIDER_CHAIN)
@@ -327,6 +377,8 @@ def test_empirical_tick_rate_insufficient_samples() -> None:
 def test_match_id_from_filename() -> None:
     f = DemoParserBackend._match_id_from_filename
     assert f(Path("9206943388297116556_0.dem")) == "9206943388297116556"
+    # Phase K3: 5E "g161-<timestamp><serial>_<map>.dem" shape
+    assert f(Path("g161-20260828233826747829917_de_cache.dem")) == "20260828233826747829917"
     assert f(Path("short_0.dem")) is None
     assert f(Path("match.dem")) is None
 
@@ -352,7 +404,10 @@ def test_parse_ticks_retry_drops_inventory(monkeypatch) -> None:
 def test_parser_version_bumped() -> None:
     from cs_analyzer.cache import PARSER_VERSION
 
-    assert PARSER_VERSION == "1.7.0"
+    # 1.8.0: warmup pseudo-rounds skipped (round spans no longer swallow the
+    # warmup phase); bump again — with a reason in cache.py — on any change
+    # that invalidates cached parses.
+    assert PARSER_VERSION == "1.8.0"
 
 
 def test_manager_tick_fields_include_inventory() -> None:

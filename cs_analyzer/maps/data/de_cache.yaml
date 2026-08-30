@@ -1,0 +1,19 @@
+# de_cache radar map coordinate calibration.
+# Image: official CS2 overview radar (de_cache_radar_psd.png, 1024x1024 RGBA),
+# sourced from MurkyYT/cs2-map-icons (extracted from game VPKs).
+# Bounds derived from the game's official radar_info metadata:
+#   pos_x=-2000, pos_y=3250, scale=5.5
+# Standard Source mapping px=(x-pos_x)/scale, py=(pos_y-y)/scale is exactly
+# equivalent to the loader's bounds formula with:
+#   min_x=pos_x, max_x=pos_x+scale*W, max_y=pos_y, min_y=pos_y-scale*H
+# Empirically verified: full-demo player position bbox fits inside the image
+# with this formula (Phase K4, 5E de_cache demo).
+
+map_name: de_cache
+image_width: 1024
+image_height: 1024
+bounds:
+  min_x: -2000.0
+  max_x: 3632.0
+  min_y: -2382.0
+  max_y: 3250.0

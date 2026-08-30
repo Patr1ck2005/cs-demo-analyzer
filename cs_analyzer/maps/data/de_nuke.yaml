@@ -1,0 +1,21 @@
+# de_nuke radar map coordinate calibration.
+# Image: official CS2 overview radar (de_nuke_radar_psd.png, 1024x1024 RGBA),
+# sourced from MurkyYT/cs2-map-icons (extracted from game VPKs).
+# Bounds derived from the game's official radar_info metadata:
+#   pos_x=-3453, pos_y=2887, scale=7
+# Standard Source mapping px=(x-pos_x)/scale, py=(pos_y-y)/scale is exactly
+# equivalent to the loader's bounds formula with:
+#   min_x=pos_x, max_x=pos_x+scale*W, max_y=pos_y, min_y=pos_y-scale*H
+# Empirically verified: full-demo player position bbox fits inside the image
+# with this formula (Phase K4, 5E de_nuke demo).
+# Note: nuke is multi-level; this single-plane calibration uses the primary
+# (upper) radar — lower-level players project onto it by x/y.
+
+map_name: de_nuke
+image_width: 1024
+image_height: 1024
+bounds:
+  min_x: -3453.0
+  max_x: 3715.0
+  min_y: -4281.0
+  max_y: 2887.0

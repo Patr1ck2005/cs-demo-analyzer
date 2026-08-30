@@ -189,14 +189,25 @@ def round_freeze_ends(demo: ParsedDemo) -> dict[int, int]:
 
     `round_freeze_end` fires once per round; the round's prep/buy time before
     it is 'invalid' and is trimmed by starting replays at this tick.
+
+    Pairing is by span containment, not by event index: warmup phases emit an
+    extra freeze_end (and reuse round numbers), so a naive zip paired every
+    round with the previous round's freeze end — round 1 even inherited the
+    warmup's, making replays start mid-warmup with most players unspawned.
     """
     df = demo.events.get("round_freeze_end")
     if df is None or df.empty or "tick" not in df.columns:
         return {}
     ends = sorted(int(t) for t in df["tick"])
     out: dict[int, int] = {}
-    for i, r in enumerate(sorted(demo.regular_rounds, key=lambda r: r.start_tick)):
-        if i < len(ends):
+    ordered = sorted(demo.regular_rounds, key=lambda r: r.start_tick)
+    for i, r in enumerate(ordered):
+        inside = [e for e in ends if r.start_tick <= e <= r.end_tick]
+        if inside:
+            out[r.number] = inside[0]
+        elif i < len(ends):
+            # No freeze_end inside the span (unusual broadcast): keep the old
+            # index-based pairing as a fallback rather than losing the round.
             out[r.number] = ends[i]
     return out
 

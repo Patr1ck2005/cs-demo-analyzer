@@ -16,21 +16,38 @@ from cs_analyzer.model.parsed_demo import ParsedDemo
 CACHE_DIR = Path(".cache")
 DEMOS_DIR = Path("demos")
 
-# WMPVP downloader names files "<matchid>_0.dem"; the numeric prefix is a
-# chronologically meaningful match id. CS2 headers carry no date (verified
+# Platform match-id shapes found in filenames; the numeric id is a
+# chronologically meaningful sort key. CS2 headers carry no date (verified
 # 2026-08-25), so this is our best recency ordering key (B8).
-_MATCH_ID_RE = re.compile(r"^(\d{10,})_")
+#   WMPVP: "<matchid>_0.dem"   5E: "g161-<matchid>_<map>.dem"
+_MATCH_ID_RES = (
+    re.compile(r"^(\d{10,})_"),
+    re.compile(r"^g161-(\d{15,})_"),
+)
+
+
+def _match_id_of(entry: dict) -> str | None:
+    """Stored metadata match_id first, filename patterns as fallback."""
+    mid = entry.get("match_id")
+    if mid:
+        return str(mid)
+    filename = entry.get("filename", "")
+    for pat in _MATCH_ID_RES:
+        m = pat.match(filename)
+        if m:
+            return m.group(1)
+    return None
 
 
 def match_key(entry: dict) -> tuple:
-    """Sort key: numeric match-id prefix first, filename as tiebreak.
+    """Sort key: numeric match-id first, filename as tiebreak.
 
-    Files without a numeric prefix sort after all prefixed ones by name, so
-    WMPVP matches stay in play order and oddballs remain stable.
+    Files without a numeric id sort after all prefixed ones by name, so
+    platform matches stay in play order and oddballs remain stable.
     """
-    m = _MATCH_ID_RE.match(entry.get("filename", ""))
-    if m:
-        return (0, int(m.group(1)), "")
+    mid = _match_id_of(entry)
+    if mid and mid.isdigit():
+        return (0, int(mid), "")
     return (1, 0, entry.get("filename", ""))
 
 
