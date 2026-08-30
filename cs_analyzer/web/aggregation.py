@@ -30,6 +30,10 @@ def invalidate_aggregate() -> None:
     global _result
     with _lock:
         _result = None
+    # K5: the teamplay report reads the same caches — drop it too
+    from cs_analyzer.web import teamplay_data
+
+    teamplay_data.invalidate_teamplay()
 
 
 def _compute() -> AggregateResult:

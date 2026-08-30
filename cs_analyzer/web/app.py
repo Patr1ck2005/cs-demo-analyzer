@@ -590,6 +590,14 @@ def compare_charts():
     return JSONResponse(compare_payload(aggregated()))
 
 
+@app.get("/api/compare/teamplay.json")
+def compare_teamplay():
+    """K5: five-stack link network + stack-vs-mixed + portraits (5E set)."""
+    from cs_analyzer.web.teamplay_data import teamplay_report
+
+    return JSONResponse(teamplay_report())
+
+
 @app.get("/api/system/status.json")
 def system_status():
     """Cache size + pipeline version constants for the system page."""
