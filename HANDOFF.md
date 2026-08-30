@@ -14,45 +14,58 @@
 CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 18 个 demo 在库、182 测试全绿**。
 
 **Git 状态（关键）**：
-- HEAD = `e839a1a`（README 视觉改造），**已推送** origin/main
-- **工作区有一批"待审"改动（用户要求退回待审，尚未批准提交）**：
-  - K1 修复：`viewer_canvas.js`（重叠镜头跟随回归 + 底图同步时序）
-  - K3：`backend.py`（match_id 识别 5E `g161-<id>_` 形态）、`store.py`（match_key 双平台）、两个测试
-  - K4：`de_nuke/de_dust2/de_cache` 三张新地图（各 PNG+yaml，共 6 个新文件）
-  - **K4 验收阻塞修复（2026-08-30，用户报告"出生点不对"后定位）**：`backend.py` `_build_rounds`（warmup round_start 不抢占 starts_by_round + 跳过 warmup round_end）、`replay/timeline.py` `round_freeze_ends`（区间包含配对）、`viewer_data.py`（team0 原点行 alive=0）、`cache.py`（PARSER_VERSION **1.8.0**）、`viewer_data.py` 版本（VIEWER_DATA **4** / LAYER **3**）、3 个回归测试（185 全绿）。**5E demo 热身伪回合曾把回合 1 变成 43..12493（含 134s 热身）且所有回合 freeze_end 错位到上一回合**——t=0 显示热身期（9 人无数据行+1 人乱跑），被误认为地图校准错误。K4 校准实为无罪（落弹 A/B 双轴均落图标内）。18 demo 已全量重解析至 1.8.0 验证无回归
-  - README.md + `docs/screenshots/overlap_hero.gif`（用户单独要求暂缓的重叠动画）
-  - dev_log.md / HANDOFF.md（本次修复记录）
-- 用户验收后建议拆三个 commit（K1 / K3+K4+warmup修复 / README+GIF），provenance 上次为 `ai:glm-5.3-flash-dsh`（每次仍须问）
+- HEAD = `e65f522`（Phase K 三连提交已获用户批准：K1 viewer 修复 / K3+K4+warmup 修复 / README GIF，
+  provenance `Origin: ai:glm-5.3-flash-dsh`），**未推送** origin/main
+- **工作区新一批"待审"改动（Phase K2+K5+K6 + K2 验收修复，尚未批准提交）**：
+  - K2：`viewer_canvas.js`（模式切换器/回合网格/阵型曲线/聚类着色/偏差连线 + **验收修复两轮：① 手势守卫豁免
+    .ov-controls（拖相位滑杆曾同时平移地图）/ 渲染签名跳过静止重绘 / 轨迹步长 3 / 相位条内播放键；
+    ② 全局 `[hidden]{display:none!important}`（回放切重叠时 buy-strip 曾穿透——hidden 被 CSS display 覆盖）/
+    半场切分改为换边语义 ovHalfGroupsOf（首发 T 方活体阵营多数，R1-R12 上半场，废弃 ceil(n/2)）**）、
+    `replay_viewer.html`（重叠控制合并为单一 .ov-controls 栈——两栏结构性不再互相压盖 + ov-play 按钮）、
+    `style.css`、`tests/test_web.py`（+K2 契约测试含守卫/播放键/[hidden]/半场断言 + LAYER_VERSION 哨兵 3）
+  - K5：`analysis/teamplay.py`（新模块）、`web/teamplay_data.py`（新 memo）、`aggregation.py`
+    （联动失效）、`app.py`（/api/compare/teamplay.json）、`compare.html`（五排协同卡）、`tests/test_teamplay.py`（+3）
+  - K6：`HANDOFF.md`（状态+K5 报告）、`dev_log.md`（K 条目）
+  - 验收截图在 `output/.visual/k2a_*.png / k2c_*.png / k2d_*.png / k2_half2.png / k5_tp_*.png`
+  - 189 测试全绿；playwright 16 页零 console 错误（dashboard 冷启动 aggregate 需预热，memo 后正常）
+  - 用户验收后建议拆两个 commit（K2 / K5+K6 文档），provenance 每次仍须问
 
 **服务器**：uvicorn 跑在 127.0.0.1:8000（含全部 18 场缓存）。
 
-## 2. Phase K 进行中 —— 剩余工作（新对话的主线任务）
+## 2. Phase K —— 已全部完成（2026-08-30，待审+待验收）
 
-计划全文见对话或按下面细节直接实施。K1/K3/K4 已完成（在工作区待审）；**剩 K2、K5、K6**：
+计划全文见对话或 git 历史。**K1/K3/K4 已提交（e65f522 三连）**；**K2/K5/K6 完成在工作区待审**：
 
-### K2 — 重叠子模式 UI 显著化 + 高级分析（用户拍板全做）
+### K2 — 重叠子模式 UI 显著化 + 高级分析（已完成，待验收）
 
-当前重叠子模式（`viewer_canvas.js` 内，`?mode=overlap` 深链）只有：半场切换（state.ovHalf）、相位滑杆、轨迹/道具/击杀线/炸弹/ghost chips、聚焦变暗。要补：
+- **K2e UI 显著化**：工具条首位分段切换器 `[ 实时回放 | 回合重叠 ]`（`.ob-mode-switch`）；
+  相位条 v2（accent 描边+辉光、加宽滑杆、等宽字时钟）
+- **K2a 回合网格**：`.ov-rounds-bar` 横向滚动 chips（胜方色角标、点击勾选/取消、
+  空选=全部、全选/清空/前4 快捷、已选 n/总 计数）；`state.ovRounds = Set`，
+  `effectiveOvSegs()` 供绘制/镜头跟随/指标共用；半场切换自动清空重建
+- **K2b 阵型指标相位曲线**：`.ov-metrics-wrap` 双线迷你图（全体散开度紫 / T/CT 重心间距绿，
+  96 相位采样均值，缓存按 半场+选择失效）；白色相位竖线+交点圆点与滑杆/播放联动；点击/拖动设相位
+- **K2c 路线模式聚类着色**：纯 JS k-means（k=2..3 肘点 0.55、farthest-first 确定性初始化），
+  特征=进攻方（T）重心开局轨迹相位 0~0.3 采样 6 点；「模式着色」chip 开启后回合条
+  chips 换聚类描边、轨迹描边按回合聚类色（标记保持阵营身份色）；chip 仅重叠模式可用
+- **K2d 聚焦 vs 重心偏差**：聚焦时每回合相位位置 → 本方重心的紫色虚线 +
+  相位条旁读数（`偏差 649u · 12.3m`，1u≈0.019m）
+- 验收：playwright 逐项截图（`output/.visual/k2*.png`）+ `test_viewer_k2_overlap_ui_contract`
 
-- **K2e UI 显著化**：工具条「重叠」chip 升级为分段模式切换器 `[ 实时回放 | 回合重叠 ]`（工具条首位）；相位条（`.ov-phase-bar`，地图层内 bottom-center）重设计得更醒目
-- **K2a 回合网格回归**：重叠模式加横向滚动回合条（旧独立页语义：胜方色角标 chips、单回合勾选/取消、空选=全部、全选/清空/前4 快捷）。需要 `state.ovRounds = new Set()` + `drawOverlapLayer` 按 Set 过滤 segs + 回合条 UI（数据源 `D.segments.winner_side`）。这是旧独立页有、合并时丢掉的功能
-- **K2b 阵型指标相位曲线**：重叠模式下原时间轴区域（`#tl-wrap`，目前 hidden）改绘双线迷你图：全体散开度（平均两两距离 u）+ T/CT 重心间距；当前相位竖线与滑杆联动；用 canvas 手绘（别用 ECharts 每帧重渲），10 人 O(n²) 每帧可忽略
-- **K2c 路线模式聚类着色**：对每回合开局段（相位 0~0.3 采样 6 点队伍重心轨迹）做纯 JS 小 k-means（k=2..3 肘点、固定种子、~40 行），「模式着色」chip 开启后回合条 chips + 轨迹描边按聚类着色（默认仍阵营色）
-- **K2d 聚焦 vs 重心偏差**：聚焦时画该选手各回合相位位置 → 队伍重心的细连线（紫低透明）+ 相位条旁偏差读数（u 与米，1u≈0.019m）
-- 验收：playwright 截图逐项人工检查 + JS 契约测试
+### K5 — 13 场 5E 的「有趣结果」（已完成，报告见 §7 专节）
 
-### K5 — 13 场 5E 的「有趣结果」（用户拍板全做）
+- **K5a 五排默契度网络**：`analysis/teamplay.py`（助攻/复仇补枪/闪光助攻 有向连接，
+  trade 复用 ratings.TRADE_WINDOW_TICKS，round_player_sides 换边安全同队校验）
+  + `/compare`「五排协同」卡（矩阵热力 + Top 连线表 + 画像）+ `/api/compare/teamplay.json`
+  （memo 与 aggregate 联动失效）
+- **K5b 车队局 vs 混野**：阈值自适应（≥3 常客同场）；回合胜率/场均 Rating/首杀成功率对比 → §7 报告
+- **K5c 五人跨场画像**：最佳搭档/闪光发动机/首杀先锋/残局大师标签（残局复用 highlights 模块）
 
-数据基础（已探明）：18 场缓存 = 9 WMPVP（更早，用户单排/小队）+ **9 场 5E 五排**（2026-08-25~28，g161-* 前缀）。跨场普查（已跑）：**CCTV909 16x（=用户本人，旧 WMPVP 场叫 Jake，改名了）**、FywOo6666 7x、杏愛 7x、FENNEL的YamZzi本人 4x、你的内脏变成了外脏 3x。**注意**：常客判定要用"5E 场内出现次数"单独统计（9 场里出现 ≥5 次的才是稳定五排；混入 WMPVP 会稀释）。
+### K6 — 收尾（已完成）
 
-- **K5a 五排默契度网络**：跨场统计 assister→attacker 连接频次、补枪（trade=击杀者窗内被复仇，复用 ratings 的 TRADE_WINDOW 语义）、闪光助攻连接（player_death.assistedflash）。落点：`analysis/teamplay.py` 新模块（跨全部缓存 demo）+ `/compare` 页新增「五排协同」卡（矩阵热力 + Top 连线）+ HANDOFF 报告段落
-- **K5b 五排 vs 混野**：同场出现 ≥4 常客 → 五排局；对比回合胜率/场均 Rating/首杀成功率。报告交付
-- **K5c 五人跨场画像**：compare 分位（≥5 场门槛自动覆盖常客）+ 报告提炼标签（最稳残局/最猛首杀/最佳闪光手…）
-- 报告写入 HANDOFF §7 新小节「5E 五排数据洞察」
-
-### K6 — 收尾
-- 全量 pytest + `scripts/visual_check.py`（含新地图与重叠新 UI 截图）
-- HANDOFF/dev_log/README 同步；**提交前问用户批准 + provenance**
+- 全量 pytest **189 全绿**；`scripts/visual_check.py` 16 页零 console 错误
+  （dashboard 冷启动 aggregate 预热 ~12s 为已知特性，memo 后正常）
+- HANDOFF（本节+§7 报告）/ dev_log 同步；**提交前问用户批准 + provenance**
 
 ## 3. Phase K 已完成部分（细节，供返工参考）
 
@@ -110,16 +123,41 @@ scripts/probe_events.py                                      # 事件可用性�
 5. RWS/Rating 为自实现近似；KAST trade 语义 Phase I 已修正（旧值不可比）
 6. 队名占位 "Team 2/3"（WMPVP 缺 begin_new_match）
 7. 老条目仍有效：coverage.html 样式未对齐 v2、`output/web/{hash}/radar|pref|aggregate` 孤儿目录可删
+8. **player_death 的 steamid 列含 NaN**（assister 空缺时）——`astype(str)` 会造出假玩家 "nan"；teamplay.py 已 fillna 处理，新事件消费方注意同样处理
+9. 5E demo 的 `provider` 元数据实为 `valve`（5E 服务器发标准 SourceTV 头）——识别 5E 库只能靠文件名 `g161-` 前缀（teamplay.is_five_e）
+
+### 5E 五排数据洞察（Phase K5 报告，2026-08-30）
+
+数据基础：9 场 5E（g161-*，2026-08-25~28）+ 9 场 WMPVP。报告由 `analysis/teamplay.py` 生成，
+`/compare` 页「五排协同」卡可视化（`/api/compare/teamplay.json`，与 aggregate 同 memo 失效）。
+阈值适配：原计划 ≥4 常客判定五排局，实测 FENNEL的YamZzi本人仅 3 场 → 默认阈值改为
+**≥3 场=常客、≥3 常客同场=车队局**（`build_teamplay_report` 参数可调）。
+
+- **常客结构**：CCTV909（用户本人）9/9 全勤；核心车队 FywOo6666（5）、杏愛（5）、FENNEL的YamZzi本人（3）。
+  **5 场车队局 vs 4 场混野局**（用户单排）。
+- **协同网络**：核心四人两两互连。最强连线 杏愛→CCTV909（9 助攻 + 2 补枪 + 1 闪助，权重 12）；
+  对称侧 CCTV909↔杏愛 10、CCTV909↔FywOo6666 11/10、杏愛↔FywOo6666 11——三人配合度均衡，无明显单核依赖。
+- **五排画像**：CCTV909 一人包揽三标签——闪光发动机（3 闪助）、首杀先锋（首杀成功率 56%，27/48）、
+  残局大师（1 次残局获胜）；最佳搭档 FywOo6666（权重 11）。杏愛 是对 CCTV909 的最强助攻手。
+- **车队局 vs 混野（K5b，反直觉发现）**：车队局回合胜率 **46.4%**、常客场均 Rating **1.129**、
+  首杀成功率 45.8%（83 次对枪）；混野局 **65.0%** / **1.545** / 66.7%（18 次对枪）——
+  **用户在混野局表现显著更好（胜率差 +18.6pp）**。合理解释：车队局匹配到的是对方整队（对手池更强），
+  且样本注：混野组"常客"只有 CCTV909 一人（4 场），车队局含 4 人 ×5 场样本，个体差异参与其中，不宜过度解读。
+- **每场分类明细**（regs=常客数）：车队局 = dust2(4人, 胜率18.8%)、cache(3, 40.9%)、ancient(4, 68.4%)、
+  nuke0822(3, 43.5%)、mirage0828(4, 53.3%)；混野局 = nuke0825/mirage0825/mirage0827×2（用户单飞，胜率 61.9-68.4%）。
 
 ## 8. 提交历史（近期）
 
 ```
-e839a1a docs: README visual overhaul + robust start_web.bat   ← 已推送 HEAD
+e65f522 docs: README overlap hero GIF                         ← Phase K 三连提交（已批准）
+c4a5fc4 feat: 5E match-id recognition, three new maps, warmup-round segmentation fix
+2c40f81 fix(viewer): overlap camera-follow regression + base-map sync timing
+e839a1a docs: README visual overhaul + robust start_web.bat
 60e47c9 feat: Phase I deep analytics engine + Phase J viewer/overlap polish
 04e39a9 Phase G | 03c9eb4 Phase F | 933e9b1 Phase E | ...（更早见 git log）
 ```
 
-工作区待审（§1）+ Phase K 剩余（§2）完成后，历史追加 Phase K 条目。完整阶段日志见 dev_log.md（每个 Phase 一条，含模型名）。
+Phase K 剩余工作（K2/K5/K6）完成后的待审改动见 §1。完整阶段日志见 dev_log.md（每个 Phase 一条，含模型名）。
 
 ## 9. 未来路线（Phase K 之后）
 
@@ -131,7 +169,7 @@ e839a1a docs: README visual overhaul + robust start_web.bat   ← 已推送 HEAD
 
 ## 10. 给新对话的第一步建议
 
-1. 读本文件 §0-§2
-2. `git status` 确认待审改动还在（若用户已批准提交则 git log 会有新 commit）
-3. 询问用户：继续 K2 重叠强化，还是先验收/提交已完成的 K1/K3/K4
+1. 读本文件 §0-§2、§7 的「5E 五排数据洞察」
+2. `git status` 确认待审改动还在（K2/K5/K6 一批）；`git log` 若出现新 commit 说明用户已批准提交
+3. Phase K 全部完成——下一步候选见 §9 未来路线（占位页填充 / 在线发布 / 控图 v2）
 4. 任何 commit 前重读 §0 铁律 1

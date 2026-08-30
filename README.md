@@ -5,7 +5,7 @@
 **本地优先的 CS2 Demo 分析平台** —— 解析 `.dem`，产出定量统计 + 电竞 OB 级实时 2D 回放
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-182_passing-3DDC97)](#)
+[![Tests](https://img.shields.io/badge/tests-189_passing-3DDC97)](#)
 [![License](https://img.shields.io/badge/License-MIT-a78bfa)](#license)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows11&logoColor=white)](#)
 [![ECharts](https://img.shields.io/badge/charts-Apache_ECharts-AA344D?logo=apacheecharts&logoColor=white)](https://echarts.apache.org/)
@@ -37,15 +37,26 @@
 电竞 OB 布局：中央 2D 地图 + 两侧选手面板（武器图标/弹药/血甲/换弹徽标），比分板 + 回合时钟 + 炸弹倒计时。
 相机缩放至光标/拖拽平移；道具飞行弧、烟/火真实时长区域、枪线曳光、闪光环、下包/拆弹/爆炸标记；
 **控图染色**（高斯影响核 + EMA 平滑）与**伪 3D 挤出视图**一键切换；缩放 LOD 逐级浮现血量环/弹药/武器徽章。
-点击任一选手**镜头跟随聚焦**，其余选手自动变暗。
+点击任一选手**镜头跟随聚焦**（2.5× 持续跟踪），其余选手自动变暗。
+
+![镜头跟随聚焦](docs/screenshots/focus_follow.gif)
+
+*点击选手即镜头 2.5× 平滑跟随，其余选手自动变暗（回合 13 实录）*
 
 ### 🧩 回合重叠（回放器子模式）
-工具条「重叠」一键切换：同半场全部回合按相同相对时刻叠加，暖色 = T 方 / 冷色 = CT 方，
-编号跨回合锚定选手身份——开局路线、默认站位、重复决策一目了然。
+工具条 `[ 实时回放 | 回合重叠 ]` 一键切换：同半场全部回合按相同相对时刻叠加，暖色 = T 方 / 冷色 = CT 方，
+编号跨回合锚定选手身份——开局路线、默认站位、重复决策一目了然。回合网格按胜方角标勾选对比
+（空选 = 全部，快捷「前4」），阵型曲线（全体散开度 / T-CT 重心间距）与相位滑杆联动，
+「模式着色」对开局路线做 k-means 聚类染色，聚焦选手可见各回合相对队伍重心的偏差连线与读数。
 
 ![重叠模式](docs/screenshots/overlap_hero.gif)
 
 *重叠子模式：上半场 12 个回合同相位扫动，烟雾/交战逐相位对齐出现*
+
+![重叠交互](docs/screenshots/overlap_interact.gif)
+
+*重叠交互实录：回合网格「前4」过滤 → 「模式着色」聚类染色 → 点击聚焦，
+紫色虚线为各回合同相位相对队伍重心的偏差连线（读数 u/米），镜头 2.5× 跟随*
 
 ### 📊 对局详情 · 六 Tab
 | 概览 | 击杀 |
@@ -65,7 +76,8 @@
 | ![生涯](docs/screenshots/player_career.png) | ![对比](docs/screenshots/compare.png) |
 
 生涯页聚合每位选手的全部场次（雷达/趋势/单场热力图/个人高光）；对比页基于 ≥5 场有效样本计算
-全库**百分位分位**，可勾选多名选手雷达叠加。
+全库**百分位分位**，可勾选多名选手雷达叠加。**五排协同**卡：跨场助攻/补枪/闪光助攻连接网络
+（矩阵热力 + Top 连线）、车队局 vs 混野的胜率/Rating/首杀对比、常客画像标签（闪光发动机/首杀先锋/残局大师）。
 
 ## 快速开始
 
@@ -138,7 +150,7 @@ csa coverage "demos/*.dem" --out report.html   # 解析覆盖度报告
     │
     ▼
 [Web] ── FastAPI + Jinja2 SSR ──> 浏览器渲染
-    ├── viewer-data v3 JSON  ──> canvas 回放器（相机/覆盖层/控图/买装条）
+    ├── viewer-data v4 JSON  ──> canvas 回放器（相机/覆盖层/控图/买装条）
     └── charts.json 载荷     ──> vendored Apache ECharts（全离线暗色主题）
 ```
 
@@ -175,7 +187,7 @@ RWS 与 Rating 为自实现的专有公式近似（HLTV 2.0 / ESEA RWS 风格）
 
 ```bash
 pip install -e ".[dev]"
-pytest                    # 182 tests
+pytest                    # 189 tests
 ruff check cs_analyzer/
 ```
 
