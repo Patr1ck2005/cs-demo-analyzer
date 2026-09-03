@@ -34,6 +34,22 @@ def invalidate_aggregate() -> None:
     from cs_analyzer.web import teamplay_data
 
     teamplay_data.invalidate_teamplay()
+    # L0: the dashboard highlight feed scans the same caches
+    from cs_analyzer.web import feed_data
+
+    feed_data.invalidate_feed()
+    # L2: the utility-lab report scans the same caches
+    from cs_analyzer.web import utilitylab_data
+
+    utilitylab_data.invalidate_utilitylab()
+    # L3: the per-map report scans the same caches
+    from cs_analyzer.web import mapdata
+
+    mapdata.invalidate_map_report()
+    # L4: the lineups report scans the same caches
+    from cs_analyzer.web import lineups_data
+
+    lineups_data.invalidate_lineups()
 
 
 def _compute() -> AggregateResult:

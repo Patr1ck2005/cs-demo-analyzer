@@ -138,6 +138,19 @@ tbody tr { animation: row-in .35s ease-out both; animation-delay: calc(min(var(-
 .topbar nav a:hover, .topbar > a:not(.brand):hover { color: var(--text); background: var(--accent-soft); }
 .topbar nav a.active, .topbar > a:not(.brand).active { color: var(--text); }
 .topbar nav a.active::after, .topbar > a:not(.brand).active::after { transform: scaleX(1); }
+
+/* L1: secondary topic nav (道具/地图/阵伍/收藏/报告) */
+.nav-secondary { position: sticky; top: 0; z-index: 49;
+                 background: rgba(10, 10, 19, .92); border-bottom: 1px solid var(--line);
+                 backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.nav-secondary .wrap { max-width: 1200px; margin: 0 auto; padding: 5px 26px;
+                       display: flex; align-items: center; gap: 4px; }
+.nav-sec-label { color: var(--faint); font-size: var(--fs-xs); letter-spacing: .12em;
+                 margin-right: 6px; }
+.nav-secondary a { color: var(--faint); text-decoration: none; font-size: var(--fs-sm);
+                   padding: 3px 10px; border-radius: 7px; transition: color .15s, background .15s; }
+.nav-secondary a:hover { color: var(--text); background: var(--accent-soft); }
+.nav-secondary a.active { color: var(--accent); background: var(--accent-soft); }
 main { max-width: 1200px; margin: 0 auto; padding: var(--sp-6) var(--sp-6) var(--sp-8); }
 body.wide main { max-width: 1600px; }
 
@@ -262,6 +275,12 @@ tr.row-link { cursor: pointer; }
                padding: var(--sp-7) var(--sp-4); text-align: center; color: var(--muted); }
 .empty-state .empty-title { font-size: var(--fs-md); font-weight: 650; color: var(--text);
                             margin-bottom: var(--sp-1); }
+
+/* L0: dashboard cold-start skeleton (预热中) */
+.warm-skeleton { border-style: solid; border-color: var(--line); }
+.warm-dots { display: inline-block; animation: warm-pulse 1.2s ease-in-out infinite; }
+@keyframes warm-pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+
 .dropzone { display: block; position: relative; border: 2px dashed var(--line-strong);
             border-radius: var(--r-md);
             padding: var(--sp-6); text-align: center; color: var(--muted);

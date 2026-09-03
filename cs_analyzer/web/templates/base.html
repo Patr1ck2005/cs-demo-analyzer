@@ -30,6 +30,16 @@
     <a href="/system" class="{{ 'active' if nav_path.startswith('/system') else '' }}">系统</a>
   </nav>
 </nav>
+<nav class="nav-secondary">
+  <div class="wrap">
+    <span class="nav-sec-label">专题</span>
+    <a href="/utility-lab" class="{{ 'active' if nav_path == '/utility-lab' else '' }}">道具专题</a>
+    <a href="/map-analysis" class="{{ 'active' if nav_path == '/map-analysis' else '' }}">地图分析</a>
+    <a href="/teams" class="{{ 'active' if nav_path == '/teams' else '' }}">队伍视图</a>
+    <a href="/favorites" class="{{ 'active' if nav_path == '/favorites' else '' }}">收藏</a>
+    <a href="/reports" class="{{ 'active' if nav_path == '/reports' else '' }}">报告</a>
+  </div>
+</nav>
 <main>
 {% block content %}{% endblock %}
 </main>

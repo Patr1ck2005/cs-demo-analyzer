@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+from collections import OrderedDict
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Query, Request, UploadFile
@@ -19,7 +21,6 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.gzip import GZipMiddleware
 
 from cs_analyzer.analysis import AnalysisRunner
-from cs_analyzer.analysis.aggregate import compute_aggregate
 from cs_analyzer.cache import DemoCache
 from cs_analyzer.config import AnalysisConfig, load_settings
 from cs_analyzer.model.parsed_demo import ParsedDemo
@@ -40,7 +41,20 @@ def _demos_dir() -> Path:
     """Upload target dir (module-level so tests can monkeypatch it)."""
     return DEMOS_DIR
 
-app = FastAPI(title="CsDemoAnalyzer 本地平台", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Phase L0: prewarm every cross-demo memo in a background thread right
+    # after the server starts listening, so the first dashboard visit hits
+    # warm memos (or a skeleton + long-poll fill) instead of a ~70s block.
+    from cs_analyzer.web import warmup
+
+    _stale_cache_sweep()
+    warmup.start_once()
+    yield
+
+
+app = FastAPI(title="CsDemoAnalyzer 本地平台", version="0.1.0", lifespan=_lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -51,7 +65,10 @@ import time as _time
 TEMPLATES.env.globals["static_v"] = str(int(_time.time()))
 
 _analysis_cache: dict[str, dict] = {}
-_module_cache: dict[str, dict] = {}
+#: L0: per-demo module results, LRU-capped so a large library can't grow
+#: this unbounded (HANDOFF §9.5). 512 slots ≈ 25+ demos × all modules.
+_MODULE_CACHE_CAP = 512
+_module_cache: OrderedDict[str, dict] = OrderedDict()
 
 
 def _settings():
@@ -89,7 +106,12 @@ def _analyze(demo: ParsedDemo) -> dict:
 def _analyze_module(demo: ParsedDemo, module_name: str):
     """Lazy per-module memo: demo pages only pay for the modules they render."""
     key = demo.metadata.demo_hash
-    slot = _module_cache.setdefault(key, {})
+    slot = _module_cache.get(key)
+    if slot is None:
+        slot = {}
+        _module_cache[key] = slot
+        while len(_module_cache) > _MODULE_CACHE_CAP:
+            _module_cache.popitem(last=False)
     if module_name in slot:
         return slot[module_name]
     result = _runner().run_one(demo, module_name)
@@ -101,15 +123,23 @@ def _analyze_module(demo: ParsedDemo, module_name: str):
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    _stale_cache_sweep()  # no-op after the first call
+    # L0: the heavy whole-library scans (aggregate, highlight feed) are
+    # memoized + prewarmed at startup. First paint is instant: counts that
+    # need the aggregate render "…" and fill in via /api/warmup.json polling
+    # (static/js/warmup.js) when it is still computing.
     demos = store.list_demos(_cache().cache_dir)
     # "recent" = match-id order (B8: WMPVP filenames are chronological; the
     # old parsed_at sort was wall-clock parse time, i.e. upload order)
     recent = sorted(demos, key=store.match_key, reverse=True)[:8]
-    from cs_analyzer.web.aggregation import aggregated
+    from cs_analyzer.web import warmup
 
-    agg = aggregated()
-    highlights = _top_highlights(6)
+    warm = warmup.status()
+    highlights = _top_highlights(6) if warm["ready"] else []
+    player_count: int | str = "…"
+    if warm["ready"]:
+        from cs_analyzer.web.aggregation import aggregated
+
+        player_count = aggregated().total_players
     return TEMPLATES.TemplateResponse(
         request, "index.html",
         {
@@ -119,34 +149,23 @@ def index(request: Request):
             "total": len(demos),
             "map_count": len({d["map_name"] for d in demos}),
             "round_count": sum(d["num_rounds"] for d in demos),
-            "player_count": agg.total_players,
+            "player_count": player_count,
+            "warm_ready": warm["ready"],
             **_map_availability(sorted({d["map_name"] for d in demos})),
         },
     )
 
 
 def _top_highlights(limit: int) -> list[dict]:
-    """Global highlight feed, best-first (dashboard 精选). Fails soft."""
-    from cs_analyzer.web.chart_data import highlights_payload
+    """Global highlight feed, best-first (dashboard 精选). Memoized (L0),
+    fails soft."""
+    from cs_analyzer.web import feed_data
 
-    merged: list[dict] = []
     try:
-        for entry in store.list_demos(_cache().cache_dir):
-            demo = _load(entry["demo_hash"])
-            if demo is None:
-                continue
-            try:
-                result = _analyze_module(demo, "highlights")
-            except Exception:  # noqa: BLE001 — one bad demo must not kill the feed
-                logger.exception("highlights failed for %s", entry["demo_hash"][:12])
-                continue
-            merged.extend(highlights_payload(result)["highlights"])
+        return feed_data.top_highlights(limit)
     except Exception:  # noqa: BLE001
         logger.exception("dashboard highlights feed failed")
         return []
-    rank = {"ace": 0, "k4": 1, "1v4": 2, "k3": 3, "1v3": 4, "k2": 5, "1v2": 6}
-    merged.sort(key=lambda h: (rank.get(h["tier"], 99), h["round"]))
-    return merged[:limit]
 
 
 # ---- legacy URL 301 redirects (Phase H): query strings pass through ----
@@ -225,6 +244,152 @@ def highlights_page(request: Request):
     return TEMPLATES.TemplateResponse(request, "highlights.html", {})
 
 
+# ---- Phase L1: favorites / tags / notes ----
+
+@app.get("/favorites", response_class=HTMLResponse)
+def favorites_page(request: Request):
+    """收藏与标注：星标/标签/备注（列表由 favorites.js 从 /api/favorites 渲染）。"""
+    return TEMPLATES.TemplateResponse(request, "favorites.html", {})
+
+
+# ---- Phase L2: utility lab (道具专题) — must register BEFORE /{placeholder} ----
+
+@app.get("/utility-lab", response_class=HTMLResponse)
+def utility_lab_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "utility_lab.html", {})
+
+
+# ---- Phase L3: map analysis (地图分析) — must register BEFORE /{placeholder} ----
+
+@app.get("/map-analysis", response_class=HTMLResponse)
+def map_analysis_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "map_analysis.html", {})
+
+
+# ---- Phase L4: lineups (队伍视图) — must register BEFORE /{placeholder} ----
+
+@app.get("/teams", response_class=HTMLResponse)
+def teams_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "teams.html", {})
+
+
+# ---- Phase L5: report export (报告导出) — must register BEFORE /{placeholder} ----
+
+@app.get("/reports", response_class=HTMLResponse)
+def reports_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "reports.html", {})
+
+
+@app.get("/report/{demo_hash}", response_class=HTMLResponse)
+def report_match_page(request: Request, demo_hash: str):
+    """Print-friendly single-match report (exported to PNG/PDF by playwright;
+    also printable from the browser)."""
+    from datetime import datetime, timezone
+
+    from cs_analyzer.analysis import AnalysisRunner
+    from cs_analyzer.config import AnalysisConfig
+
+    demo = _load(demo_hash)
+    if demo is None:
+        return TEMPLATES.TemplateResponse(
+            request, "error.html", {"message": "未找到该对局"})
+    runner = AnalysisRunner(AnalysisConfig(enabled_modules=["basic_stats", "ratings", "highlights"]))
+    results = runner.run(demo)
+    basic, ratings = results.get("basic_stats"), results.get("ratings")
+    hl = results.get("highlights")
+    reg = demo.regular_rounds
+    t_wins = sum(1 for r in reg if r.winner_side == "T")
+    team_of: dict[str, str] = {}
+    for p in demo.players:
+        team_of[p.steamid] = p.team
+    side_of_team = {demo.metadata.team_a.name: demo.metadata.team_a.starting_side,
+                    demo.metadata.team_b.name: demo.metadata.team_b.starting_side}
+    players = []
+    if basic is not None and ratings is not None:
+        rt_by = {p.steamid: p for p in ratings.players}
+        for b in sorted(basic.players, key=lambda x: -(rt_by[x.steamid].Rating if x.steamid in rt_by else 0)):
+            rt = rt_by.get(b.steamid)
+            players.append({
+                "name": b.name,
+                "side": side_of_team.get(team_of.get(b.steamid, ""), "?"),
+                "kills": b.kills, "deaths": b.deaths,
+                "adr": b.ADR, "kast": rt.KAST if rt else 0.0,
+                "hs": (b.headshot_kills / b.kills * 100) if b.kills else 0.0,
+                "rating": rt.Rating if rt else 0.0,
+            })
+    highlights = []
+    if hl is not None:
+        for h in hl.sorted():
+            if h.tier in ("ace", "k4", "1v4", "k3", "1v3"):
+                highlights.append({"tier": h.tier, "name": h.name, "round": h.round,
+                                   "kills": h.kills, "side": h.side})
+    meta = demo.metadata
+    return TEMPLATES.TemplateResponse(request, "report_match.html", {
+        "meta": {
+            "map_name": meta.map_name,
+            "filename": Path(meta.demo_path).name,
+            "match_id": getattr(meta, "match_id", None),
+            "demo_hash": meta.demo_hash,
+        },
+        "score": {
+            "t": reg[-1].t_score if reg else 0,
+            "ct": reg[-1].ct_score if reg else 0,
+            "rounds": len(reg),
+        },
+        "t_wr": (t_wins / len(reg)) if reg else 0.0,
+        "trend": [{"n": r.number, "w": r.winner_side} for r in reg],
+        "players": players,
+        "highlights": highlights,
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    })
+
+
+@app.get("/api/favorites")
+def favorites_get():
+    from cs_analyzer.web.favorites_store import load_favorites
+
+    return JSONResponse(load_favorites(OUT_DIR))
+
+
+@app.post("/api/favorites")
+async def favorites_set(request: Request):
+    """Merge one entry patch: {scope: "match"|"player", id, patch, meta?}."""
+    from cs_analyzer.web.favorites_store import (
+        apply_patch,
+        empty_doc,
+        load_favorites,
+        save_favorites,
+    )
+
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "expected object"}, status_code=400)
+    scope = body.get("scope")
+    item_id = str(body.get("id", "") or "")
+    patch = body.get("patch")
+    meta = body.get("meta") if isinstance(body.get("meta"), dict) else None
+    if scope not in ("match", "player") or not item_id:
+        return JSONResponse({"error": "scope must be match|player and id required"}, status_code=400)
+    if not isinstance(patch, dict):
+        return JSONResponse({"error": "patch object required"}, status_code=400)
+    with _favorites_lock():
+        doc = load_favorites(OUT_DIR)
+        entry = apply_patch(doc, scope, item_id, patch, meta)
+        save_favorites(OUT_DIR, doc)
+    logger.info("favorites %s/%s updated", scope, item_id[:16])
+    return JSONResponse({"ok": True, "entry": entry})
+
+
+def _favorites_lock():
+    """Single-process write lock (module-level; monkeypatch-friendly indirection)."""
+    from cs_analyzer.web import favorites_store
+
+    return favorites_store._lock
+
+
 @app.get("/compare", response_class=HTMLResponse)
 def compare_page(request: Request):
     return TEMPLATES.TemplateResponse(request, "compare.html", {})
@@ -235,13 +400,7 @@ def system_page(request: Request):
     return TEMPLATES.TemplateResponse(request, "system.html", {})
 
 
-_PLACEHOLDER_PAGES = {
-    "favorites": ("收藏与标注", "对局/选手打标签、收藏与备注，库页按标签筛选。"),
-    "teams": ("队伍视图", "按队伍聚合：胜率/地图池/选手轮换，服务教练场景。"),
-    "map-analysis": ("地图分析", "按地图聚合：胜率/常用路线/点位热力，地图池理解。"),
-    "utility-lab": ("道具专题", "全库道具使用画像：闪光价值榜/烟中击杀/道具协同。"),
-    "reports": ("报告导出", "单场报告一键导出 PDF/长图，或生成只读分享链接。"),
-}
+_PLACEHOLDER_PAGES: dict[str, tuple[str, str]] = {}
 
 
 @app.get("/{placeholder}", response_class=HTMLResponse)
@@ -442,9 +601,10 @@ def player_charts(demo_hash: str, steamid: str):
 @app.get("/api/aggregate/charts.json")
 def aggregate_charts():
     """Cross-demo matrix / bars / trends payload."""
+    from cs_analyzer.web.aggregation import aggregated
     from cs_analyzer.web.chart_data import aggregate_payload
 
-    result = compute_aggregate(_cache().cache_dir, _settings().analysis)
+    result = aggregated()
     return JSONResponse(aggregate_payload(result))
 
 
@@ -596,6 +756,135 @@ def compare_teamplay():
     from cs_analyzer.web.teamplay_data import teamplay_report
 
     return JSONResponse(teamplay_report())
+
+
+@app.get("/api/warmup.json")
+def warmup_status(request: Request):
+    """Cold-start prewarm progress (L0).
+
+    ?wait=1 long-polls up to ~20s for readiness; the dashboard skeleton JS
+    re-polls until {phase: "done", ready: true} and then fills the counts +
+    highlight feed that the server rendered as placeholders.
+    """
+    from cs_analyzer.web import warmup
+
+    if request.query_params.get("wait"):
+        return JSONResponse(warmup.wait_until_ready())
+    return JSONResponse(warmup.status())
+
+
+@app.get("/api/warmup/dashboard.json")
+def warmup_dashboard_payload():
+    """Dashboard hydration payload (L0): player count + server-rendered
+    highlight-card fragment (single source of truth: _highlight_card.html)."""
+    from cs_analyzer.web import feed_data
+
+    highlights = _top_highlights(6)
+    highlights_html = ""
+    if highlights:
+        tpl = TEMPLATES.env.get_template("_highlight_card.html")
+        cards = "".join(tpl.render(h=h) for h in highlights)
+        highlights_html = f'<div class="grid hl-grid" id="dash-highlights">{cards}</div>'
+    from cs_analyzer.web.aggregation import aggregated
+
+    return JSONResponse({
+        "player_count": aggregated().total_players,
+        "highlights_html": highlights_html,
+    })
+
+
+# ---- Phase L2: utility lab (道具专题) ----
+
+@app.get("/api/utilitylab.json")
+def utilitylab_api():
+    from cs_analyzer.web.utilitylab_data import utilitylab_report
+
+    return JSONResponse(utilitylab_report())
+
+
+@app.get("/api/map-analysis.json")
+def map_analysis_api():
+    from cs_analyzer.web.mapdata import map_report
+
+    return JSONResponse(map_report())
+
+
+@app.get("/api/lineups.json")
+def lineups_api():
+    from cs_analyzer.web.lineups_data import lineups_report
+
+    return JSONResponse(lineups_report())
+
+
+# ---- Phase L5: report export APIs ----
+
+def _report_out_dir() -> Path:
+    return Path("output") / "reports"
+
+
+@app.post("/api/report/{demo_hash}/export")
+async def report_export(demo_hash: str, request: Request):
+    """Export the print report as PNG (full-page) or PDF via playwright.
+
+    501 with guidance when playwright/chromium is missing; 404 unknown demo.
+    """
+    from cs_analyzer.web.report_export import (
+        ReportUnavailableError,
+        export_match_report,
+    )
+
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    fmt = str(body.get("format", "png")).lower() if isinstance(body, dict) else "png"
+    if fmt not in ("png", "pdf"):
+        return JSONResponse({"error": "format must be png|pdf"}, status_code=400)
+    if _load(demo_hash) is None:
+        return JSONResponse({"error": "未找到该对局"}, status_code=404)
+    base = str(request.base_url).rstrip("/")
+    import asyncio
+
+    try:
+        # playwright's sync API cannot run inside the event loop — offload
+        target = await asyncio.to_thread(
+            export_match_report, base, demo_hash, fmt, _report_out_dir())
+    except ReportUnavailableError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=501)
+    except Exception:  # noqa: BLE001
+        logger.exception("report export failed for %s", demo_hash[:12])
+        return JSONResponse({"error": "导出失败，见服务端日志"}, status_code=500)
+    return JSONResponse({"ok": True, "file": target.name,
+                         "url": f"/report-exports/{target.name}"})
+
+
+@app.get("/api/report/exports.json")
+def report_exports():
+    from cs_analyzer.web.report_export import list_exports
+
+    return JSONResponse({"exports": list_exports(_report_out_dir())})
+
+
+@app.get("/api/report/demos.json")
+def report_demos():
+    """Dropdown source: one row per cached demo (hash/map/filename)."""
+    demos = store.list_demos(_cache().cache_dir)
+    return JSONResponse({"demos": [
+        {"demo_hash": d["demo_hash"], "map_name": d["map_name"], "filename": d["filename"]}
+        for d in demos
+    ]})
+
+
+@app.get("/report-exports/{filename}")
+def report_export_file(filename: str):
+    """Serve an exported report file (name-validated, no traversal)."""
+    from cs_analyzer.web.report_export import list_exports
+
+    allowed = {e["file"]: e for e in list_exports(_report_out_dir())}
+    entry = allowed.get(filename)
+    if entry is None:
+        return JSONResponse({"error": "文件不存在"}, status_code=404)
+    return FileResponse(_report_out_dir() / filename, filename=filename)
 
 
 @app.get("/api/system/status.json")

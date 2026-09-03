@@ -139,16 +139,15 @@ def build_teamplay_report(
     """
     from cs_analyzer.cache import DemoCache
     from cs_analyzer.config import AnalysisConfig
+    from cs_analyzer.analysis.library import demo_filenames, scan_demos
 
     cache = DemoCache(Path(cache_dir))
-    demos: list[ParsedDemo] = []
-    for d in sorted(Path(cache_dir).glob("*")):
-        if not d.is_dir():
-            continue
-        demo = cache.load(d.name)
-        if demo is not None:
-            demos.append(demo)
-    five_e = [dm for dm in demos if is_five_e(dm)]
+    # metadata-only pre-read: only the 5E subset (g161- filename prefix)
+    # needs full loads — the WMPVP half of the library is counted, not read.
+    names = demo_filenames(Path(cache_dir))
+    five_e_hashes = [h for h, fn in names.items() if fn.startswith(FIVE_E_PREFIX)]
+    five_e = [dm for h in five_e_hashes if (dm := cache.load(h)) is not None]
+    demos_total = len(names)
 
     # ---- regulars: appearance count across the 5E set ----
     appear: Counter = Counter()
@@ -194,7 +193,7 @@ def build_teamplay_report(
         from cs_analyzer.analysis.runner import AnalysisRunner
 
         runner = AnalysisRunner(
-            analysis=AnalysisConfig(enabled_modules=["basic_stats", "ratings"]))
+            AnalysisConfig(enabled_modules=["basic_stats", "ratings"]))
 
     matches = []
     group = {
@@ -338,7 +337,7 @@ def build_teamplay_report(
 
     return {
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "library": {"five_e_demos": len(five_e), "total_demos": len(demos),
+        "library": {"five_e_demos": len(five_e), "total_demos": demos_total,
                     "min_regular_demos": min_regular_demos,
                     "stack_threshold": stack_threshold},
         "regulars": [{"steamid": s, "name": names.get(s, s), "appearances": appear[s]}

@@ -16,7 +16,7 @@
   <div class="stat-card"><div class="stat-label">Demo</div><div class="stat-value">{{ total }}</div></div>
   <div class="stat-card"><div class="stat-label">地图</div><div class="stat-value">{{ map_count }}</div></div>
   <div class="stat-card"><div class="stat-label">总回合</div><div class="stat-value">{{ round_count }}</div></div>
-  <div class="stat-card"><div class="stat-label">选手</div><div class="stat-value">{{ player_count }}</div></div>
+  <div class="stat-card"><div class="stat-label">选手</div><div class="stat-value" data-warmup="player_count">{{ player_count }}</div></div>
 </div>
 
 <div class="section-header"><h2>最近对局</h2>
@@ -41,12 +41,19 @@
 <div class="grid hl-grid" id="dash-highlights">
   {% for h in highlights %}{% include "_highlight_card.html" %}{% endfor %}
 </div>
+{% elif not warm_ready %}
+<div class="empty-state warm-skeleton" id="dash-highlights-skeleton">
+  <div class="empty-title">全库分析预热中<span class="warm-dots">…</span></div>
+  <div>首次启动需要在后台扫描全部 demo（通常几十秒），完成后这里自动填充，无需刷新。</div>
+</div>
 {% else %}
 <div class="empty-state"><div class="empty-title">暂无高光</div>
   <div>解析完成后，多杀/残局/ACE 回合会自动出现在这里。</div></div>
 {% endif %}
 {% endblock %}
 {% block scripts %}
+{% if not warm_ready %}<script src="/static/js/warmup.js?v={{ static_v }}"></script>{% endif %}
+<script src="/static/js/favorites.js?v={{ static_v }}"></script>
 <script>
 // upload zone: click-to-browse + drag&drop (contract ids preserved)
 (function () {

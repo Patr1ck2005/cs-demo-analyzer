@@ -8,9 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from cs_analyzer.cache import DemoCache
 from cs_analyzer.config import AnalysisConfig
 from cs_analyzer.analysis import AnalysisRunner
+from cs_analyzer.analysis.library import scan_demos
 
 
 @dataclass
@@ -136,51 +136,67 @@ def _demo_row(demo) -> DemoRow:
 
 
 def compute_aggregate(cache_dir: Path = Path(".cache"), analysis: AnalysisConfig | None = None) -> AggregateResult:
-    """Compute cross-demo aggregation from all cached demos."""
-    cache = DemoCache(cache_dir)
+    """Compute cross-demo aggregation from all cached demos.
+
+    Phase L0: per-demo work (parquet load + basic_stats/ratings) runs in a
+    thread pool (analysis/library.py); the merge below stays serial and in
+    sorted-hash order, so the output is identical to the old serial loop.
+    """
     runner = AnalysisRunner(analysis or AnalysisConfig(enabled_modules=["basic_stats", "ratings"]))
 
-    players: dict[str, PlayerRow] = {}
-    demo_rows: list[DemoRow] = []
-    for demo_dir in sorted(cache_dir.glob("*")):
-        if not demo_dir.is_dir():
-            continue
-        demo = cache.load(demo_dir.name)
-        if demo is None:
-            continue
+    def work(demo) -> tuple[DemoRow, list[dict]]:
         results = runner.run(demo)
         basic = results.get("basic_stats")
         ratings = results.get("ratings")
-        demo_rows.append(_demo_row(demo))
-        if basic is None or ratings is None:
-            continue
-        for bs in basic.players:
-            rt = ratings.by_steamid(bs.steamid)
-            row = players.setdefault(bs.steamid, PlayerRow(steamid=bs.steamid, name=bs.name))
-            row.name = bs.name
-            row.total_kills += bs.kills
-            row.total_deaths += bs.deaths
-            row.total_rounds += bs.rounds
-            row.total_headshot_kills += bs.headshot_kills
-            row.total_first_kills += bs.first_kills
-            row.total_survival_weighted += bs.Survivals * bs.rounds
-            row.total_damage += bs.damage
-            row.demos.append(
-                {
-                    "demo": Path(demo.metadata.demo_path).name,
-                    "demo_hash": demo.metadata.demo_hash,
-                    "map_name": demo.metadata.map_name,
-                    "rounds": bs.rounds,
+        row = _demo_row(demo)
+        per_player: list[dict] = []
+        if basic is not None and ratings is not None:
+            for bs in basic.players:
+                rt = ratings.by_steamid(bs.steamid)
+                per_player.append({
+                    "steamid": bs.steamid,
+                    "name": bs.name,
                     "kills": bs.kills,
                     "deaths": bs.deaths,
-                    "KPR": bs.KPR,
-                    "ADR": bs.ADR,
+                    "rounds": bs.rounds,
+                    "headshot_kills": bs.headshot_kills,
+                    "first_kills": bs.first_kills,
+                    "survivals_weighted": bs.Survivals * bs.rounds,
                     "damage": bs.damage,
-                    "Rating": rt.Rating if rt else 0.0,
-                    "KAST": rt.KAST if rt else 0.0,
-                    "RWS": rt.RWS if rt else 0.0,
-                }
+                    "entry": {
+                        "demo": Path(demo.metadata.demo_path).name,
+                        "demo_hash": demo.metadata.demo_hash,
+                        "map_name": demo.metadata.map_name,
+                        "rounds": bs.rounds,
+                        "kills": bs.kills,
+                        "deaths": bs.deaths,
+                        "KPR": bs.KPR,
+                        "ADR": bs.ADR,
+                        "damage": bs.damage,
+                        "Rating": rt.Rating if rt else 0.0,
+                        "KAST": rt.KAST if rt else 0.0,
+                        "RWS": rt.RWS if rt else 0.0,
+                    },
+                })
+        return row, per_player
+
+    players: dict[str, PlayerRow] = {}
+    demo_rows: list[DemoRow] = []
+    for row, per_player in scan_demos(cache_dir, work):
+        demo_rows.append(row)
+        for pp in per_player:
+            row_stats = players.setdefault(
+                pp["steamid"], PlayerRow(steamid=pp["steamid"], name=pp["name"])
             )
+            row_stats.name = pp["name"]
+            row_stats.total_kills += pp["kills"]
+            row_stats.total_deaths += pp["deaths"]
+            row_stats.total_rounds += pp["rounds"]
+            row_stats.total_headshot_kills += pp["headshot_kills"]
+            row_stats.total_first_kills += pp["first_kills"]
+            row_stats.total_survival_weighted += pp["survivals_weighted"]
+            row_stats.total_damage += pp["damage"]
+            row_stats.demos.append(pp["entry"])
     ordered = sorted(players.values(), key=lambda p: p.avg_rating, reverse=True)
     demo_rows.sort(key=lambda d: d.match_key)
     return AggregateResult(players=ordered, demos=demo_rows)

@@ -18,15 +18,23 @@ from cs_analyzer.model.parsed_demo import ParsedDemo
 ROUND_SIDE_WINDOW_TICKS = 512
 
 
-def _side_from_codes(codes: pd.Series) -> str:
-    """Majority vote of numeric team codes -> "T" | "CT" | ""."""
-    codes = codes.dropna()
-    if codes.empty:
+def _side_from_codes(codes: np.ndarray) -> str:
+    """Majority vote of numeric team codes -> "T" | "CT" | "".
+
+    numpy hot path (Phase L0): the old pandas dropna/value_counts version
+    paid extension-array conversion per player×round slice (824 to_numpy
+    calls ≈ 0.85s per demo). Tie-break = first occurrence in the slice,
+    matching the previous value_counts hash-table order.
+    """
+    codes = codes[np.isfinite(codes)]
+    if codes.size == 0:
         return ""
-    counts = codes.value_counts()
-    if len(counts) > 1 and counts.iloc[0] == counts.iloc[1]:
-        return "T" if float(codes.iloc[0]) < 2.5 else "CT"
-    return "T" if counts.index[0] < 2.5 else "CT"
+    vals, first, counts = np.unique(codes, return_index=True, return_counts=True)
+    if len(vals) > 1 and counts[0] == counts[1]:
+        best = vals[0] if first[0] < first[1] else vals[1]
+    else:
+        best = vals[int(np.argmax(counts))]
+    return "T" if float(best) < 2.5 else "CT"
 
 
 def round_player_sides(demo: ParsedDemo) -> dict[int, dict[str, str]]:
@@ -35,7 +43,7 @@ def round_player_sides(demo: ParsedDemo) -> dict[int, dict[str, str]]:
 
     Ticks are pre-sorted once by (steamid, tick); each round then reads a
     searchsorted-bounded slice, so cost stays O(rounds x window) instead of a
-    full-table scan per round.
+    full-table scan per round. Columns are converted to numpy once (L0).
     """
     sides: dict[int, dict[str, str]] = {}
     ticks = demo.ticks
@@ -47,17 +55,20 @@ def round_player_sides(demo: ParsedDemo) -> dict[int, dict[str, str]]:
 
     t_sorted = ticks.sort_values(["steamid", "tick"], kind="stable")
     tick_vals = t_sorted["tick"].to_numpy()
+    code_vals = t_sorted["team_num"].to_numpy()
+    # per-player contiguous runs are round-invariant — compute once (L0:
+    # this was re-derived per round: 21x to_numpy + boundary scan on ~1M rows)
+    player_ranges = _player_row_ranges(t_sorted)
 
     for rnd in rounds:
         m: dict[str, str] = {}
-        for sid, (i0p, i1p) in _player_row_ranges(t_sorted):
+        for sid, (i0p, i1p) in player_ranges:
             # searchsorted within this player's contiguous run
             i0 = i0p + int(np.searchsorted(tick_vals[i0p:i1p], rnd.start_tick, side="left"))
             i1 = i0p + int(np.searchsorted(tick_vals[i0p:i1p], rnd.start_tick + ROUND_SIDE_WINDOW_TICKS, side="right"))
             if i0 >= i1:
                 continue
-            codes = t_sorted["team_num"].iloc[i0:i1]
-            s = _side_from_codes(codes)
+            s = _side_from_codes(code_vals[i0:i1])
             if s:
                 m[sid] = s
         sides[rnd.number] = m
