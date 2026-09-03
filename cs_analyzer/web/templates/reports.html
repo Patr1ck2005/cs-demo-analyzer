@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}报告导出{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>报告导出</h1>
+    <div class="page-meta">单场报告一键导出 PNG 长图 / PDF（playwright 无头渲染打印版页面）</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="border:none">新建导出</h2>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <select id="rp-demo" class="input" style="min-width:320px"></select>
+    <button class="btn" id="rp-png" type="button">导出 PNG 长图</button>
+    <button class="btn" id="rp-pdf" type="button">导出 PDF</button>
+    <a class="sub" id="rp-preview" href="#" target="_blank">先看打印预览 →</a>
+  </div>
+  <div class="sub" id="rp-status" style="margin-top:10px"></div>
+  <div class="sub" style="margin-top:6px">导出过程约 5-15 秒（无头浏览器渲染）。未安装 playwright 时会提示安装方式。</div>
+</div>
+
+<div class="section-header"><h2>导出历史</h2></div>
+<div class="table-wrap">
+<table id="rp-history">
+  <thead><tr><th>文件</th><th class="num">大小</th><th>时间</th><th>下载</th></tr></thead>
+  <tbody></tbody>
+</table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/reports.js?v={{ static_v }}"></script>
+{% endblock %}

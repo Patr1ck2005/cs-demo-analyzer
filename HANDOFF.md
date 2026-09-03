@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-08-30（Phase K 进行中）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-03（Phase L 完成，待验收）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -8,33 +8,91 @@
 2. 跑 Python 一律用显式路径 `"D:\Program Files\Python311\python.exe"`（bash PATH 的 `python` 指向失效的 enve/ venv）。
 3. **agent 可以读图片**：`read_image` 工具直接读 PNG/JPEG/WebP/GIF（2026-08-30 实证可用，旧"read 是纯文本"限制已失效）。视觉验收优先：playwright 截图 → read_image 亲眼看；像素采样断言仅作程序化补充。
 4. 异常一律记录到 HANDOFF §7 与 dev_log，不分轻重。
+5. **FastAPI 路由注册顺序**：`/{placeholder}` 通配路由在 app.py 中部注册——任何新的单段页面路由必须注册在它**之前**（L2 的 /utility-lab 曾被遮蔽 404）。
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 18 个 demo 在库、182 测试全绿**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 18 个 demo 在库、208 测试全绿、visual_check 21 页零 console 错误**。
 
 **Git 状态（关键）**：
-- HEAD = `e65f522`（Phase K 三连提交已获用户批准：K1 viewer 修复 / K3+K4+warmup 修复 / README GIF，
-  provenance `Origin: ai:glm-5.3-flash-dsh`），**未推送** origin/main
-- **工作区新一批"待审"改动（Phase K2+K5+K6 + K2 验收修复，尚未批准提交）**：
-  - K2：`viewer_canvas.js`（模式切换器/回合网格/阵型曲线/聚类着色/偏差连线 + **验收修复两轮：① 手势守卫豁免
-    .ov-controls（拖相位滑杆曾同时平移地图）/ 渲染签名跳过静止重绘 / 轨迹步长 3 / 相位条内播放键；
-    ② 全局 `[hidden]{display:none!important}`（回放切重叠时 buy-strip 曾穿透——hidden 被 CSS display 覆盖）/
-    半场切分改为换边语义 ovHalfGroupsOf（首发 T 方活体阵营多数，R1-R12 上半场，废弃 ceil(n/2)）**）、
-    `replay_viewer.html`（重叠控制合并为单一 .ov-controls 栈——两栏结构性不再互相压盖 + ov-play 按钮）、
-    `style.css`、`tests/test_web.py`（+K2 契约测试含守卫/播放键/[hidden]/半场断言 + LAYER_VERSION 哨兵 3）
-  - K5：`analysis/teamplay.py`（新模块）、`web/teamplay_data.py`（新 memo）、`aggregation.py`
-    （联动失效）、`app.py`（/api/compare/teamplay.json）、`compare.html`（五排协同卡）、`tests/test_teamplay.py`（+3）
-  - K6：`HANDOFF.md`（状态+K5 报告）、`dev_log.md`（K 条目）
-  - 验收截图在 `output/.visual/k2a_*.png / k2c_*.png / k2d_*.png / k2_half2.png / k5_tp_*.png`
-  - 189 测试全绿；playwright 16 页零 console 错误（dashboard 冷启动 aggregate 需预热，memo 后正常）
-  - 用户验收后建议拆两个 commit（K2 / K5+K6 文档），provenance 每次仍须问
+- origin/main = `cd2ec98`（Phase K 六连提交已全部推送完毕）
+- **工作区新一批"待审"改动（Phase L 全部：L0 性能 + 5 个真实页面，尚未批准提交）**：
+  - L0 性能：`analysis/library.py`（新，线程池全库扫描 + demo_filenames metadata 预读）、
+    `analysis/util.py`（round_player_sides 内循环 numpy 化 + player 边界提出回合循环——单场 highlights
+    2.18s→0.55s、全库高光扫描 50.4s→17.0s）、`analysis/aggregate.py`（并行重写，结果与串行一致）、
+    `analysis/teamplay.py`（load_all_demos + 5E 子集加载 + **CLI 路径 AnalysisRunner(analysis=) 无效关键字修复**）、
+    `web/warmup.py`（新，启动预热 lifespan daemon 线程 aggregate→highlights→teamplay→utilitylab ~58s 后台完成）、
+    `web/feed_data.py`（新，dashboard 高亮 feed memo——原首页 50s 大头）、`web/app.py`
+    （lifespan + /api/warmup.json + /api/warmup/dashboard.json + dashboard 骨架渐进填充 + _module_cache LRU 512）、
+    `static/js/warmup.js`、`templates/index.html`（骨架）
+  - L1 收藏：`web/favorites_store.py`（新，output/favorites.json）、/api/favorites GET/POST、
+    `static/js/favorites.js`（星标委托/meta 随点随存/favorites 页渲染）、`templates/favorites.html`、
+    星标挂 `_match_card.html`（data-match-card）与 `player_career.html`、`base.html` 加 .nav-secondary 专题导航
+  - L2 道具专题：`analysis/utility_effect.py`（**加性字段 smoke_events**；**修复静默 bug：0.42 的
+    smokegrenade_detonate 列名是小写 x/y，代码读大写 X/Y——真实 demo 烟中击杀恒 0**，修复后 93 杀）、
+    `web/utilitylab_data.py`（新 memo）、/utility-lab + /api/utilitylab.json + `static/js/utilitylab.js`
+    （闪光价值榜/烟中击杀榜/6 图落点热力）
+  - L3 地图分析：`analysis/postplant.py`（**修复：site 列真实值是数字 place id，改用 user_last_place_name
+    推断 A/B**）、`web/mapdata.py`（新）、/map-analysis + /api/map-analysis.json + `static/js/map_analysis.js`
+    （T/CT 开局路线 top3 叠加/A-B 包点条/本图最强选手）
+  - L4 队伍视图：`web/lineups_data.py`（新，首发阵容指纹分组——**数据事实：18 场含 5E 全是 Team 2/3 占位名**）、
+    /teams + /api/lineups.json + `static/js/teams.js`（车队局 5 场 45.0% vs 单排 4 场 65.1%，口径同 K5）
+  - L5 报告导出：`templates/report_match.html`（白底打印版）、`web/report_export.py`（新，playwright PNG/PDF，
+    asyncio.to_thread 防 sync-in-async）、/reports + /api/report/{hash}/export + exports/demos API、
+    `static/js/reports.js`、pyproject 可选组 `reports=["playwright>=1.40"]`
+  - L6：`scripts/visual_check.py` 16→21 页、system.html 专题卡转正、各入口 chip 去"即将上线"、HANDOFF/dev_log
+  - 验收截图 `output/.visual/l0_*.png l1_*.png l2_*.png l3_*.png l4_*.png l5_*.png`
+  - **208 测试全绿（+19）；6 个新 JS node --check 过；未提交，等待用户验收**
+
 
 **服务器**：uvicorn 跑在 127.0.0.1:8000（含全部 18 场缓存）。
 
-## 2. Phase K —— 已全部完成（2026-08-30，待审+待验收）
+## 2. Phase L —— 占位页全部真实化 + 冷启动性能治理（2026-09-03，待审+待验收）
 
-计划全文见对话或 git 历史。**K1/K3/K4 已提交（e65f522 三连）**；**K2/K5/K6 完成在工作区待审**：
+计划经用户批准（占位页全部 5 个 + 追加"第一次启动要很久"优化）。全部在工作区待审：
+
+### L0 — 冷启动性能（先做）
+
+- **实测根因**：首页纯 SSR 同步跑全库扫描 ~70s 白屏（aggregate 17.2s + 高亮 feed 50.4s——后者此前文档未记录）
+- **算法**：`round_player_sides` 内循环 pandas→numpy + player 边界提出回合循环（单场 highlights 2.18s→0.55s）
+- **架构**：`analysis/library.py` 线程池扫描（scan_demos/load_all_demos/demo_filenames）；teamplay 只全量读 9 场 5E（25s→19.9s）
+- **体验**：`web/warmup.py` 启动预热线程 + dashboard 骨架渐进填充——**首屏 172ms，~44s 后台就绪后自动填充数字与高光**
+- 顺手修：teamplay CLI 路径 `AnalysisRunner(analysis=)` 无效关键字（demo_ratings=None 必炸）；`_module_cache` LRU 512 上限（§9.5 旧账）
+
+### L1 — 收藏标注（/favorites）
+
+- `favorites_store.py`（output/favorites.json，ui-prefs 同款 Lock+容错）；GET/POST /api/favorites
+- 星标按钮：对局卡片（委托 `.fav-star`，meta 随点随存）+ 选手页头；/favorites 页标签筛选/备注/跳转
+- `base.html` 新增 `.nav-secondary` 二级专题导航（道具/地图/阵伍/收藏/报告）
+
+### L2 — 道具专题（/utility-lab）
+
+- `utility_effect.py` 加性字段 `smoke_events`（烟弹落点+烟中击杀位置，不改 PARSER_VERSION）
+- `utilitylab_data.py` 跨场聚合 memo（与 aggregate 联动失效）；闪光价值榜（CCTV909 372.5 居首）/烟中击杀榜/6 图落点热力
+- **修复静默 bug**：demoparser2 0.42 smokegrenade_detonate 列名是小写 `x/y`，代码读大写 `X/Y`——真实 demo 烟中击杀恒 0（合成测试列名大写所以从未暴露）。修复后 93 杀 / 1704 落点
+
+### L3 — 地图分析（/map-analysis）
+
+- `mapdata.py`：按图聚合场次/回合/T+CT 胜率/routes top3 合并/postplant A-B/本图最强选手（aggregate 按 map 过滤 ≥10 回合）
+- **修复**：`postplant.py` 的 site 列真实值是数字 place id（313/376），改用 user_last_place_name 推断 A/B
+
+### L4 — 队伍视图（/teams）
+
+- **数据事实**：18 场（含 5E 原始事件）队名全是 "Team 2/3"/"CT/TERRORIST" 占位——无战队名可依
+- `lineups_data.py`：首发阵容指纹分组 + teamplay 常客定义（≥3 场）；车队局 5 场己方回合胜率 45.0% vs 单排 4 场 65.1%（口径同 K5）；逐场双阵容 Rating 表；页面标注"匹配匹 demo 无战队名"
+
+### L5 — 报告导出（/reports）
+
+- `/report/{hash}` 白底打印模板（比分/回合走势色块/选手数据表/高光）；浏览器 Ctrl+P 也可用
+- `report_export.py`：playwright chromium PNG（full-page）/PDF（A4）；**必须 `asyncio.to_thread`**（sync API 不能跑在事件循环里）
+- 501 + 安装指引（未装 playwright）；pyproject 可选组 `reports=["playwright>=1.40"]`
+
+### L6 — 收尾
+
+- `visual_check.py` 16→**21 页全部 OK 零 console 错误**；system.html 专题卡转正；入口 chip 去"即将上线"
+- **208 测试全绿（+19）**；6 个新 JS `node --check` 过；HANDOFF（本节）/ dev_log 同步；**未提交，等用户验收 + provenance**
+
+## 3. Phase K —— 已全部完成（2026-08-30，已提交推送）
 
 ### K2 — 重叠子模式 UI 显著化 + 高级分析（已完成，待验收）
 
@@ -61,11 +119,10 @@ CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量�
 - **K5b 车队局 vs 混野**：阈值自适应（≥3 常客同场）；回合胜率/场均 Rating/首杀成功率对比 → §7 报告
 - **K5c 五人跨场画像**：最佳搭档/闪光发动机/首杀先锋/残局大师标签（残局复用 highlights 模块）
 
-### K6 — 收尾（已完成）
+### K6 — 收尾（已完成，随 cd2ec98 推送）
 
-- 全量 pytest **189 全绿**；`scripts/visual_check.py` 16 页零 console 错误
-  （dashboard 冷启动 aggregate 预热 ~12s 为已知特性，memo 后正常）
-- HANDOFF（本节+§7 报告）/ dev_log 同步；**提交前问用户批准 + provenance**
+- 全量 pytest 189 全绿；playwright 零 console 错误
+- HANDOFF / dev_log 同步；已按用户批准分两个 commit 推送（1a9a3c5 K5 / 44f7e7f K2 / cd2ec98 K6 文档）
 
 ## 3. Phase K 已完成部分（细节，供返工参考）
 
@@ -82,7 +139,7 @@ CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量�
 | Python | **`D:\Program Files\Python311\python.exe`**（PATH 的 python 指向失效 enve/） |
 | demoparser2 | 0.42.0（`>=0.42,<0.43`；0.42 起有 ammo/reload/inventory） |
 | 服务器 | `uvicorn cs_analyzer.web.app:app --port 8000`，改动 JS/模板后重启 + `static_v` 防缓存 |
-| Playwright | `scripts/visual_check.py`（16 页）；**沙箱可能拒绝其驱动进程管道创建**——提权或重试 |
+| Playwright | `scripts/visual_check.py`（21 页）；**沙箱可能拒绝其驱动进程管道创建**——提权或重试 |
 | 本会话 shell | pwsh（无 bash）；python 输出偶发被管道吞——**重要结果写到文件再读** |
 | 中文 .bat | **GBK + CRLF，禁 chcp 65001**（UTF-8 中文 + goto/call 标签定位会错位执行乱码；LF-only 也断） |
 | pwsh 管道挂起 | bat 启动的孤儿 uvicorn 继承管道句柄 → `Start-Process -Wait` 永远等不到——测试用文件重定向 + 轮询状态，别 -Wait |
@@ -92,18 +149,18 @@ CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量�
 ## 5. 关键入口
 
 ```bash
-"D:\Program Files\Python311\python.exe" -m pytest -q        # 185 全绿
+"D:\Program Files\Python311\python.exe" -m pytest -q        # 208 全绿
 "D:\Program Files\Python311\python.exe" -m uvicorn cs_analyzer.web.app:app --port 8000
-scripts/visual_check.py                                      # playwright 16 页
+scripts/visual_check.py                                      # playwright 21 页
 scripts/probe_events.py                                      # 事件可用性探针（子进程隔离）
 ```
 
 核心文件：
 - 解析: `cs_analyzer/parser/backend.py`（`_MATCH_ID_PATTERNS` 双平台 match_id、`_empirical_tick_rate`、legacy 降级重试）, `manager.py`（tick_fields 含 inventory）
-- 缓存: `cache.py`（PARSER_VERSION **1.7.0**）
-- 分析: `cs_analyzer/analysis/`——13 模块（basic_stats/ratings/preference/duels/economy/utility_effect/routes/highlights + **kill_context/hitgroups/aim/postplant/weapon_splits**）+ **util.py**（`round_player_sides` 换边安全阵营）
+- 缓存: `cache.py`（PARSER_VERSION **1.8.0**）
+- 分析: `cs_analyzer/analysis/`——14 模块（basic_stats/ratings/preference/duels/economy/utility_effect/routes/highlights + kill_context/hitgroups/aim/postplant/weapon_splits + **teamplay**）+ **util.py**（`round_player_sides` 换边安全阵营，L0 numpy 化）+ **library.py**（L0 线程池全库扫描）
 - 回放前端: `static/viewer_canvas.js`（回放+重叠子模式+聚焦跟随+买装条）、`js/viewer_overlays.js`（事件覆盖层，SMOKE_SCALE=1.2）、`js/viewer_control.js`（控图/3D）、`js/viewer_prefs.js`（19 参数调节面板）、`js/viewer_camera.js`
-- Web: `app.py`（路由 + `/analysis/{name}.json` × 9 + `_analyze_module` memo）、`chart_data.py`（载荷）、`viewer_data.py`（v3 数据包 + bombs 尾缝钳制）、`store.py`（match_key）、`aggregation.py`（memo）、`weapons.py`（武器单一事实源）
+- Web: `app.py`（路由；**专题页路由必须注册在 /{placeholder} 之前** + `/api/warmup.json` 预热协议）、`chart_data.py`（载荷）、`viewer_data.py`（v4 数据包）、`store.py`（match_key）、`aggregation.py`（memo 总失效入口：aggregate+teamplay+feed+utilitylab+mapdata+lineups）、`warmup.py`（L0 启动预热）、`feed_data.py` / `teamplay_data.py` / `utilitylab_data.py` / `mapdata.py` / `lineups_data.py`（五个 memo 报告）、`favorites_store.py`、`report_export.py`、`weapons.py`（武器单一事实源）
 - 地图: `cs_analyzer/maps/data/`——**6 图**（mirage/ancient/inferno/nuke/dust2/cache），yaml 含 provenance 注释与换算公式
 
 ## 6. 数据资产
@@ -149,7 +206,10 @@ scripts/probe_events.py                                      # 事件可用性�
 ## 8. 提交历史（近期）
 
 ```
-e65f522 docs: README overlap hero GIF                         ← Phase K 三连提交（已批准）
+cd2ec98 docs: README GIF overhaul + Phase K6 sync               ← origin/main（Phase K 六连已推送）
+1a9a3c5 feat(analysis): K5 five-stack teamplay analytics + compare card
+44f7e7f feat(viewer): K2 overlap sub-mode UI + interactions
+e65f522 docs: README overlap hero GIF
 c4a5fc4 feat: 5E match-id recognition, three new maps, warmup-round segmentation fix
 2c40f81 fix(viewer): overlap camera-follow regression + base-map sync timing
 e839a1a docs: README visual overhaul + robust start_web.bat
@@ -157,19 +217,20 @@ e839a1a docs: README visual overhaul + robust start_web.bat
 04e39a9 Phase G | 03c9eb4 Phase F | 933e9b1 Phase E | ...（更早见 git log）
 ```
 
-Phase K 剩余工作（K2/K5/K6）完成后的待审改动见 §1。完整阶段日志见 dev_log.md（每个 Phase 一条，含模型名）。
+Phase L 全部改动在工作区待审（见 §1）。完整阶段日志见 dev_log.md（每个 Phase 一条，含模型名）。
 
-## 9. 未来路线（Phase K 之后）
+## 9. 未来路线（Phase L 之后）
 
-1. **占位页填充**：/utility-lab（烟中击杀/闪光价值载荷已就绪）、/map-analysis（aggregate per-map 分组）、/teams（队伍视图）、/favorites（收藏标注）、/reports（PDF/长图导出）
-2. **在线发布**（用户拍板暂缓，方向已定）：`csa export-static` 静态快照导出 → gh-pages（只读分享版，上传/解析不存在）；**公开仓库 + steamid/昵称匿名化**；发布前 rename 仓库（现名 CS-Radar-Map-Generation 是早期项目名）
+1. **收藏备注编辑 UI**：/favorites 已可星标/标签筛选/看备注，对局详情页内嵌标签/备注编辑器可作下一小步
+2. **在线发布**（用户拍板暂缓，方向已定）：`csa export-static` 静态快照导出 → gh-pages（只读分享版）；公开仓库 + steamid/昵称匿名化；发布前 rename 仓库（现名 CS-Radar-Map-Generation 是早期项目名）
 3. 控图算法 v2（视线/交战权重，用户暂缓中）
 4. 更多地图 PNG（任何新地图：MurkyYT/cs2-map-icons + radar_info 公式，流程见 K4）
-5. 可选：aim 模块接 inventory 做武器持有时间线；Rating 2.1；`_module_cache` 上限
+5. 预热进程池/磁盘快照（L0 线程池受 GIL 限制，全库预热 ~58s 后台完成；如需更快可上 ProcessPoolExecutor 或聚合快照落盘）
+6. 可选：aim 模块接 inventory 做武器持有时间线；Rating 2.1
 
 ## 10. 给新对话的第一步建议
 
-1. 读本文件 §0-§2、§7 的「5E 五排数据洞察」
-2. `git status` 确认待审改动还在（K2/K5/K6 一批）；`git log` 若出现新 commit 说明用户已批准提交
-3. Phase K 全部完成——下一步候选见 §9 未来路线（占位页填充 / 在线发布 / 控图 v2）
-4. 任何 commit 前重读 §0 铁律 1
+1. 读本文件 §0-§2（Phase L 全貌）、§7 的「5E 五排数据洞察」
+2. `git status` 确认待审改动还在（Phase L 一批）；`git log` 若出现新 commit 说明用户已批准提交
+3. Phase L 全部完成——下一步候选见 §9 未来路线
+4. 任何 commit 前重读 §0 铁律 1 与铁律 5（路由注册顺序）

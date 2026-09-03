@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block head %}<style>
+/* print-friendly report card (L5): the /reports exporter screenshots this
+   route; also fine to print from the browser (Ctrl+P) */
+body { background: #fff; color: #16182a; }
+.topbar, .nav-secondary, main > .section-actions { display: none !important; }
+main { max-width: 860px; margin: 0 auto; padding: 32px 24px; }
+.rp-head { display: flex; justify-content: space-between; align-items: baseline;
+           border-bottom: 3px solid #6d28d9; padding-bottom: 12px; margin-bottom: 18px; }
+.rp-head h1 { font-size: 26px; margin: 0; color: #16182a; }
+.rp-head .sub { color: #636a85; }
+.rp-meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+.rp-tile { border: 1px solid #d8d5e8; border-radius: 8px; padding: 10px 12px; }
+.rp-tile .k { font-size: 11px; color: #636a85; letter-spacing: .08em; }
+.rp-tile .v { font-size: 20px; font-weight: 700; color: #16182a; }
+.rp-tile .v.t { color: #b45309; } .rp-tile .v.ct { color: #1d4ed8; }
+.rp-table { width: 100%; border-collapse: collapse; margin-bottom: 22px; font-size: 13px; }
+.rp-table th { text-align: left; border-bottom: 2px solid #16182a; padding: 6px 8px; font-size: 11px;
+               letter-spacing: .06em; color: #636a85; }
+.rp-table td { border-bottom: 1px solid #e6e4f0; padding: 6px 8px; }
+.rp-table td.num, .rp-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.rp-wins { display: flex; gap: 3px; flex-wrap: wrap; margin: 6px 0 18px; }
+.rp-wins span { width: 16px; height: 16px; border-radius: 3px; display: inline-block; }
+.rp-wins .w-t { background: #f59e0b; } .rp-wins .w-ct { background: #3b82f6; }
+.rp-hl { border: 1px solid #d8d5e8; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+         display: flex; justify-content: space-between; }
+.rp-hl .tier { font-weight: 800; color: #6d28d9; }
+.rp-footer { margin-top: 26px; color: #9aa0b8; font-size: 11px; border-top: 1px solid #e6e4f0;
+             padding-top: 10px; display: flex; justify-content: space-between; }
+@media print { .rp-noprint { display: none; } }
+</style>{% endblock %}
+{% block title %}对局报告 · {{ meta.map_name }}{% endblock %}
+{% block content %}
+<div class="rp-head">
+  <div>
+    <h1>{{ meta.map_name }} 对局报告</h1>
+    <div class="sub">{{ meta.filename }}{% if meta.match_id %} · #{{ meta.match_id }}{% endif %}</div>
+  </div>
+  <div class="sub">生成于 {{ generated }}</div>
+</div>
+
+<div class="rp-meta">
+  <div class="rp-tile"><div class="k">比分 (T–CT)</div><div class="v">{{ score.t }} – {{ score.ct }}</div></div>
+  <div class="rp-tile"><div class="k">回合数</div><div class="v">{{ score.rounds }}</div></div>
+  <div class="rp-tile"><div class="k">T 胜率</div><div class="v t">{{ '%.0f'|format(t_wr*100) }}%</div></div>
+  <div class="rp-tile"><div class="k">地图</div><div class="v">{{ meta.map_name }}</div></div>
+</div>
+
+<div class="section-header" style="border-color:#e6e4f0"><h2 style="color:#16182a;border:none">回合走势</h2></div>
+<div class="rp-wins">
+  {% for r in trend %}<span class="{{ 'w-t' if r.w == 'T' else 'w-ct' }}" title="R{{ r.n }}: {{ r.w }}"></span>{% endfor %}
+</div>
+
+<div class="section-header" style="border-color:#e6e4f0"><h2 style="color:#16182a;border:none">选手数据（按 Rating）</h2></div>
+<table class="rp-table">
+  <thead><tr><th>选手</th><th>阵营</th><th class="num">K</th><th class="num">D</th><th class="num">ADR</th>
+    <th class="num">KAST%</th><th class="num">HS%</th><th class="num">Rating</th></tr></thead>
+  <tbody>
+    {% for p in players %}
+    <tr>
+      <td>{{ p.name }}</td>
+      <td>{{ p.side }}</td>
+      <td class="num">{{ p.kills }}</td><td class="num">{{ p.deaths }}</td>
+      <td class="num">{{ '%.1f'|format(p.adr) }}</td>
+      <td class="num">{{ '%.0f'|format(p.kast) }}</td>
+      <td class="num">{{ '%.0f'|format(p.hs) }}</td>
+      <td class="num"><b>{{ '%.2f'|format(p.rating) }}</b></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="section-header" style="border-color:#e6e4f0"><h2 style="color:#16182a;border:none">高光回合</h2></div>
+{% for h in highlights %}
+<div class="rp-hl"><span><span class="tier">{{ h.tier }}</span> · {{ h.name }} · R{{ h.round }} · {{ h.kills }} 杀</span>
+  <span class="sub">{{ h.side }}</span></div>
+{% else %}
+<div class="sub">本场无 ACE/残局高光。</div>
+{% endfor %}
+
+<div class="rp-footer">
+  <span>CsDemoAnalyzer · 本地分析</span>
+  <span>{{ meta.demo_hash[:16] }}…</span>
+</div>
+{% endblock %}

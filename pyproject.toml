@@ -39,6 +39,10 @@ dev = [
     "ruff>=0.1",
     "mypy>=1.5",
 ]
+# Phase L5: /reports PNG/PDF export (headless chromium print)
+reports = [
+    "playwright>=1.40",
+]
 
 [project.scripts]
 csa = "cs_analyzer.cli:app"
