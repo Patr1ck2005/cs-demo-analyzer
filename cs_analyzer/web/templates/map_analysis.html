@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}地图分析{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>地图分析</h1>
+    <div class="page-meta">按地图聚合 · 胜率 · 常见开局路线 · 包点分布 · 本图最强选手</div>
+  </div>
+</div>
+
+<div class="chip-row" id="ma-map-chips"></div>
+
+<div class="stat-row" id="ma-tiles"></div>
+
+<div class="grid" style="grid-template-columns:minmax(320px,520px) 1fr;align-items:start">
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">开局路线（<span id="ma-side-label">T</span>）</h2>
+    <div class="chip-row" style="margin:0 0 8px">
+      <button class="chip chip-sm on" id="ma-side-t" type="button">T 方</button>
+      <button class="chip chip-sm" id="ma-side-ct" type="button">CT 方</button>
+    </div>
+    <div class="routes-wrap">
+      <div class="map-chart" id="ma-routes" style="max-width:480px"></div>
+      <div class="routes-legend" id="ma-routes-legend" style="display:none"></div>
+    </div>
+  </div>
+  <div>
+    <div class="card" style="margin-bottom:14px">
+      <h2 style="border:none">包点分布</h2>
+      <div id="ma-sites"></div>
+    </div>
+    <div class="card" style="margin-bottom:0">
+      <h2 style="border:none">本图最强选手（≥10 回合）</h2>
+      <div class="table-wrap">
+        <table id="ma-best">
+          <thead><tr><th>选手</th><th class="num">回合</th><th class="num">Rating</th><th class="num">生涯场次</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
+<script src="/static/js/map_analysis.js?v={{ static_v }}"></script>
+{% endblock %}

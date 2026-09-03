@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <div class="sub" style="margin-bottom:2px"><a href="/players">← 返回选手库</a></div>
-    <h1>{{ p.name }}</h1>
+    <h1>{{ p.name }} <span data-player-star="{{ p.steamid }}" data-player-name="{{ p.name }}" style="font-size:18px;cursor:pointer"></span></h1>
     <div class="page-meta">跨 {{ p.demo_count }} 场 · 共 {{ p.total_rounds }} 回合{% if p.demo_count < 5 %} · <span class="badge no">样本不足 5 场</span>{% endif %}</div>
   </div>
 </div>
@@ -75,6 +75,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/favorites.js?v={{ static_v }}"></script>
 <script id="radar-ranges" type="application/json">[
 {%- for a in radar_axes -%}
 {"key": "{{ a.key }}", "label": "{{ a.label }}", "min": {{ a.min }}, "max": {{ a.max }} }{{ "," if not loop.last }}

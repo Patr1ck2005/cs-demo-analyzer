@@ -7,7 +7,7 @@
     <div class="page-meta">共 {{ demos|length }} 场对局 · {{ maps|length }} 张地图</div>
   </div>
   <div class="page-actions">
-    <a class="chip" href="/favorites">收藏与标注（即将上线）</a>
+    <a class="chip" href="/favorites">收藏与标注</a>
   </div>
 </div>
 
@@ -65,6 +65,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="/static/table_sort.js"></script>
+<script src="/static/js/favorites.js?v={{ static_v }}"></script>
 <script>
 (function () {
   const wall = document.getElementById('match-wall');

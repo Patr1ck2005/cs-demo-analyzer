@@ -1,7 +1,7 @@
 <!-- match card: shared by dashboard "最近对局" and /matches card wall.
      map_images (dict map_name -> url) is provided by the route; maps without
      a radar PNG render a flat placeholder tile. -->
-<a class="match-card" href="/match/{{ d.demo_hash }}">
+<a class="match-card" href="/match/{{ d.demo_hash }}" data-match-card="{{ d.demo_hash }}">
   {% set img = map_images.get(d.map_name) if map_images else none %}
   <div class="mc-map {{ '' if img else 'mc-map--none' }}"
        {% if img %}style="background-image:url('{{ img }}')"{% endif %}>

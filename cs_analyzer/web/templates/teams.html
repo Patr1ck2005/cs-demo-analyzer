@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}队伍视图{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>队伍视图</h1>
+    <div class="page-meta">匹配匹 demo 无战队名（Team 2/3 占位）——按首发阵容指纹分组：车队局 vs 单排局</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/compare">五排协同 →</a>
+  </div>
+</div>
+
+<div class="section-header"><h2>常客阵容（5E 库 ≥3 场）</h2></div>
+<div class="chip-row" id="tm-regulars"></div>
+
+<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start">
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">🚗 车队局（≥3 常客同场）</h2>
+    <div id="tm-stack-group"></div>
+  </div>
+  <div class="card" style="margin-bottom:0">
+    <h2 style="border:none">🎲 单排局</h2>
+    <div id="tm-solo-group"></div>
+  </div>
+</div>
+
+<div class="section-header"><h2>逐场阵容</h2>
+  <div class="section-actions sub" style="margin:0">己方胜率 = 多数常客所在一侧的回合胜率（换边安全）</div></div>
+<div id="tm-matches"></div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/teams.js?v={{ static_v }}"></script>
+{% endblock %}

@@ -32,11 +32,25 @@ def _finite(v) -> float | None:
     return f if math.isfinite(f) else None
 
 
+def _xy(row, *names) -> float | None:
+    """First finite float among alternate column names (0.42 uses lowercase
+    x/y for grenade events; deaths keep uppercase user_X/attacker_X)."""
+    for n in names:
+        v = _finite(row.get(n))
+        if v is not None:
+            return v
+    return None
+
+
 class UtilityEffectResult(AnalysisResult):
     # per thrower: flash stats
     flashers: list[dict] = Field(default_factory=list)
     # smoke denial counters per player
     smoke: list[dict] = Field(default_factory=list)
+    # L2 additive: map-space spots for the utility-lab heatmap —
+    # {x, y, round, side, kind: "smoke"|"kill"}; world coords, fail-soft
+    # (rows without X/Y are skipped). No parser change: events already cached.
+    smoke_events: list[dict] = Field(default_factory=list)
 
 
 @register_module
@@ -64,11 +78,11 @@ class UtilityEffectModule(AnalysisModule):
             return ""
 
         flashers = self._flash_value(demo, side_at)
-        smoke = self._smoke_denial(demo, side_at)
+        smoke, smoke_events = self._smoke_denial(demo, side_at)
         self._fold_flash_assists(demo, flashers)
         return UtilityEffectResult(
             module=self.name, demo_hash=demo.metadata.demo_hash,
-            flashers=flashers, smoke=smoke,
+            flashers=flashers, smoke=smoke, smoke_events=smoke_events,
         )
 
     @staticmethod
@@ -176,12 +190,13 @@ class UtilityEffectModule(AnalysisModule):
         return out
 
     # ---- smoke denial ----
-    def _smoke_denial(self, demo: ParsedDemo, side_at) -> list[dict]:
+    def _smoke_denial(self, demo: ParsedDemo, side_at) -> tuple[list[dict], list[dict]]:
         det = demo.events.get("smokegrenade_detonate")
         expired = demo.events.get("smokegrenade_expired")
         deaths = demo.events.get("player_death")
+        smoke_events: list[dict] = []
         if det is None or det.empty or deaths is None or deaths.empty:
-            return []
+            return [], smoke_events
         start_tick = demo.regular_rounds[0].start_tick if demo.regular_rounds else 0
         # live smoke windows: detonate -> expired (entityid match) or default 18s
         spans: list[tuple[int, int, float, float]] = []
@@ -198,8 +213,10 @@ class UtilityEffectModule(AnalysisModule):
             t0 = int(row.get("tick", 0) or 0)
             if t0 < start_tick:
                 continue
-            x = _finite(row.get("X"))
-            y = _finite(row.get("Y"))
+            # demoparser2 0.42 emits lowercase x/y (grenade landing point);
+            # accept uppercase too so synthetic/legacy frames keep working.
+            x = _xy(row, "x", "X")
+            y = _xy(row, "y", "Y")
             if x is None or y is None:
                 continue
             eid = row.get("entityid")
@@ -207,6 +224,13 @@ class UtilityEffectModule(AnalysisModule):
             if t1 is None or t1 <= t0:
                 t1 = t0 + int(18 * 64)
             spans.append((t0, t1, x, y))
+            thrower = str(row.get("user_steamid", "") or "")
+            rnd = demo.data.round_at_tick(t0)
+            smoke_events.append({
+                "x": x, "y": y, "round": rnd.number if rnd else 0,
+                "side": side_at(thrower, t0) if thrower else "",
+                "kind": "smoke",
+            })
 
         def in_smoke(tick: int, x: float, y: float) -> bool:
             for t0, t1, sx, sy in spans:
@@ -234,6 +258,11 @@ class UtilityEffectModule(AnalysisModule):
                                               "name": str(row.get("attacker_name", "") or att)})
                 if vic_in and not att_in:
                     s["smoke_kills"] += 1
+                    rnd = demo.data.round_at_tick(t)
+                    smoke_events.append({
+                        "x": vx, "y": vy, "round": rnd.number if rnd else 0,
+                        "side": side_at(vic, t), "kind": "kill",
+                    })
             if vic:
                 s = counters.setdefault(vic, {"smoke_kills": 0, "smoke_deaths": 0,
                                               "name": str(row.get("user_name", "") or vic)})
@@ -248,7 +277,7 @@ class UtilityEffectModule(AnalysisModule):
                     "side": side_at(sid, None) or "",
                 })
         out.sort(key=lambda x: -(x["smoke_kills"] * 2 - x["smoke_deaths"]))
-        return out
+        return out, smoke_events
 
     def _player_sides(self, demo: ParsedDemo) -> dict[str, str]:
         """Deprecated whole-demo side map (Phase I): kept only for API compat.

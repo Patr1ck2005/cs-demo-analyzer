@@ -49,10 +49,13 @@ class PostPlantModule(AnalysisModule):
             rnd = demo.data.round_at_tick(plant_tick)
             if rnd is None or rnd.is_warmup:
                 continue
-            site = str(row.get("site", "") or "")
-            if not site:
-                place = str(row.get("user_last_place_name", "") or "")
-                site = "A" if "A" in place else "B" if "B" in place else ""
+            site = str(row.get("site", "") or "").strip().upper()
+            if site not in ("A", "B"):
+                # real demoparser2 demos carry numeric place ids here (313/376…)
+                # — the planter's last place name ("BombsiteA") is the reliable
+                # A/B signal; keep the raw code only as a last resort.
+                place = str(row.get("user_last_place_name", "") or "").upper()
+                site = "A" if "A" in place else "B" if "B" in place else site
 
             defuse_tick = None
             if defused is not None and not defused.empty:

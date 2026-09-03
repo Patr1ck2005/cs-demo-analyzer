@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}收藏与标注{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>收藏与标注</h1>
+    <div class="page-meta">星标对局/选手 · 标签筛选 · 备注（本地 output/favorites.json）</div>
+  </div>
+</div>
+
+<div class="section-header"><h2>标签筛选</h2></div>
+<div class="chip-row" id="fav-tag-row"></div>
+
+<div class="section-header"><h2>收藏的对局</h2></div>
+<div class="grid match-grid" id="fav-matches"></div>
+
+<div class="section-header"><h2>收藏的选手</h2></div>
+<div class="grid" id="fav-players" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))"></div>
+
+<div class="section-header"><h2>备注</h2></div>
+<div class="card" id="fav-notes" style="margin-bottom:0"></div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/favorites.js?v={{ static_v }}"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () { renderFavoritesPage(); });
+</script>
+{% endblock %}
