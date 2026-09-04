@@ -90,6 +90,7 @@ def _run() -> None:
             ("highlights", _step_highlights),
             ("teamplay", _step_teamplay),
             ("utilitylab", _step_utilitylab),
+            ("funlab", _step_funlab),
         ):
             with _lock:
                 _state["phase"] = step_name
@@ -126,3 +127,9 @@ def _step_utilitylab() -> None:
     from cs_analyzer.web import utilitylab_data
 
     utilitylab_data.utilitylab_report()
+
+
+def _step_funlab() -> None:
+    from cs_analyzer.web import funlab_data
+
+    funlab_data.funlab_report()

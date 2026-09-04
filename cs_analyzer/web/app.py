@@ -280,6 +280,33 @@ def reports_page(request: Request):
     return TEMPLATES.TemplateResponse(request, "reports.html", {})
 
 
+# ---- Phase M: fun-lab (趣味数据实验室) — must register BEFORE /{placeholder} ----
+
+@app.get("/fun-lab", response_class=HTMLResponse)
+def fun_lab_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "fun_lab.html", {})
+
+
+@app.get("/api/funlab.json")
+def funlab_api(request: Request):
+    """Fun metrics report; optional filters:
+
+    stack=1,2,4 — keep only matches with that many library-regulars (排型)
+    dates=20260902,20260903 — keep only matches played on those dates
+    """
+    from cs_analyzer.web.funlab_data import funlab_report
+
+    def _ints(param: str) -> tuple[int, ...] | None:
+        vals = tuple(int(v) for v in param.split(",") if v.strip().isdigit())
+        return vals or None
+
+    stack_param = request.query_params.get("stack", "").strip()
+    dates_param = request.query_params.get("dates", "").strip()
+    stack = _ints(stack_param) if stack_param else None
+    dates = tuple(v for v in dates_param.split(",") if v.strip()) or None
+    return JSONResponse(funlab_report(stack=stack, dates=dates))
+
+
 @app.get("/report/{demo_hash}", response_class=HTMLResponse)
 def report_match_page(request: Request, demo_hash: str):
     """Print-friendly single-match report (exported to PNG/PDF by playwright;

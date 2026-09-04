@@ -36,6 +36,8 @@ PAGES = [
     ("teams", "/teams", 1500),
     ("reports", "/reports", 1500),
     ("report_match", f"/report/{H}", 1200),
+    # Phase M: fun metrics quadrant lab
+    ("fun_lab", "/fun-lab", 2500),
     ("player_career", "/player/76561199829611601", 1200),
     ("overlap", f"/match/{H}/overlap", None),
     ("viewer", f"/match/{H}/viewer", None),

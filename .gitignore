@@ -16,3 +16,4 @@ __pycache__/
 # Generated artifacts
 /.cache/
 /output/
+cs_demo_analyzer.egg-info/
