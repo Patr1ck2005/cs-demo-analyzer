@@ -339,6 +339,35 @@ METRIC_DEFS 完整性/free_pickup_pr 分母/map 池化+门槛/lineups 池化）�
 - **记录不动的小项**：compare 雷达叠加未选人时空箱（建议未来加"勾选上方选手"提示，§9.1）；
   tab_utility 闪光榜 Y 轴名右缘截断（单场页 axis name 过长，纯装饰）。
 
+## 10. Phase N —— 选手风格聚类 🌌 风格星系（2026-09-05，完成待审）
+
+用户六项裁决（问答确认）：聚类主线+两小件 / **全部 32 个 M5 比率指标**入向量 /
+**欧氏距离**（稳健标准化空间）/ 标签自动命名 / 展示在 /fun-lab 新区块 / 门槛 ≥3 场。
+
+- **`web/style_map.py`（新，零新依赖）**：复用 funlab_report 向量 → 常量列剔除 →
+  稳健标准化（中位数/IQR，IQR=0 回退 std）→ PCA 前 2 主成分（numpy SVD，附解释方差比）→
+  **Ward 层次聚类**（scipy 已装，不装 sklearn/umap——铁律 2b 规避；切簇 = 0.6×最大合并距离）→
+  簇标签**对比式自动命名**（质心 vs 其余簇质心 top3 偏离，两簇标签互为镜像——
+  初版"vs 全局中位数"命名在含离群者时 6 人标签同质，实库发现后修正）→
+  最近邻（全特征欧氏，排除自己）。**单一巨簇时逐人画像兜底**（自己 vs 中位数）。
+- **/fun-lab 新区块"🌌 风格星系"**：PC1×PC2 散点（色=簇、点大小=场数、tooltip=标签+最像队友）
+  + 右栏风格画像列表；头部显示"PC1+PC2 解释方差 71% · 29 特征入向量 · 剔除常量 2 个"。
+- **API**：`/api/style-map.json`（铁律 5：注册于通配路由前）；失效链接入
+  `invalidate_aggregate → style_map`；无独立预热步（funlab 向量算完即得）。
+- **测试**：tests/test_style_map.py 10 项（常量列剔除/标准化回退/PCA 形状方差/双 blob 分簇/
+  对比式命名方向/最近邻排己/个人画像兜底/web 契约+3demo 契约）；**231 全绿**。
+- **实库结果**：7 人 → Ward 2 簇；**YamZzi 是真离群者**（合并距离 5.4~8.8 vs 最后一步 16.3），
+  标签"高烟中杀率·高纯eco率·低神仙率" vs 其余 6 人"低烟中杀率·低纯eco率·高神仙率"；
+  PC1+PC2 解释方差 71%。研究预览定位：样本增长后星系自动变有意义（页面已注明）。
+- **小件 1 — anubis 雷达 PNG（K4 流程）**：MurkyYT/cs2-map-icons 经 api.github.com base64
+  下载 `de_anubis.png`（1024×1024 RGBA）+ radar_info（pos_x=-2796/pos_y=3328/scale=5.22）
+  标准公式补 `maps/data/de_anubis.yaml`；**双重验证 PASS**：① 全 demo 109 万移动点
+  bbox 落图 5%-95%；② 出生点锚实测 T(0.474,**0.923**)/CT(0.433,**0.217**) vs
+  radar_info T(**0.93**)/CT(**0.22**) —— y 翻转校准正确（K4 教训落实）。地图分析页 anubis
+  chip 已渲染雷达底图+路线。
+- **小件 2 — compare 雷达空箱提示**：未选人时显示"勾选上方选手以叠加生涯雷达"。
+- 验收截图 `output/.visual/n_galaxy.png / n_anubis.png / n_compare_hint.png`。
+
 ## 10. 给新对话的第一步建议
 
 1. 读本文件 §0-§2（Phase L 全貌）、§7 的「5E 五排数据洞察」
