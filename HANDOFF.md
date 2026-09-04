@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-03（Phase M v2 趣味数据实验室按用户口径定稿，待验收）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-05（Phase M5 全面口径审计完成——反样本量偏差整改 + 指标口径上页面 + 聚类分析立项 §9.7，待审+待验收）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -16,8 +16,23 @@
 CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 25 个 demo 在库、212 测试全绿、visual_check 22 页零 console 错误**。
 
 **Git 状态（关键）**：
-- origin/main = `ac5c7fa`（Phase L 三连已推送：027cf59 L0 性能 / 0d18492 L 页面 / ac5c7fa L5+L6）
-- **工作区新一批"待审"改动（Phase M 趣味数据实验室 v2——按用户口径定稿，尚未批准提交）**：
+- origin/main = `938e01e`（Phase M 三连已推送：fe907b2 funlab 模块 / 381df5f /fun-lab / 938e01e 交接同步；Phase L 在此之前 027cf59/0d18492/ac5c7fa）
+- **工作区新一批"待审"改动（Phase M5 全面口径审计——2026-09-05，尚未批准提交）**：
+  - **反样本量偏差整改**（用户原则："人与人对比的指标必须排除打得多=数据高"）：
+    舔包王榜→每回合口径（用户裁决"除总回合数"）/ 地图最强选手→回合加权 Rating+同图多场池化
+    （原 rating×rounds 且同图覆盖只留最后一场）/ 五排画像闪光·残局·最佳搭档→每场比率 /
+    道具闪光榜→价值/投掷（<3 次标"少"）·烟中榜→每场净值 / 队伍视图组胜率→回合池化
+  - **两处 funlab bug**：① ssg08 同时在长枪集+装逼集，装逼率永远漏鸟狙→鸟狙只认装逼（用户裁决）；
+    ② "Desert Eagle" 显示名缺别名，沙鹰绕过发枪链→补 "desert eagle"→deagle
+  - **口径上页面**（用户要求"点开必须能看到介绍"）：`funlab_data.METRIC_DEFS` 32 指标
+    label/formula/note 随 /api/funlab.json 下发；/fun-lab 新增"📖 指标口径说明"面板（逐项展开）
+    + 轴选择下方实时两轴公式行 + 榜单卡头口径小字；utility/map/teams 页口径脚注；
+    compare 最佳搭档显示"X.X/场·共N次"
+  - **docs/funlab-metrics.md v5**：两项新裁决（鸟狙=装逼枪 / 舔包王每回合）+ 全部整改记录
+  - **聚类分析立项 §9.7**（用户点名"前沿研究性分析"）：多维指标空间选手风格聚类，M5 后的
+    全比率指标矩阵天然适配；建议 DBSCAN+稳健标准化优先（25 场小样本），依赖 scikit-learn
+  - 测试 212→**221 全绿**（+9 test_metric_audit.py）；4 页截图验收 output/.visual/m5_*.png
+  - ↑ Phase M5 批次；以下 Phase L/M 批次**已全部提交推送**：
   - **口径文档 `docs/funlab-metrics.md` v2**：用户逐条裁决（抢人头/被抢人头改名、白给 <10 伤害、
     发枪全指标做、急停 v2、预设按意义组合）；**总原则：轴上只允许比率/每回合值，绝对值仅榜单/tooltip**（"打得多≠数据好"）
   - **发枪检测链（funlab.py 核心）**：无掉落事件，购买→拾取反推。四道闸门：同回合同款主武器/
@@ -41,7 +56,7 @@ CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量�
     ⑥ **新 demo 导入**：库 18→25 场（09/02-09/03 的 3/4/5 排 7 场新对局，含 de_anubis 首图——
     **anubis 无雷达 PNG**，需按 K4 流程补）；5E 源目录 16 个完好 zip 已按用户裁决删除，6 个截断坏 zip 保留
   - 口径全文：`docs/funlab-metrics.md` v3
-  - ↑ Phase M 批次；以下 Phase L 批次**已全部提交推送**（027cf59 / 0d18492 / ac5c7fa）：
+  - ↑ Phase M 批次（已推送 938e01e）；以下 Phase L 批次**已全部提交推送**（027cf59 / 0d18492 / ac5c7fa）：
   - L0 性能：`analysis/library.py`（新，线程池全库扫描 + demo_filenames metadata 预读）、
     `analysis/util.py`（round_player_sides 内循环 numpy 化 + player 边界提出回合循环——单场 highlights
     2.18s→0.55s、全库高光扫描 50.4s→17.0s）、`analysis/aggregate.py`（并行重写，结果与串行一致）、
@@ -252,6 +267,77 @@ Phase L 全部改动在工作区待审（见 §1）。完整阶段日志见 dev_
 4. 更多地图 PNG（任何新地图：MurkyYT/cs2-map-icons + radar_info 公式，流程见 K4）
 5. 预热进程池/磁盘快照（L0 线程池受 GIL 限制，全库预热 ~58s 后台完成；如需更快可上 ProcessPoolExecutor 或聚合快照落盘）
 6. 可选：aim 模块接 inventory 做武器持有时间线；Rating 2.1
+7. **选手风格聚类（Phase N 候选·2026-09-05 用户点名"前沿研究性分析"）**：在多维指标空间里看"谁和谁打得像"、每人自动生成风格画像。
+   - 数据基座已就绪：funlab METRIC_DEFS 32 指标全部是**比率/每回合口径**（M5 审计后），
+     天然消除"打得多=数值大"的聚类偏置；sample gate 复用 ≥3 场。
+   - 建议管线（用户风格：先审口径再写码）：① 特征矩阵 = 选定指标 z-score 标准化（缺轴补库中位数）；
+     ② 降维 UMAP/PCA 到 2D 做"风格星系图"（ECharts scatter，点=选手，颜色=簇，复用 14 色板）；
+     ③ 聚类 KMeans(κ≈3-6, 轮廓系数选 k) 或 DBSCAN（低样本更稳）；④ 输出每簇"风格标签"
+     （自动取簇内 top-deviation 指标命名，如"远程狙踞型/近战疯狗型/经济铁公鸡型"）+
+     每人"最像的队友"(最近邻余弦)。25 demos×~7 常客是小样本——**优先 DBSCAN+稳健标准化**，
+     KMeans 结果只做参照。依赖：scikit-learn(+umap-learn 可选)；**铁律 2b：装完立即 `pip install -e ".[dev]"`**。
+   - 展示位：/fun-lab 新增"风格星系"预设 tab，或 /compare 新卡；两轴=UMAP1/2（无量纲，允许）。
+
+## 9a. Phase M5 —— 全面口径审计（2026-09-05，完成待审）
+
+用户指令："全面审核整个项目，打得场次越多数据越高的指标全部整改（除非稳定性类）；
+趣味数据每个指标必须在网页/文档里能点开看到计算口径。"
+
+**审计结论（整改前）**：
+| 位置 | 问题 | 整改 |
+|---|---|---|
+| /fun-lab 舔包王榜 | 按白嫖总次数（绝对值） | →每回合（用户裁决）；次数进括号 |
+| /map-analysis 本图最强 | rating×rounds 绝对值乘积；同图多场被覆盖只留最后一场 | →回合加权 Rating + 池化（mapdata._pool_map_players/best_players_for_map） |
+| /compare 五排画像 | 闪光发动机/残局大师按总次数；最佳搭档按总权重 | →每场比率取王，次数进 detail；搭档 per_demo 字段 |
+| /utility-lab 闪光榜 | 按总价值 | →价值/投掷（投掷<3 前端标"少"）；烟中榜→每场净值列 |
+| /teams 组胜率 | 各场胜率简单平均 | →回合池化 pooled_win_rate（Σ胜/Σ总） |
+| funlab SSG（bug） | ssg08 同时在 RIFLE_WEAPONS+SHOWOFF_WEAPONS，装逼率永远漏鸟狙 | →鸟狙只认装逼（用户裁决） |
+| funlab deagle（bug） | "Desert Eagle" 显示名不在 WEAPON_ALIAS，沙鹰绕过发枪链 | →补别名 |
+
+**口径可视化**：`funlab_data.METRIC_DEFS`（32 指标 label/formula/note）+ BOARD_DEFS 随
+/api/funlab.json 下发；/fun-lab 页"📖 指标口径说明"面板（details 逐项展开）+ 轴选择下方
+实时两轴公式行；榜单卡头带口径小字；utility/map/teams 页 section 副标或脚注补口径。
+单一数据源铁律：改口径先改 METRIC_DEFS（+docs 同步），前端不再硬编码指标名。
+
+**验证**：tests 212→**221 全绿**（+9 test_metric_audit.py：SSG 装逼/别名/AK 叛逆回归/
+METRIC_DEFS 完整性/free_pickup_pr 分母/map 池化+门槛/lineups 池化）；
+4 页截图验收 `output/.visual/m5_*.png`（含口径面板展开图）。
+实库效果：舔包王 Trippinnn 0.030/回合(3次) 反超杏愛 0.020(6次)——低场次不再吃亏；
+装逼王计入鸟狙后 CCTV909 17 局 0.195 上榜。
+
+## 9b. M5 收尾：全页面视觉检验 + 架构检查（2026-09-05，完成）
+
+用户指令：对所有页面（含按钮行为）全面视觉检验；架构全面检验；给出收尾计划。
+
+### 视觉检验（22/22 页逐页 read_image 人工复核 + 定向加拍）
+- **逐页结论**：仪表盘/对局库/对局详情+6tab/选手库/高光/对比/系统/收藏/道具/地图/队伍/报告/单场报告/趣味/生涯/重叠/回放 —— 布局/图表渲染/中文/空状态全部正常；overlap/viewer 回放正常。
+- **发现并修复 2 缺陷**：
+  1. **"nan" 假选手**（§7.8 陷阱未清干净）：tab_tactics 武器拆分表 + tab_kills 对枪矩阵出现
+     nan 行/轴——根因是 `str(NaN)`→"nan" 散布 8 个分析模块 23 处。修复：`util.clean_sid()`
+     统一助手 + 机械清扫；test_metric_audit 新增 5 模块回归测试。
+  2. **选手库 Rating 矩阵 Y 轴名被裁切**：charts.js `matrixOption` grid.left=90 太窄 →
+     `left:8 + containLabel:true`；1600px 与 900px 窄视口复拍确认完整。
+- **定向验证**：预设 chip 点击联动轴+公式行 ✓；口径面板四组 32 项全渲染 ✓；
+  de_anubis chip 可切、数据瓦片正常（雷达 PNG 缺失维持 §9.4 已知项，非回归）；
+  窄视口 900px 下 fun-lab canvas 852px 无零宽度回归 ✓。
+
+### 架构检查结论（A-E）
+- **A 数据契约/失效链 ✓**：`invalidate_aggregate()` 链覆盖全部 6 个 memo
+  （teamplay/feed/utilitylab/mapdata/lineups/funlab）；funlab `stack=`/`dates=` 按键 re-merge
+  实测正确（25 场全量 7 人 / stack=5 → 4 场 5 人 / 09/03 → 4 场 5 人）；METRIC_DEFS 单一数据源，
+  前端无指标名硬编码（仅 key 引用）。
+- **B 正确性 ✓**：路由顺序铁律 5 保持（/fun-lab 等在 /{placeholder} 前）；§7.8 全库清扫（23 处）；
+  武器别名表补 Desert Eagle；换边安全（round_player_sides）未被触碰；绝对值取王残留仅剩
+  teamplay 连线表/热图（网络可视化原始权重，页面已注明"双方向合计"）与高光 feed（tier 排序，
+  非个人榜）——均有意保留。
+- **C 性能 ✓**：25 场全库预热实测 **175s**（基线 ~190s）；`_module_cache` LRU 512 上限有效；
+  进程池仍列 §9.5 不动。
+- **D 前端卫生 ✓**：12 个 JS 全过 `node --check`；图表容器均有显式尺寸；esc() 8 处重复实现
+  仅记录不合并（低价值）。
+- **E 文档一致性 ✓**：docs/funlab-metrics.md v5 ↔ METRIC_DEFS 抽查 5 项同义；HANDOFF §1/§9a
+  与工作树 diff 一致。
+- **记录不动的小项**：compare 雷达叠加未选人时空箱（建议未来加"勾选上方选手"提示，§9.1）；
+  tab_utility 闪光榜 Y 轴名右缘截断（单场页 axis name 过长，纯装饰）。
 
 ## 10. 给新对话的第一步建议
 
