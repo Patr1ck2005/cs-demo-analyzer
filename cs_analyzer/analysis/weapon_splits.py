@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
 from cs_analyzer.analysis.basic_stats import BasicStatsModule
+from cs_analyzer.analysis.util import clean_sid
 from cs_analyzer.model.parsed_demo import ParsedDemo
 from cs_analyzer.web.weapons import canonical, category
 
@@ -48,8 +49,14 @@ class WeaponSplitsModule(AnalysisModule):
             canon = canonical(weapon_raw)
             cat = category(weapon_raw)
 
-            att = str(row.get("attacker_steamid", "") or "")
-            vic = str(row.get("user_steamid", "") or "")
+            att = clean_sid(row.get("attacker_steamid", ""))
+            vic = clean_sid(row.get("user_steamid", ""))
+            # §7.8: NaN steamid (world/C4 kills with no attacker) must not
+            # invent a fake "nan" player row (visual audit M5 finding)
+            if att.lower() == "nan":
+                att = ""
+            if vic.lower() == "nan":
+                vic = ""
 
             if att and att != vic:
                 p = players.setdefault(att, self._blank(str(row.get("attacker_name", "") or att)))

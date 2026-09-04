@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
 from cs_analyzer.analysis.basic_stats import BasicStatsModule
+from cs_analyzer.analysis.util import clean_sid
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class HitgroupsModule(AnalysisModule):
             tick = int(row.get("tick", 0) or 0)
             if tick < start_tick:
                 continue
-            att = str(row.get("attacker_steamid", "") or "")
+            att = clean_sid(row.get("attacker_steamid", ""))
             if not att:
                 continue
             dmg = max(_num(row.get("dmg_health")), 0.0)

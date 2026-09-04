@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
 from cs_analyzer.analysis.basic_stats import BasicStatsModule
+from cs_analyzer.analysis.util import clean_sid
 from cs_analyzer.model.parsed_demo import ParsedDemo
 from cs_analyzer.web.weapons import canonical, category
 
@@ -57,8 +58,8 @@ class KillContextModule(AnalysisModule):
                 tick = int(row.get("tick", 0) or 0)
                 if tick < start_tick:
                     continue
-                att = str(row.get("attacker_steamid", "") or "")
-                vic = str(row.get("user_steamid", "") or "")
+                att = clean_sid(row.get("attacker_steamid", ""))
+                vic = clean_sid(row.get("user_steamid", ""))
                 if not att or att == vic:
                     continue
                 weapon_raw = str(row.get("weapon", "") or "")
@@ -109,7 +110,7 @@ class KillContextModule(AnalysisModule):
         mvp = demo.events.get("round_mvp")
         if mvp is not None and not mvp.empty:
             for _, row in mvp.iterrows():
-                sid = str(row.get("user_steamid", "") or "")
+                sid = clean_sid(row.get("user_steamid", ""))
                 if not sid:
                     continue
                 p = players.setdefault(sid, self._blank(str(row.get("user_name", "") or sid)))
@@ -122,7 +123,7 @@ class KillContextModule(AnalysisModule):
         cat_of = {c: c for c in ("kevlar", "kevlarhelmet", "defuser")}
         if pickups is not None and not pickups.empty:
             for _, row in pickups.iterrows():
-                sid = str(row.get("user_steamid", "") or "")
+                sid = clean_sid(row.get("user_steamid", ""))
                 if not sid:
                     continue
                 item_raw = str(row.get("item", "") or "")

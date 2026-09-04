@@ -169,7 +169,7 @@
       const labels = p.labels.map((x) =>
         `<span class="badge kb-headshot" title="${x.detail}">${x.label}</span>`).join(' ');
       const partner = p.best_partner
-        ? ` · 最佳搭档 <b>${p.best_partner.name}</b>(${p.best_partner.weight})` : '';
+        ? ` · 最佳搭档 <b>${p.best_partner.name}</b>(${p.best_partner.per_demo ?? '—'}/场 · 共${p.best_partner.weight})` : '';
       return `<div>${p.name} <span class="sub">${p.appearances} 场${partner}</span> ${labels}</div>`;
     }).join('');
 

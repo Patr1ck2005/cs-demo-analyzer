@@ -28,7 +28,7 @@ from pathlib import Path
 
 from cs_analyzer.analysis.highlights import HighlightsModule
 from cs_analyzer.analysis.ratings import TRADE_WINDOW_TICKS
-from cs_analyzer.analysis.util import round_player_sides
+from cs_analyzer.analysis.util import clean_sid, round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 FIVE_E_PREFIX = "g161-"
@@ -59,8 +59,8 @@ def _first_kills(demo: ParsedDemo) -> tuple[Counter, Counter]:
         if window.empty:
             continue
         row = window.iloc[0]
-        att = str(row.get("attacker_steamid", "") or "")
-        vic = str(row.get("user_steamid", "") or "")
+        att = clean_sid(row.get("attacker_steamid", ""))
+        vic = clean_sid(row.get("user_steamid", ""))
         if att and att != vic:
             wins[att] += 1
         if vic:
@@ -285,23 +285,34 @@ def build_teamplay_report(
     }
 
     # ---- K5c: portraits for the regulars ----
-    reg_top_flash = max(regulars, key=lambda s: flash_given[s], default=None)
+    # v5 口径审计：取王全部改用「每场」比率（绝对次数随场次线性增长，打得越多
+    # 越容易当王——违反"打得多≠数据好"总原则）；绝对次数保留在 detail 文案里。
+    reg_top_flash = max(regulars,
+                        key=lambda s: flash_given[s] / max(appear[s], 1), default=None)
     duels_of = lambda s: fk_wins_total[s] + fk_losses_total[s]  # noqa: E731
     fk_eligible = [s for s in regulars if duels_of(s) >= MIN_FK_DUELS]
     reg_top_fk = max(fk_eligible, key=lambda s: fk_wins_total[s] / duels_of(s), default=None) \
         if fk_eligible else None
-    reg_top_clutch = max(regulars, key=lambda s: clutch_wins[s], default=None)
+    reg_top_clutch = max(regulars,
+                         key=lambda s: clutch_wins[s] / max(appear[s], 1), default=None)
 
-    link_weight: dict[str, dict[str, int]] = defaultdict(dict)
+    # best partner: 每场联动强度（旧口径 = 总次数，车队常客天然占优）
+    link_weight: dict[str, dict[str, tuple[float, int]]] = defaultdict(dict)
     for (a, b), c in agg_links.items():
         wgt = c["assists"] + c["trades"] + c["flash_assists"]
-        link_weight[a][b] = max(link_weight[a].get(b, 0), wgt)
+        if wgt <= 0:
+            continue
+        per_demo = wgt / max(len(c["demos"]), 1)
+        if per_demo > link_weight[a].get(b, (0.0, 0))[0]:
+            link_weight[a][b] = (per_demo, wgt)
 
     portraits = []
     for sid in sorted(regulars, key=lambda s: -appear[s]):
         labels = []
         if reg_top_flash and sid == reg_top_flash and flash_given[sid] > 0:
-            labels.append({"label": "闪光发动机", "detail": f"{flash_given[sid]} 次闪光助攻"})
+            labels.append({"label": "闪光发动机", "detail":
+                f"每场 {flash_given[sid] / max(appear[sid], 1):.1f} 次闪光助攻"
+                f"（共 {flash_given[sid]} 次 / {appear[sid]} 场）"})
         if reg_top_fk and sid == reg_top_fk:
             labels.append({
                 "label": "首杀先锋",
@@ -309,12 +320,16 @@ def build_teamplay_report(
                           f" ({fk_wins_total[sid]}/{duels_of(sid)})",
             })
         if reg_top_clutch and sid == reg_top_clutch and clutch_wins[sid] > 0:
-            labels.append({"label": "残局大师", "detail": f"{clutch_wins[sid]} 次残局获胜"})
+            labels.append({"label": "残局大师", "detail":
+                f"每场 {clutch_wins[sid] / max(appear[sid], 1):.2f} 次残局获胜"
+                f"（共 {clutch_wins[sid]} 次 / {appear[sid]} 场）"})
         best = None
-        partners = sorted(link_weight.get(sid, {}).items(), key=lambda kv: -kv[1])
+        partners = sorted(link_weight.get(sid, {}).items(),
+                          key=lambda kv: -kv[1][0])
         if partners:
-            pid, wgt = partners[0]
-            best = {"steamid": pid, "name": names.get(pid, pid), "weight": wgt}
+            pid, (per_demo, wgt) = partners[0]
+            best = {"steamid": pid, "name": names.get(pid, pid),
+                    "weight": wgt, "per_demo": round(per_demo, 2)}
         portraits.append({
             "steamid": sid, "name": names.get(sid, sid),
             "appearances": appear[sid],

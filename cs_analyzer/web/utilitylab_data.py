@@ -127,11 +127,17 @@ def _build() -> dict:
             "value_per_throw": round(agg["value"] / agg["throws"], 2) if agg["throws"] else 0.0,
             "flash_assists": agg["flash_assists"],
         })
-    flashers_out.sort(key=lambda x: -x["value"])
+    # v5 口径审计：闪光榜按「每次投掷价值」排序——总价值随场次线性膨胀，
+    # 打得多不再天然登顶；绝对值保留在列中，投掷 <3 次的行前端标"少"。
+    flashers_out.sort(key=lambda x: (-x["value_per_throw"], -x["value"]))
 
+    # 烟中榜同改每场净值（v5）：kills×2−deaths 的绝对值随场次膨胀
     smoke_out = sorted(
-        ({**v, "demos": len(v["demos"])} for v in smoke.values()),
-        key=lambda x: -(x["smoke_kills"] * 2 - x["smoke_deaths"]),
+        ({**v, "demos": len(v["demos"]),
+          "net_per_demo": round((v["smoke_kills"] * 2 - v["smoke_deaths"])
+                                / max(len(v["demos"]), 1), 2)}
+         for v in smoke.values()),
+        key=lambda x: -x["net_per_demo"],
     )
 
     return {

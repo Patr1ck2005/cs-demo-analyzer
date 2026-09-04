@@ -13,7 +13,7 @@ import math
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
-from cs_analyzer.analysis.util import round_player_sides
+from cs_analyzer.analysis.util import clean_sid, round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 from cs_analyzer.replay.timeline import round_freeze_ends
 
@@ -106,7 +106,7 @@ class UtilityEffectModule(AnalysisModule):
                 continue
             if not bool(row.get("assistedflash", False)):
                 continue
-            assister = str(row.get("assister_steamid", "") or "")
+            assister = clean_sid(row.get("assister_steamid", ""))
             if not assister:
                 continue
             counts[assister] = counts.get(assister, 0) + 1
@@ -138,7 +138,7 @@ class UtilityEffectModule(AnalysisModule):
         blind_rows = []
         for _, row in blind.iterrows():
             t = int(row.get("tick", 0) or 0)
-            vic = str(row.get("user_steamid", "") or "")
+            vic = clean_sid(row.get("user_steamid", ""))
             dur = _finite(row.get("blind_duration")) or 0.0
             if vic and dur > 0:
                 blind_rows.append((t, vic, dur))
@@ -150,7 +150,7 @@ class UtilityEffectModule(AnalysisModule):
             t = int(row.get("tick", 0) or 0)
             if t < start_tick:
                 continue
-            thrower = str(row.get("user_steamid", "") or "")
+            thrower = clean_sid(row.get("user_steamid", ""))
             if not thrower:
                 continue
             s = stats.setdefault(thrower, {"throws": 0, "enemy_blind_s": 0.0,
@@ -224,7 +224,7 @@ class UtilityEffectModule(AnalysisModule):
             if t1 is None or t1 <= t0:
                 t1 = t0 + int(18 * 64)
             spans.append((t0, t1, x, y))
-            thrower = str(row.get("user_steamid", "") or "")
+            thrower = clean_sid(row.get("user_steamid", ""))
             rnd = demo.data.round_at_tick(t0)
             smoke_events.append({
                 "x": x, "y": y, "round": rnd.number if rnd else 0,
@@ -251,8 +251,8 @@ class UtilityEffectModule(AnalysisModule):
             att_in = in_smoke(t, kx, ky)
             if not (vic_in or att_in):
                 continue
-            att = str(row.get("attacker_steamid", "") or "")
-            vic = str(row.get("user_steamid", "") or "")
+            att = clean_sid(row.get("attacker_steamid", ""))
+            vic = clean_sid(row.get("user_steamid", ""))
             if att and att != vic:
                 s = counters.setdefault(att, {"smoke_kills": 0, "smoke_deaths": 0,
                                               "name": str(row.get("attacker_name", "") or att)})

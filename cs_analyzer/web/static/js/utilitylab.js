@@ -51,7 +51,9 @@
 
         var fb = document.querySelector('#ul-flash-table tbody');
         fb.innerHTML = (d.flashers || []).slice(0, 15).map(function (f) {
-          return '<tr><td>' + esc(f.name) + '</td><td class="num">' + f.demos +
+          // v5 口径审计：投掷 <3 次的行标"少"——单投高光样本不代表稳定水平
+          var low = f.throws < 3 ? ' <span class="badge no" title="样本不足 3 次投掷">少</span>' : '';
+          return '<tr><td>' + esc(f.name) + low + '</td><td class="num">' + f.demos +
             '</td><td class="num">' + f.throws + '</td><td class="num">' + num(f.enemy_blind_s) +
             '</td><td class="num pos">' + num(f.value) + '</td><td class="num">' + num(f.value_per_throw, 2) +
             '</td><td class="num">' + (f.flash_assists || 0) + '</td></tr>';
@@ -61,8 +63,9 @@
         sb.innerHTML = (d.smoke || []).filter(function (s) { return s.smoke_kills || s.smoke_deaths; })
           .slice(0, 10).map(function (s) {
             return '<tr><td>' + esc(s.name) + '</td><td class="num">' + s.demos +
-              '</td><td class="num pos">' + s.smoke_kills + '</td><td class="num neg">' + s.smoke_deaths + '</td></tr>';
-          }).join('') || '<tr><td colspan="4" class="sub">暂无烟中击杀数据</td></tr>';
+              '</td><td class="num pos">' + s.smoke_kills + '</td><td class="num neg">' + s.smoke_deaths +
+              '</td><td class="num">' + (s.net_per_demo != null ? s.net_per_demo.toFixed(2) : '—') + '</td></tr>';
+          }).join('') || '<tr><td colspan="5" class="sub">暂无烟中击杀数据</td></tr>';
 
         // map chips + spots chart
         var chips = document.getElementById('ul-map-chips');

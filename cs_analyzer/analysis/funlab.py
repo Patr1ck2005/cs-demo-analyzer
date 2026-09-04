@@ -48,6 +48,7 @@ WEAPON_ALIAS = {
     "ak-47": "ak47", "m4a4": "m4a4", "m4a1-s": "m4a1_silencer",
     "m4a1_silencer": "m4a1_silencer", "five-seven": "fiveseven",
     "sg 553": "sg556", "galil ar": "galilar", "ssg 08": "ssg08",
+    "desert eagle": "deagle",  # 5E 显示名（v5：散点口径说明审计时补）
 }
 #: primary weapons eligible for drop accounting (rifles/pistols; not nades/gear)
 PRIMARY_WEAPONS = {
@@ -472,12 +473,13 @@ class FunLabModule(AnalysisModule):
             for sid, s in side_of.get(rnd, {}).items():
                 if s == side:
                     P(sid)["eco_rounds_played"] += 1
-        # eco 局个性打法三分（用户命名）:
-        #   叛逆者 = 全队唯一买长枪（AK/M4/Galil/FAMAS/AUG/SG/SSG/AWP——沙鹰鸟狙不算）
-        #   装逼   = 买沙鹰或鸟狙、且未买其他长枪（"我就想玩个心跳"）
+        # eco 局个性打法三分（用户命名，v5 口径审计裁决 2026-09-05）:
+        #   叛逆者 = 全队唯一买长枪（AK/M4/Galil/FAMAS/AUG/SG/AWP——沙鹰鸟狙不算，
+        #            鸟狙=装逼枪是用户裁决，v4 文档"狙类含SSG"作废）
+        #   装逼   = 买沙鹰或鸟狙、且未买长枪（"我就想玩个心跳"）
         #   纯eco  = 整回合消费 <500$（几乎裸吊）
         RIFLE_WEAPONS = {"ak47", "m4a4", "m4a1_silencer", "m4a1", "galilar",
-                         "famas", "aug", "sg556", "ssg08", "awp"}
+                         "famas", "aug", "sg556", "awp"}
         SHOWOFF_WEAPONS = {"deagle", "desert eagle", "ssg08"}  # 一枪秒人/赌一枪命中 = 花活枪
         rifle_buyers: dict[tuple[int, str], list[str]] = defaultdict(list)  # (round, side) -> sids
         per_player_eco = defaultdict(lambda: {"rifles": set(), "showoff": set(), "spend": 0})

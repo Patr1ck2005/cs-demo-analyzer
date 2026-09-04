@@ -15,7 +15,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
-from cs_analyzer.analysis.util import round_player_sides
+from cs_analyzer.analysis.util import clean_sid, round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 logger = logging.getLogger(__name__)
@@ -77,8 +77,8 @@ class HighlightsModule(AnalysisModule):
             counts: dict[str, int] = {}
             names: dict[str, str] = {}
             for _, row in window.iterrows():
-                att = str(row.get("attacker_steamid", "") or "")
-                vic = str(row.get("user_steamid", "") or "")
+                att = clean_sid(row.get("attacker_steamid", ""))
+                vic = clean_sid(row.get("user_steamid", ""))
                 if not att or att == vic:
                     continue
                 counts[att] = counts.get(att, 0) + 1
@@ -142,8 +142,8 @@ class HighlightsModule(AnalysisModule):
                 alive[s].add(sid)
 
         for _, row in window.sort_values("tick").iterrows():
-            att = str(row.get("attacker_steamid", "") or "")
-            vic = str(row.get("user_steamid", "") or "")
+            att = clean_sid(row.get("attacker_steamid", ""))
+            vic = clean_sid(row.get("user_steamid", ""))
             if not vic or att == vic:
                 continue
             vs = side_map.get(vic, "")

@@ -1,44 +1,20 @@
 // Phase M: 趣味数据实验室 — quadrant scatter over cross-library fun metrics.
-// 口径全部按 docs/funlab-metrics.md v2（用户已裁决）。
+// 口径全部按 docs/funlab-metrics.md v5（用户已裁决）。v5 口径审计：
+// 指标口径字典由服务端下发（funlab_data.METRIC_DEFS），页面/轴/榜单统一引用。
 (function () {
   'use strict';
 
-  var METRICS = {
-    // 经济
-    drop_generosity: { label: '发枪慷慨率', pct: true },
-    vulture_rate:    { label: '吸血率（被供枪）', pct: true },
-    drop_poor_share: { label: '雪中送炭占比', pct: true },
-    drop_profit_rate:{ label: '发枪成材率', pct: true },
-    drop_waste_rate: { label: '浪费发枪率', pct: true },
-    showoff_rate:    { label: '装逼率（eco局沙鹰/鸟狙）', pct: true },
-    pure_eco_rate:   { label: '纯eco率（eco局裸吊）', pct: true },
-    rebel_rate:      { label: '叛逆起枪率（eco局长枪）', pct: true },
-    rebel_win_rate:  { label: '赌狗胜率（叛逆局）', pct: true },
-    free_pickup_rate:{ label: '白嫖率（捡阵亡队友枪）', pct: true },
-    // 击杀
-    eco_frag_rate:   { label: 'eco特率', pct: true },
-    eco_hard_rate:   { label: '神仙率（每eco局）', pct: true },
-    whiff_rate:      { label: '白给率', pct: true },
-    snipe_rate:      { label: '抢人头率', pct: true },
-    stolen_rate:     { label: '被抢人头率', pct: true },
-    clutch_freq:     { label: '残局频率', pct: true },
-    multi_rate:      { label: '多杀率', pct: true },
-    avg_dist_m:      { label: '平均交战距离(m)', pct: false },
-    awp_rate:        { label: '狙击依赖', pct: true },
-    // 花活
-    wallbang_rate:   { label: '穿墙杀率', pct: true },
-    thrusmoke_rate:  { label: '烟中杀率', pct: true },
-    noscope_rate:    { label: '盲狙率', pct: true },
-    blind_rate:      { label: '致盲杀率', pct: true },
-    air_rate:        { label: '空中杀率', pct: true },
-    knife_rate:      { label: '刀杀率', pct: true },
-    flags_rate:      { label: '花活合计率', pct: true },
-    // 团队
-    team_dmg_rpr:    { label: '队伤/回合', pct: false },
-    avenged_rate:    { label: '被复仇率', pct: true },
-    revenge_rate:    { label: '复仇率', pct: true },
-    jame_index:      { label: '保枪率(Jame)', pct: true },
-  };
+  var METRICS = {};   // {key: {label, pct}} — 由 /api/funlab.json 的 metric_defs 填充
+  var DEFS = { metrics: {}, boards: {} };
+
+  function loadDefs(d) {
+    var defs = d.metric_defs || {};
+    Object.keys(defs).forEach(function (k) {
+      METRICS[k] = { label: defs[k].label, pct: defs[k].pct };
+    });
+    DEFS.metrics = defs;
+    DEFS.boards = d.board_defs || {};
+  }
 
   // 按意义组合的配方（docs/funlab-metrics.md 预设视图表）
   var PRESETS = [
@@ -151,13 +127,23 @@
   }
   var colorMap = {};
 
-  function board(title, rows, valueKey, unit) {
+  function board(bid, title, rows, valueKey, unit) {
+    var def = DEFS.boards[bid] || DEFS.metrics[valueKey] || null;
     var html = '<div class="card" style="margin-bottom:0"><h2 style="border:none">' + title + '</h2>';
+    if (def && (def.formula || def.note)) {
+      html += '<div class="sub" style="font-size:11px;line-height:1.5;margin:-8px 0 6px">口径: ' +
+        esc(def.formula || '') + (def.note ? '。' + esc(def.note) : '') + '</div>';
+    }
     rows.forEach(function (p, i) {
       var v = p[valueKey];
-      var txt = unit === 'pct' ? (v * 100).toFixed(1) + '%' : (unit === '$' ? v + '$' : v);
+      var txt = unit === 'pct' ? (v * 100).toFixed(1) + '%'
+        : (unit === 'pr' ? (v).toFixed(2) + '/回合'
+        : (unit === '$' ? v + '$' : v));
       if (valueKey === 'rebel_rate') {
         txt += ' <span class="sub">(' + (p.rebel_rounds || 0) + '局' + (p.rebel_wins || 0) + '胜)</span>';
+      }
+      if (valueKey === 'free_pickup_pr') {
+        txt += ' <span class="sub">(' + (p.free_pickups || 0) + '次)</span>';
       }
       html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">' +
         '<span><i style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:' + playerColor(p.name) + '"></i>' +
@@ -170,22 +156,22 @@
   function drawBoards() {
     var b = DATA.boards || {};
     document.getElementById('fl-boards').innerHTML =
-      board('💸 发枪金主（价值）', b.donor || [], 'drops_value', '$') +
-      board('🧟 吸血鬼（被供枪占比）', b.vulture || [], 'vulture_rate', 'pct') +
-      board('💝 慷慨率', b.generous || [], 'drop_generosity', 'pct') +
-      board('🌧️ 雪中送炭', b.poor_hero || [], 'drop_poor_share', 'pct') +
-      board('🪦 白给大师', b.whiff || [], 'whiff_rate', 'pct') +
-      board('💰 eco特专家', b.eco || [], 'eco_frag_rate', 'pct') +
-      board('🔪 抢人头王', b.snipe || [], 'snipe_rate', 'pct') +
-      board('🫠 被抢人头王', b.stolen || [], 'stolen_rate', 'pct') +
-      board('🤝 队友伤害王', b.team_dmg || [], 'team_dmg_rpr', '') +
-      board('🎯 残局孤胆', b.clutch || [], 'clutch_freq', 'pct') +
-      board('🎪 花活集锦', b.flags || [], 'flags_rate', 'pct') +
-      board('🏦 保枪大师', b.jame || [], 'jame_index', 'pct') +
-      board('🤙 舔包王（捡死队友枪）', b.free_pickup || [], 'free_pickups', '') +
-      board('🔥 叛逆赌狗王（胜率含局数）', b.rebel || [], 'rebel_rate', 'pct') +
-      board('😎 装逼王（eco局沙鹰/鸟狙）', b.showoff || [], 'showoff_rate', 'pct') +
-      board('🥬 纯eco铁公鸡', b.pure_eco || [], 'pure_eco_rate', 'pct');
+      board('donor', '💸 发枪金主（价值）', b.donor || [], 'drops_value', '$') +
+      board('vulture', '🧟 吸血鬼（被供枪占比）', b.vulture || [], 'vulture_rate', 'pct') +
+      board('generous', '💝 慷慨率', b.generous || [], 'drop_generosity', 'pct') +
+      board('poor_hero', '🌧️ 雪中送炭', b.poor_hero || [], 'drop_poor_share', 'pct') +
+      board('whiff', '🪦 白给大师', b.whiff || [], 'whiff_rate', 'pct') +
+      board('eco', '💰 eco特专家', b.eco || [], 'eco_frag_rate', 'pct') +
+      board('snipe', '🔪 抢人头王', b.snipe || [], 'snipe_rate', 'pct') +
+      board('stolen', '🫠 被抢人头王', b.stolen || [], 'stolen_rate', 'pct') +
+      board('team_dmg', '🤝 队友伤害王', b.team_dmg || [], 'team_dmg_rpr', '') +
+      board('clutch', '🎯 残局孤胆', b.clutch || [], 'clutch_freq', 'pct') +
+      board('flags', '🎪 花活集锦', b.flags || [], 'flags_rate', 'pct') +
+      board('jame', '🏦 保枪大师', b.jame || [], 'jame_index', 'pct') +
+      board('free_pickup', '🤙 舔包王（每回合）', b.free_pickup || [], 'free_pickup_pr', 'pr') +
+      board('rebel', '🔥 叛逆赌狗王（胜率含局数）', b.rebel || [], 'rebel_rate', 'pct') +
+      board('showoff', '😎 装逼王（eco局沙鹰/鸟狙）', b.showoff || [], 'showoff_rate', 'pct') +
+      board('pure_eco', '🥬 纯eco铁公鸡', b.pure_eco || [], 'pure_eco_rate', 'pct');
   }
 
   var FILTERS = { stack: [], dates: [] };  // empty array = no filter
@@ -196,10 +182,52 @@
     if (FILTERS.dates.length) qs.push('dates=' + FILTERS.dates.join(','));
     fetch('/api/funlab.json' + (qs.length ? '?' + qs.join('&') : ''), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (d) { DATA = d; drawBoards(); redrawChart(); if (after) after(); });
+      .then(function (d) { loadDefs(d); DATA = d; drawBoards(); redrawChart(); if (after) after(); });
   }
 
   var redrawChart = function () {};
+
+  // ---- 口径说明（v5：用户点开即可见每个指标的计算口径）----
+  function updateAxisDefs() {
+    var box = document.getElementById('fl-axis-def');
+    if (!box) return;
+    var xk = document.getElementById('fl-x').value;
+    var yk = document.getElementById('fl-y').value;
+    var line = function (tag, key) {
+      var m = DEFS.metrics[key];
+      return '<b>' + tag + '</b> ' + (m ? esc(m.label) + '：' + esc(m.formula || '—') : '—');
+    };
+    box.innerHTML = line('横轴', xk) + '<br>' + line('纵轴', yk);
+  }
+
+  function renderDefsPanel() {
+    var box = document.getElementById('fl-defs');
+    if (!box) return;
+    var groups = [
+      { name: '经济系（发枪 · 吸血 · eco 个性）', keys: [
+        'drop_generosity', 'vulture_rate', 'drop_poor_share', 'drop_profit_rate',
+        'drop_waste_rate', 'free_pickup_rate', 'free_pickup_pr',
+        'showoff_rate', 'pure_eco_rate', 'rebel_rate', 'rebel_win_rate'] },
+      { name: '击杀系', keys: [
+        'eco_frag_rate', 'eco_hard_rate', 'whiff_rate', 'snipe_rate', 'stolen_rate',
+        'clutch_freq', 'multi_rate', 'avg_dist_m', 'awp_rate'] },
+      { name: '花活系（判定列来自 player_death）', keys: [
+        'wallbang_rate', 'thrusmoke_rate', 'noscope_rate', 'blind_rate',
+        'air_rate', 'knife_rate', 'flags_rate'] },
+      { name: '团队系', keys: ['team_dmg_rpr', 'avenged_rate', 'revenge_rate', 'jame_index'] },
+    ];
+    box.innerHTML = groups.map(function (g) {
+      return '<div style="margin-bottom:10px"><div class="sub" style="margin-bottom:4px">' +
+        esc(g.name) + '</div>' +
+        g.keys.filter(function (k) { return DEFS.metrics[k]; }).map(function (k) {
+          var m = DEFS.metrics[k];
+          return '<details style="padding:4px 0;border-bottom:1px solid rgba(120,120,160,.12)">' +
+            '<summary style="cursor:pointer;font-size:13px">' + esc(m.label) + '</summary>' +
+            '<div class="sub" style="font-size:12px;padding:4px 0 0 12px;line-height:1.6">口径: ' +
+            esc(m.formula || '—') + (m.note ? '<br>说明: ' + esc(m.note) : '') + '</div></details>';
+        }).join('') + '</div>';
+    }).join('');
+  }
 
   function init() {
     var selX = document.getElementById('fl-x');
@@ -209,6 +237,7 @@
     fetch('/api/funlab.json', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
+        loadDefs(d);
         DATA = d;
         var keys = Object.keys(METRICS);
         selX.innerHTML = keys.map(function (k) {
@@ -222,7 +251,7 @@
             '" type="button" title="' + esc(p.hint) + '">' + esc(p.name) + '</button>';
         }).join('');
         var chart = echarts.init(document.getElementById('fl-quadrant'));
-        redrawChart = function () { chart.setOption(option(), true); };
+        redrawChart = function () { chart.setOption(option(), true); updateAxisDefs(); };
         selX.addEventListener('change', redrawChart);
         selY.addEventListener('change', redrawChart);
         document.querySelectorAll('#fl-presets [data-p]').forEach(function (btn) {
@@ -286,6 +315,7 @@
           });
         }
         drawBoards();
+        renderDefsPanel();
         redrawChart();
       });
   }

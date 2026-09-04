@@ -158,7 +158,7 @@
         formatter: (p) =>
           `${players[p.value[1]]} @ ${demos[p.value[0]]}<br/>Rating: <b>${p.value[2]}</b>`,
       },
-      grid: { height: '55%', top: 12, left: 90, right: 20 },
+      grid: { height: '55%', top: 12, left: 8, right: 20, containLabel: true },
       xAxis: { type: 'category', data: demos, splitArea: { show: true },
                axisLabel: { rotate: 30, fontSize: 10 } },
       yAxis: { type: 'category', data: players, splitArea: { show: true } },

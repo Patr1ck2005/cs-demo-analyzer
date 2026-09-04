@@ -89,3 +89,21 @@ def _player_row_ranges(t_sorted: pd.DataFrame) -> list[tuple[str, tuple[int, int
 def side_of(side_map: dict[int, dict[str, str]], round_number: int, steamid: str) -> str:
     """Side of `steamid` in round N from a round_player_sides map; "" unknown."""
     return side_map.get(round_number, {}).get(steamid, "")
+
+
+def clean_sid(row_get, default: str = "") -> str:
+    """steamid cell -> clean str (§7.8 fake-'nan'-player trap, M5 sweep).
+
+    `row.get("...steamid", "") or ""` still returns NaN as float('nan') whose
+    str() is "nan" — every module that didn't fillna() invented a fake 'nan'
+    player (visual audit M5: duels matrix / weapon_splits table). Pass the
+    row accessor result directly:  clean_sid(row.get("attacker_steamid", "")).
+    """
+    import math
+
+    if row_get is None:
+        return default
+    if isinstance(row_get, float) and math.isnan(row_get):
+        return default
+    s = str(row_get).strip()
+    return default if s.lower() == "nan" else s

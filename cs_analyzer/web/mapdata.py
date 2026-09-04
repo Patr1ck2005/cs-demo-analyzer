@@ -38,6 +38,41 @@ def _merge_routes(acc: dict, routes: list[dict], weight: float) -> None:
                     "rounds": r.get("rounds", [])})
 
 
+def _pool_map_players(players: list) -> dict[str, dict[str, dict]]:
+    """{map_name: {steamid: pooled cell}} from the aggregate's per-demo
+    entries. Same-map multi-demo play must POOL (the old inline dict was
+    overwritten per demo, keeping only the last demo's rating/rounds)."""
+    out: dict[str, dict[str, dict]] = defaultdict(dict)
+    for p in players:
+        for d in p.demos:
+            cell = out[d["map_name"]].setdefault(p.steamid, {
+                "steamid": p.steamid, "name": p.name,
+                "rounds": 0, "_rw": 0.0, "demos": p.demo_count,
+            })
+            cell["rounds"] += d["rounds"]
+            cell["_rw"] += d["Rating"] * d["rounds"]
+    return out
+
+
+def best_players_for_map(cells: dict[str, dict], min_rounds: int = 10,
+                         k: int = 5) -> list[dict]:
+    """本图最强选手：按回合加权 Rating（比率）排序。
+
+    v5 口径审计：旧口径 rating×rounds 是绝对值乘积——打得越多乘积越大，
+    违反"打得多≠数据好"总原则。门槛 min_rounds 只做样本可靠性过滤。
+    """
+    rows = []
+    for cell in cells.values():
+        if cell["rounds"] < min_rounds:
+            continue
+        rows.append({
+            "steamid": cell["steamid"], "name": cell["name"],
+            "rounds": cell["rounds"], "demos": cell["demos"],
+            "rating": round(cell["_rw"] / cell["rounds"], 3),
+        })
+    return sorted(rows, key=lambda x: -x["rating"])[:k]
+
+
 def _build() -> dict:
     from cs_analyzer.analysis.library import scan_demos
     from cs_analyzer.web.aggregation import aggregated
@@ -48,13 +83,7 @@ def _build() -> dict:
     cache_dir = _cache().cache_dir
     meta = {d["demo_hash"]: d for d in list_demos(cache_dir)}
     agg = aggregated()
-    per_player_map: dict[str, dict[str, dict]] = defaultdict(dict)
-    for p in agg.players:
-        for d in p.demos:
-            per_player_map[d["map_name"]][p.steamid] = {
-                "steamid": p.steamid, "name": p.name, "rating": d["Rating"],
-                "rounds": d["rounds"], "demos": p.demo_count,
-            }
+    per_player_map = _pool_map_players(agg.players)
 
     def work(demo) -> dict:
         routes = _analyze_module(demo, "routes")
@@ -115,10 +144,7 @@ def _build() -> dict:
         # keep only recognizable sites (A/B); the module's numeric fallback
         # codes (demoparser2 place ids) are noise for the distribution bars
         sites = {k: v for k, v in m["sites"].items() if k in ("A", "B")}
-        best = sorted(
-            per_player_map.get(m["map_name"], {}).values(),
-            key=lambda x: -(x["rating"] * x["rounds"]),
-        )
+        best = best_players_for_map(per_player_map.get(m["map_name"], {}))
         out.append({
             "map_name": m["map_name"],
             "demos": m["demos"],
@@ -130,7 +156,6 @@ def _build() -> dict:
             "best_players": [
                 {k: bp[k] for k in ("steamid", "name", "rating", "rounds", "demos")}
                 for bp in best[:5]
-                if bp["rounds"] >= 10
             ][:5],
         })
     out.sort(key=lambda m: -m["demos"])

@@ -45,6 +45,14 @@ def _start_lineups(demo) -> dict[str, list[dict]]:
     return out
 
 
+def pooled_win_rate(ms: list[dict]) -> float | None:
+    """Σ胜回合 ÷ Σ总回合（v5 口径审计：回合池化——旧口径是各场胜率的简单
+    平均，2 回合的小场与 24 回合的大场等权，有偏）。"""
+    won = sum(m.get("our_rounds_won") or 0 for m in ms)
+    tot = sum(m.get("our_rounds") or 0 for m in ms)
+    return round(won / tot, 3) if tot else None
+
+
 def _build() -> dict:
     from cs_analyzer.analysis.library import demo_filenames, scan_demos
     from cs_analyzer.analysis.teamplay import FIVE_E_PREFIX
@@ -113,6 +121,7 @@ def _build() -> dict:
             "regulars": [reg_names.get(s, s) for s in in_match],
             "our_win_rate": round(won / total, 3) if total else None,
             "our_rounds": total,
+            "our_rounds_won": won,
             "lineups": {side: [{"steamid": pl["steamid"], "name": pl["name"],
                                 "rating": rmap.get(pl["steamid"])}
                                for pl in side_players]
@@ -126,10 +135,9 @@ def _build() -> dict:
     def group(ms: list[dict]) -> dict:
         if not ms:
             return {"matches": 0, "avg_our_win_rate": None, "maps": []}
-        wrs = [m["our_win_rate"] for m in ms if m["our_win_rate"] is not None]
         return {
             "matches": len(ms),
-            "avg_our_win_rate": round(sum(wrs) / len(wrs), 3) if wrs else None,
+            "avg_our_win_rate": pooled_win_rate(ms),
             "maps": sorted({m["map"] for m in ms}),
         }
 

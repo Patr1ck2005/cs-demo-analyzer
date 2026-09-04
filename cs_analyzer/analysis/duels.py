@@ -11,7 +11,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
-from cs_analyzer.analysis.util import round_player_sides
+from cs_analyzer.analysis.util import clean_sid, round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 logger = logging.getLogger(__name__)
@@ -47,8 +47,13 @@ class DuelsModule(AnalysisModule):
             for _, row in df.iterrows():
                 if int(row.get("tick", 0) or 0) < start_tick:
                     continue
-                att = str(row.get("attacker_steamid", "") or "")
-                vic = str(row.get("user_steamid", "") or "")
+                att = clean_sid(row.get("attacker_steamid", ""))
+                vic = clean_sid(row.get("user_steamid", ""))
+                # §7.8: NaN steamid str()s to "nan" — a fake duelist (M5 audit)
+                if att.lower() == "nan":
+                    att = ""
+                if vic.lower() == "nan":
+                    vic = ""
                 if not att or not vic or att == vic:
                     continue  # suicides/world deaths don't count as duels
                 kills.setdefault(att, {}).setdefault(vic, 0)

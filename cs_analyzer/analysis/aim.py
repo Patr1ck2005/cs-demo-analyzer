@@ -17,6 +17,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
+from cs_analyzer.analysis.util import clean_sid
 from cs_analyzer.model.parsed_demo import ParsedDemo
 from cs_analyzer.replay.timeline import round_freeze_ends
 from cs_analyzer.web.weapons import canonical
@@ -50,7 +51,7 @@ class AimModule(AnalysisModule):
             tick = int(row.get("tick", 0) or 0)
             if tick < start_tick:
                 continue
-            sid = str(row.get("user_steamid", "") or "")
+            sid = clean_sid(row.get("user_steamid", ""))
             if not sid:
                 continue
             shots.setdefault(sid, []).append((tick, canonical(str(row.get("weapon", "") or ""))))
@@ -130,7 +131,7 @@ class AimModule(AnalysisModule):
         deaths = BasicStatsModule._exclude_teamkills(deaths)
         idx: dict[str, list[tuple[int, str]]] = {}
         for _, row in deaths.iterrows():
-            sid = str(row.get("attacker_steamid", "") or "")
+            sid = clean_sid(row.get("attacker_steamid", ""))
             if not sid:
                 continue
             idx.setdefault(sid, []).append(
