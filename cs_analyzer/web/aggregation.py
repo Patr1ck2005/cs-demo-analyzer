@@ -50,6 +50,10 @@ def invalidate_aggregate() -> None:
     from cs_analyzer.web import lineups_data
 
     lineups_data.invalidate_lineups()
+    # M: the fun-lab report scans the same caches
+    from cs_analyzer.web import funlab_data
+
+    funlab_data.invalidate_funlab()
 
 
 def _compute() -> AggregateResult:

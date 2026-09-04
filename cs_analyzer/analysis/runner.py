@@ -27,6 +27,8 @@ import cs_analyzer.analysis.hitgroups  # noqa: F401
 import cs_analyzer.analysis.aim  # noqa: F401
 import cs_analyzer.analysis.postplant  # noqa: F401
 import cs_analyzer.analysis.weapon_splits  # noqa: F401
+# Phase M fun metrics (quadrant lab)
+import cs_analyzer.analysis.funlab  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
