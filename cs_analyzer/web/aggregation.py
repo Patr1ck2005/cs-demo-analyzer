@@ -54,6 +54,10 @@ def invalidate_aggregate() -> None:
     from cs_analyzer.web import funlab_data
 
     funlab_data.invalidate_funlab()
+    # N: the style-galaxy report derives from the funlab vectors
+    from cs_analyzer.web import style_map
+
+    style_map.invalidate_style_map()
 
 
 def _compute() -> AggregateResult:

@@ -176,6 +176,76 @@
 
   var FILTERS = { stack: [], dates: [] };  // empty array = no filter
 
+  // ---- Phase N: 风格星系（谁和谁打得像）----
+  function drawGalaxy(sm) {
+    var dom = document.getElementById('sm-galaxy');
+    if (!dom || !sm || !sm.points || !sm.points.length) {
+      if (dom) dom.innerHTML = '<div class="empty-state" style="padding:40px"><div class="empty-title">' +
+        esc((sm && sm.note) || '样本不足') + '</div></div>';
+      return;
+    }
+    var pc = sm.pca || {};
+    var note = document.getElementById('sm-pc-note');
+    if (note) {
+      note.textContent = 'PC1+PC2 解释方差 ' +
+        Math.round(((pc.var_pc1 || 0) + (pc.var_pc2 || 0)) * 100) + '% · ' +
+        (sm.features_used || []).length + ' 个特征入向量 · 剔除常量 ' +
+        (sm.features_excluded || []).length + ' 个 · 切簇系数 ' + sm.cut_ratio;
+    }
+    var pts = sm.points.map(function (p) {
+      return {
+        name: p.name, value: [p.x, p.y],
+        label: p.label, demos: p.demos, kills: p.kills,
+        nearest: p.nearest, color: p.color, cluster: p.cluster,
+        symbolSize: 10 + Math.min(16, p.demos * 1.8),
+      };
+    });
+    var chart = echarts.init(dom);
+    chart.setOption({
+      grid: { left: 8, right: 24, top: 16, bottom: 8, containLabel: true },
+      tooltip: {
+        confine: true,
+        formatter: function (q) {
+          var p = q.data;
+          var html = '<b>' + esc(p.name) + '</b> <span style="color:#636a85">' + p.demos + '场</span><br>' +
+            '<span style="color:' + p.color + '">●</span> ' + esc(p.label);
+          if (p.nearest) {
+            html += '<br>最像: <b>' + esc(p.nearest.name) + '</b> (距离 ' + p.nearest.dist + ')';
+          }
+          return html;
+        },
+      },
+      xAxis: { type: 'value', name: 'PC1', nameLocation: 'middle', nameGap: 24,
+               nameTextStyle: { color: '#9aa0b8', fontSize: 11 },
+               splitLine: { show: true, lineStyle: { color: 'rgba(120,120,160,.12)' } },
+               axisLabel: { color: '#9aa0b8', fontSize: 10 } },
+      yAxis: { type: 'value', name: 'PC2', nameLocation: 'middle', nameGap: 36,
+               nameTextStyle: { color: '#9aa0b8', fontSize: 11 },
+               splitLine: { show: true, lineStyle: { color: 'rgba(120,120,160,.12)' } },
+               axisLabel: { color: '#9aa0b8', fontSize: 10 } },
+      series: [{
+        type: 'scatter', data: pts,
+        label: { show: true, position: 'top', color: '#c4b5fd', fontSize: 11,
+                 formatter: function (q) { return q.data.name.length > 10 ? q.data.name.slice(0, 10) + '…' : q.data.name; } },
+        itemStyle: { opacity: 0.9, borderColor: 'rgba(0,0,0,.5)', borderWidth: 1,
+                     color: function (q) { return q.data.color; } },
+      }],
+    });
+    var box = document.getElementById('sm-portraits');
+    if (box) {
+      box.innerHTML = sm.points.map(function (p) {
+        var near = p.nearest ? '<a href="/player/' + esc(p.steamid) + '">' : '';
+        return '<div style="padding:6px 0;border-bottom:1px solid rgba(120,120,160,.12)">' +
+          '<div style="font-size:13px"><span style="color:' + p.color + '">●</span> <b>' + esc(p.name) + '</b> ' +
+          '<span class="sub">' + p.demos + '场</span></div>' +
+          '<div class="sub" style="font-size:12px;margin-top:2px">' + esc(p.label) + '</div>' +
+          (p.nearest ? '<div class="sub" style="font-size:11px">最像: ' + esc(p.nearest.name) +
+            ' · 距离 ' + p.nearest.dist + '</div>' : '') +
+          '</div>';
+      }).join('');
+    }
+  }
+
   function fetchAndDraw(after) {
     var qs = [];
     if (FILTERS.stack.length) qs.push('stack=' + FILTERS.stack.join(','));
@@ -233,12 +303,33 @@
     var selX = document.getElementById('fl-x');
     var selY = document.getElementById('fl-y');
     if (!selX) return;
+    // ---- 加载态（用户反馈：冷启动空下拉框像坏了）----
+    // 首次进入/服务端预热时 /api/funlab.json 会阻塞几十秒，必须明确告知，
+    // 而不是留一组空控件。
+    var LOADING = '<span class="sub warm-dots">全库扫描中，稍等片刻自动填充…</span>';
+    selX.innerHTML = selY.innerHTML = '<option>加载中…</option>';
+    var hint = document.getElementById('fl-axis-def');
+    if (hint) hint.innerHTML = LOADING;
+    var presetRow0 = document.getElementById('fl-presets');
+    if (presetRow0) presetRow0.innerHTML = LOADING;
+    var stackRow0 = document.getElementById('fl-stack-chips');
+    if (stackRow0) stackRow0.innerHTML = LOADING;
+    var dateRow0 = document.getElementById('fl-date-chips');
+    if (dateRow0) dateRow0.innerHTML = LOADING;
+    var quadrant0 = document.getElementById('fl-quadrant');
+    if (quadrant0) quadrant0.innerHTML = '<div class="empty-state" style="padding:60px 0">' +
+      '<div class="empty-title">散点图加载中<span class="warm-dots">…</span></div>' +
+      '<div>首次进入需要全库扫描（冷启动约 1-3 分钟），完成后自动填充，无需刷新。</div></div>';
+    var galaxy0 = document.getElementById('sm-galaxy');
+    if (galaxy0) galaxy0.innerHTML = '<div class="empty-state" style="padding:60px 0">' +
+      '<div class="empty-title">风格星系加载中<span class="warm-dots">…</span></div></div>';
     // load unfiltered once to discover available stacks/dates
     fetch('/api/funlab.json', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         loadDefs(d);
         DATA = d;
+        if (quadrant0) quadrant0.innerHTML = '';  // 清掉加载占位再挂 canvas
         var keys = Object.keys(METRICS);
         selX.innerHTML = keys.map(function (k) {
           return '<option value="' + k + '"' + (k === 'drop_generosity' ? ' selected' : '') + '>' + METRICS[k].label + '</option>';
@@ -317,6 +408,17 @@
         drawBoards();
         renderDefsPanel();
         redrawChart();
+        fetch('/api/style-map.json', { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(drawGalaxy)
+          .catch(function () {
+            var g = document.getElementById('sm-galaxy');
+            if (g) g.innerHTML = '<div class="empty-state" style="padding:40px"><div class="empty-title">风格星系加载失败</div></div>';
+          });
+      })
+      .catch(function () {
+        var hint = document.getElementById('fl-axis-def');
+        if (hint) hint.innerHTML = '<span class="sub">数据加载失败 — 请确认服务已启动后刷新页面</span>';
       });
   }
 

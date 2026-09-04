@@ -307,6 +307,18 @@ def funlab_api(request: Request):
     return JSONResponse(funlab_report(stack=stack, dates=dates))
 
 
+@app.get("/api/style-map.json")
+def style_map_api():
+    """Phase N 风格星系：全 32 指标 · 稳健标准化 · 欧氏距离 · Ward 聚类。
+
+    Derives from the memoized funlab vectors (≥3-demos gate shared); pure
+    math on top, so no separate prewarm step is needed.
+    """
+    from cs_analyzer.web.style_map import style_map_report
+
+    return JSONResponse(style_map_report())
+
+
 @app.get("/report/{demo_hash}", response_class=HTMLResponse)
 def report_match_page(request: Request, demo_hash: str):
     """Print-friendly single-match report (exported to PNG/PDF by playwright;

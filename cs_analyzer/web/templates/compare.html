@@ -13,6 +13,7 @@
 <div class="section-header"><h2>雷达叠加</h2>
   <div class="section-actions sub" style="margin:0" id="sel-count">已选 0 名选手</div></div>
 <div class="card" style="padding:8px">
+  <div class="sub" id="radar-empty-hint" style="display:flex;align-items:center;justify-content:center;height:440px;margin:0">勾选上方选手以叠加生涯雷达 — 每人六轴均值 vs 全库基线</div>
   <div id="compare-radar" style="height:460px"></div>
 </div>
 <div class="section-header"><h2>五排协同</h2>
@@ -79,6 +80,7 @@
   let chart = null;
   function redraw() {
     document.getElementById('sel-count').textContent = `已选 ${selected.size} 名选手`;
+    document.getElementById('radar-empty-hint').style.display = selected.size ? 'none' : 'flex';
     if (!selected.size) { if (chart) { chart.dispose(); chart = null; } return; }
     const series = [...selected.entries()].map(([idx, p], i) => ({
       name: p.name, value: p.radar, raw: p.raw,
