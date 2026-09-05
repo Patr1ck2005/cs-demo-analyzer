@@ -55,12 +55,12 @@ def pooled_win_rate(ms: list[dict]) -> float | None:
 
 def _build() -> dict:
     from cs_analyzer.analysis.library import demo_filenames, scan_demos
-    from cs_analyzer.analysis.teamplay import FIVE_E_PREFIX
+    from cs_analyzer.analysis.regulars import FIVE_E_PREFIX, compute_regulars
     from cs_analyzer.analysis.util import round_player_sides
     from cs_analyzer.web.aggregation import aggregated
-    from cs_analyzer.web.app import _cache
+    from cs_analyzer.web import runtime
 
-    cache_dir = _cache().cache_dir
+    cache_dir = runtime.cache().cache_dir
     names = demo_filenames(cache_dir)
     five_e_hashes = {h for h, fn in names.items() if fn.startswith(FIVE_E_PREFIX)}
     agg = aggregated()
@@ -86,15 +86,20 @@ def _build() -> dict:
 
     per_demo = [d for d in scan_demos(cache_dir, work) if d]
 
-    # regulars: >=3 appearances in the 5E set (teamplay threshold)
+    # regulars: >=3 appearances in the 5E set (single definition via
+    # analysis.regulars.compute_regulars)
     appear: Counter = Counter()
     reg_names: dict[str, str] = {}
+    five_e_sets: dict[str, set[str]] = {}
     for d in per_demo:
+        sids = set()
         for side_players in d["lineups"].values():
             for pl in side_players:
                 appear[pl["steamid"]] += 1
                 reg_names.setdefault(pl["steamid"], pl["name"])
-    regulars = {sid for sid, n in appear.items() if n >= 3}
+                sids.add(pl["steamid"])
+        five_e_sets[d["demo_hash"]] = sids
+    regulars = compute_regulars(five_e_sets)
 
     matches = []
     for d in per_demo:

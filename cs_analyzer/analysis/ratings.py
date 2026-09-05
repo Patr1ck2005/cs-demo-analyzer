@@ -196,13 +196,27 @@ class RatingsModule(AnalysisModule):
             return {}
 
         kast: dict[str, int] = defaultdict(int)
+        # swap-immute team map (teammates stay teammates across halftime):
+        # a trade needs the avenger ON THE VICTIM'S TEAM, not just anyone
+        # who happened to kill the killer
+        team_of = {p.steamid: p.team for p in demo.players}
+        # only players actually on the tick timeline earn KAST rows (roster
+        # entries that never played — coaches/benched — must not survive-
+        # credit empty rounds). Demos without a tick table (synthetic
+        # fixtures) fall back to the roster.
+        played: set[str] = set()
+        ticks = demo.ticks
+        if ticks is not None and not ticks.empty and "steamid" in ticks.columns:
+            played = {str(s) for s in ticks["steamid"].dropna().unique()}
+        else:
+            played = {p.steamid for p in demo.players}
         for rnd in rounds:
             in_round = (deaths_df["tick"] >= rnd.start_tick) & (deaths_df["tick"] <= rnd.end_tick)
             round_deaths = deaths_df[in_round].sort_values("tick")
             if round_deaths.empty:
-                # nobody died -> everyone on surviving side "survived"
-                for p in demo.players:
-                    kast[p.steamid] += 1
+                # nobody died -> everyone who played "survived"
+                for sid in played:
+                    kast[sid] += 1
                 continue
 
             death_ticks = round_deaths["tick"].tolist()
@@ -210,7 +224,8 @@ class RatingsModule(AnalysisModule):
             killers = round_deaths["attacker_steamid"].astype(str).tolist()
             n = len(round_deaths)
 
-            # traded = set of victims whose killer died within the window
+            # traded = set of victims whose killer died within the window to
+            # one of the victim's teammates
             traded: set[str] = set()
             for i in range(n):
                 killer_i = killers[i]
@@ -221,7 +236,11 @@ class RatingsModule(AnalysisModule):
                     if death_ticks[j] > limit:
                         break
                     if victims[j] == killer_i:
-                        traded.add(victims[i])
+                        avenger = killers[j]
+                        if (avenger and avenger != victims[j]
+                                and team_of.get(avenger) is not None
+                                and team_of.get(avenger) == team_of.get(victims[i])):
+                            traded.add(victims[i])
                         break
 
             participants: set[str] = set(traded)
@@ -233,9 +252,9 @@ class RatingsModule(AnalysisModule):
                     participants.add(assister)  # Assist
 
             victims_in_round = {v for v in victims if v}
-            for p in demo.players:
-                if p.steamid in participants:
-                    kast[p.steamid] += 1
-                elif p.steamid not in victims_in_round:
-                    kast[p.steamid] += 1  # Survived
+            for sid in played:
+                if sid in participants:
+                    kast[sid] += 1
+                elif sid not in victims_in_round:
+                    kast[sid] += 1  # Survived
         return kast

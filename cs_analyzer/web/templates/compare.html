@@ -68,10 +68,10 @@
       ? `<input type="checkbox" class="sel-player" data-idx="${i}">`
       : '<span class="badge no" title="样本不足 5 场">少</span>';
     return `<tr class="${p.eligible ? '' : 'low-sample'}">` +
-      `<td>${chk}</td><td>${p.name}</td><td class="num">${p.demo_count}</td>${cells}</tr>`;
+      `<td>${chk}</td><td>${CSACommon.esc(p.name)}</td><td class="num">${p.demo_count}</td>${cells}</tr>`;
   }).join('');
-  box.innerHTML = `<table><thead><tr><th></th><th class="sortable">选手</th><th class="sortable num">场次</th>` +
-    METRICS.map(([k, label]) => `<th class="sortable num">${label}</th>`).join('') +
+  box.innerHTML = `<table><thead><tr><th></th><th>选手</th><th class="num">场次</th>` +
+    METRICS.map(([k, label]) => `<th class="num">${label}</th>`).join('') +
     `</tr></thead><tbody>${rows}</tbody></table>`;
 
   // radar overlay of checked players
@@ -158,7 +158,7 @@
 
     // top links table
     const links = tp.links.slice(0, 10).map((l) =>
-      `<tr><td>${l.a_name} → ${l.b_name}</td>` +
+      `<tr><td>${CSACommon.esc(l.a_name)} → ${CSACommon.esc(l.b_name)}</td>` +
       `<td class="num">${l.assists}</td><td class="num">${l.trades}</td>` +
       `<td class="num">${l.flash_assists}</td><td class="num"><b>${l.weight}</b></td></tr>`).join('');
     document.getElementById('tp-links').innerHTML =
@@ -169,10 +169,11 @@
     // portraits
     document.getElementById('tp-portraits').innerHTML = tp.portraits.map((p) => {
       const labels = p.labels.map((x) =>
-        `<span class="badge kb-headshot" title="${x.detail}">${x.label}</span>`).join(' ');
+        `<span class="badge kb-headshot" title="${CSACommon.esc(x.detail)}">${CSACommon.esc(x.label)}` +
+        (x.low_sample ? ' <span class="badge no" title="样本少于 3 次">少</span>' : '') + '</span>').join(' ');
       const partner = p.best_partner
-        ? ` · 最佳搭档 <b>${p.best_partner.name}</b>(${p.best_partner.per_demo ?? '—'}/场 · 共${p.best_partner.weight})` : '';
-      return `<div>${p.name} <span class="sub">${p.appearances} 场${partner}</span> ${labels}</div>`;
+        ? ` · 最佳搭档 <b>${CSACommon.esc(p.best_partner.name)}</b>(${p.best_partner.per_demo ?? '—'}/场 · 共${p.best_partner.weight})` : '';
+      return `<div>${CSACommon.esc(p.name)} <span class="sub">${p.appearances} 场${partner}</span> ${labels}</div>`;
     }).join('');
 
     // stack vs mixed contrast tiles

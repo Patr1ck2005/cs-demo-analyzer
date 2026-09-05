@@ -27,14 +27,18 @@ dependencies = [
     "pandas>=2.1",
     "pyarrow>=14.0",
     "numpy>=1.24",
+    "scipy>=1.11",
     "pyyaml>=6.0",
     "jinja2>=3.1",
     "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "starlette>=0.36",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pytest-timeout>=2.2",
     "pytest-cov>=4.0",
     "ruff>=0.1",
     "mypy>=1.5",
@@ -51,6 +55,12 @@ csa = "cs_analyzer.cli:app"
 where = ["."]
 include = ["cs_analyzer*"]
 exclude = ["tests*", "tutorial*", "enve*", "media*"]
+
+# non-code assets the web app needs at runtime (S: wheels/sdists previously
+# shipped without them — Jinja2Templates would crash on a missing dir)
+[tool.setuptools.package-data]
+"cs_analyzer.web" = ["templates/*.html", "static/**/*"]
+"cs_analyzer.maps" = ["data/*.png", "data/*.yaml"]
 
 [tool.ruff]
 line-length = 120

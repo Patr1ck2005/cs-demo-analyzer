@@ -15,7 +15,7 @@ from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisR
 from cs_analyzer.analysis.basic_stats import BasicStatsModule
 from cs_analyzer.analysis.util import clean_sid
 from cs_analyzer.model.parsed_demo import ParsedDemo
-from cs_analyzer.web.weapons import canonical, category
+from cs_analyzer.analysis.weapons import canonical, category
 
 logger = logging.getLogger(__name__)
 

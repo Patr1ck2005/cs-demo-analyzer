@@ -84,7 +84,7 @@
 <script src="/static/vendor/echarts.min.js"></script>
 <script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
 <script src="/static/charts.js?v={{ static_v }}"></script>
-<script src="/static/table_sort.js"></script>
+<script src="/static/table_sort.js?v={{ static_v }}"></script>
 <script>
 (async function () {
   const SID = '{{ p.steamid }}';
@@ -168,8 +168,14 @@
       opts.map((o, i) => `<option value="${i}">${o.label}</option>`).join('');
     let mounted = null;
     picker.addEventListener('change', async () => {
-      const i = Number(picker.value);
       const box = document.getElementById('career-heatmap');
+      if (picker.value === '') { // placeholder row picked — clear, don't load demo 0
+        box.classList.remove('chart-loading');
+        box.style.backgroundImage = 'none';
+        if (mounted) { mounted.dispose(); mounted = null; }
+        return;
+      }
+      const i = Number(picker.value);
       if (!opts[i]) return;
       box.classList.add('chart-loading');
       try {
@@ -178,7 +184,8 @@
         box.classList.remove('chart-loading');
         box.style.backgroundImage = payload.heatmap && payload.heatmap.has_map_image
           ? `url("${payload.map_image}")` : 'none';
-        CSACharts.mountMapChart(box, 'heatmap', payload);
+        if (mounted) mounted.dispose();
+        mounted = CSACharts.mountMapChart(box, 'heatmap', payload);
       } catch (e) {
         box.classList.remove('chart-loading');
         box.style.backgroundImage = 'none';
@@ -186,25 +193,27 @@
     });
   }
 
-  // highlights for this player (M5 payload; fails soft)
+  // highlights for this player (M5 payload; explicit failure state)
   try {
     const r = await fetch('/api/highlights.json');
-    if (r.ok) {
-      const payload = await r.json();
-      const mine = (payload.highlights || []).filter((h) => h.steamid === SID).slice(0, 6);
-      const box = document.getElementById('career-highlights');
-      if (mine.length) {
-        box.innerHTML = mine.map((h) =>
-          `<a class="hl-card" href="${h.deep_link}">` +
-          `<div class="hl-tier">${h.tier}</div>` +
-          `<div class="hl-body"><div class="hl-name">${h.name}</div>` +
-          `<div class="hl-meta">${h.map_name} · R${h.round} · ${h.kills} 杀</div></div>` +
-          `<span class="hl-go">▶ 回放</span></a>`).join('');
-      } else {
-        box.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">该选手暂无高光</div></div>';
-      }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const payload = await r.json();
+    const mine = (payload.highlights || []).filter((h) => h.steamid === SID).slice(0, 6);
+    const box = document.getElementById('career-highlights');
+    if (mine.length) {
+      box.innerHTML = mine.map((h) =>
+        `<a class="hl-card" href="${h.deep_link}">` +
+        `<div class="hl-tier">${h.tier}</div>` +
+        `<div class="hl-body"><div class="hl-name">${CSACommon.esc(h.name)}</div>` +
+        `<div class="hl-meta">${CSACommon.esc(h.map_name)} · R${h.round} · ${h.kills} 杀</div></div>` +
+        `<span class="hl-go">▶ 回放</span></a>`).join('');
+    } else {
+      box.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">该选手暂无高光</div></div>';
     }
-  } catch (e) { /* section keeps placeholder */ }
+  } catch (e) {
+    document.getElementById('career-highlights').innerHTML =
+      '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">高光数据加载失败</div></div>';
+  }
 
   document.querySelectorAll('tr.row-link').forEach((tr) => {
     tr.addEventListener('click', (e) => {

@@ -16,6 +16,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
+from cs_analyzer.analysis.util import round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 logger = logging.getLogger(__name__)
@@ -264,9 +265,11 @@ class PreferenceModule(AnalysisModule):
 
         xs: list[float] = []
         ys: list[float] = []
+        # swap-safe side lookup (util.round_player_sides) — the old
+        # `round.number <= 12` MR12 hardcode mis-classified overtime rounds
+        sides_by_round = round_player_sides(demo)
         for rnd in rounds:
-            side = ("CT" if rnd.number <= 12 else "T") if starts == "CT" else ("T" if rnd.number <= 12 else "CT")
-            if side != "T":
+            if sides_by_round.get(rnd.number, {}).get(steamid) != "T":
                 continue
             target = rnd.start_tick + int((rnd.end_tick - rnd.start_tick) * 0.25)
             i = int(np.searchsorted(t, target, side="right")) - 1

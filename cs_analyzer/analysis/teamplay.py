@@ -28,10 +28,11 @@ from pathlib import Path
 
 from cs_analyzer.analysis.highlights import HighlightsModule
 from cs_analyzer.analysis.ratings import TRADE_WINDOW_TICKS
+from cs_analyzer.analysis.regulars import compute_regulars
 from cs_analyzer.analysis.util import clean_sid, round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
-FIVE_E_PREFIX = "g161-"
+FIVE_E_PREFIX = "g161-"  # single definition lives in analysis.regulars
 # K5c: minimum opening duels before a first-kill rate is trusted
 MIN_FK_DUELS = 10
 
@@ -53,8 +54,10 @@ def _first_kills(demo: ParsedDemo) -> tuple[Counter, Counter]:
         if col in deaths.columns:
             deaths[col] = deaths[col].fillna("")
     for rnd in demo.regular_rounds:
+        # <= end_tick: a death exactly at the round boundary belongs to that
+        # round (same window as basic_stats._first_killers_per_round)
         window = deaths[
-            (deaths["tick"] >= rnd.start_tick) & (deaths["tick"] < rnd.end_tick)
+            (deaths["tick"] >= rnd.start_tick) & (deaths["tick"] <= rnd.end_tick)
         ].sort_values("tick")
         if window.empty:
             continue
@@ -149,14 +152,19 @@ def build_teamplay_report(
     five_e = [dm for h in five_e_hashes if (dm := cache.load(h)) is not None]
     demos_total = len(names)
 
-    # ---- regulars: appearance count across the 5E set ----
+    # ---- regulars: appearance count across the 5E set (single definition
+    # via analysis.regulars; appear Counter still kept for per-player display) ----
     appear: Counter = Counter()
     names: dict[str, str] = {}
+    five_e_sets: dict[str, set[str]] = {}
     for dm in five_e:
+        sids = set()
         for p in dm.players:
             appear[p.steamid] += 1
             names[p.steamid] = p.name
-    regulars = {sid for sid, n in appear.items() if n >= min_regular_demos}
+            sids.add(p.steamid)
+        five_e_sets[dm.metadata.demo_hash] = sids
+    regulars = compute_regulars(five_e_sets, min_appearances=min_regular_demos)
 
     # ---- K5a: link network across all 5E demos ----
     agg_links: dict[tuple[str, str], dict[str, int]] = defaultdict(
@@ -287,14 +295,20 @@ def build_teamplay_report(
     # ---- K5c: portraits for the regulars ----
     # v5 口径审计：取王全部改用「每场」比率（绝对次数随场次线性增长，打得越多
     # 越容易当王——违反"打得多≠数据好"总原则）；绝对次数保留在 detail 文案里。
-    reg_top_flash = max(regulars,
-                        key=lambda s: flash_given[s] / max(appear[s], 1), default=None)
+    # Phase S：闪光/残局王加软样本门槛（用户裁决 2026-09-05）——低于门槛
+    # 仍可上榜但 label 带 low_sample=True，前端标「少」徽章。
+    MIN_FLASH_ASSISTS = 3
+    MIN_CLUTCH_TRIES = 3
+    flash_king = max(regulars,
+                     key=lambda s: flash_given[s] / max(appear[s], 1), default=None)
+    flash_king_low = flash_king is not None and flash_given[flash_king] < MIN_FLASH_ASSISTS
     duels_of = lambda s: fk_wins_total[s] + fk_losses_total[s]  # noqa: E731
     fk_eligible = [s for s in regulars if duels_of(s) >= MIN_FK_DUELS]
     reg_top_fk = max(fk_eligible, key=lambda s: fk_wins_total[s] / duels_of(s), default=None) \
         if fk_eligible else None
     reg_top_clutch = max(regulars,
                          key=lambda s: clutch_wins[s] / max(appear[s], 1), default=None)
+    clutch_king_low = reg_top_clutch is not None and clutch_wins[reg_top_clutch] < MIN_CLUTCH_TRIES
 
     # best partner: 每场联动强度（旧口径 = 总次数，车队常客天然占优）
     link_weight: dict[str, dict[str, tuple[float, int]]] = defaultdict(dict)
@@ -309,18 +323,23 @@ def build_teamplay_report(
     portraits = []
     for sid in sorted(regulars, key=lambda s: -appear[s]):
         labels = []
-        if reg_top_flash and sid == reg_top_flash and flash_given[sid] > 0:
-            labels.append({"label": "闪光发动机", "detail":
+        if flash_king and sid == flash_king and flash_given[sid] > 0:
+            labels.append({"label": "闪光发动机",
+                           "low_sample": flash_king_low,
+                           "detail":
                 f"每场 {flash_given[sid] / max(appear[sid], 1):.1f} 次闪光助攻"
                 f"（共 {flash_given[sid]} 次 / {appear[sid]} 场）"})
         if reg_top_fk and sid == reg_top_fk:
             labels.append({
                 "label": "首杀先锋",
+                "low_sample": False,
                 "detail": f"首杀成功率 {fk_wins_total[sid] / duels_of(sid):.0%}"
                           f" ({fk_wins_total[sid]}/{duels_of(sid)})",
             })
         if reg_top_clutch and sid == reg_top_clutch and clutch_wins[sid] > 0:
-            labels.append({"label": "残局大师", "detail":
+            labels.append({"label": "残局大师",
+                           "low_sample": clutch_king_low,
+                           "detail":
                 f"每场 {clutch_wins[sid] / max(appear[sid], 1):.2f} 次残局获胜"
                 f"（共 {clutch_wins[sid]} 次 / {appear[sid]} 场）"})
         best = None

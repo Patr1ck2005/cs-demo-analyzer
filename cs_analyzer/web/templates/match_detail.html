@@ -9,6 +9,9 @@
   </div>
   <div class="page-actions">
     <a class="btn btn-primary" href="/match/{{ demo.hash }}/viewer">▶ 进入实时回放</a>
+    <span data-match-card="{{ demo.hash }}" data-fav-standalone="1"
+          data-fav-meta-filename="{{ demo.filename }}"
+          data-fav-meta-map="{{ demo.map_name }}"></span>
   </div>
 </div>
 
@@ -126,7 +129,7 @@
   <div id="eco-streaks" class="sub" style="margin:4px 2px"></div>
   <div class="card" style="padding:8px"><div id="economy-chart" style="height:360px" class="chart-loading" data-chart-payload="/api/demo/{{ demo.hash }}/analysis/economy.json"></div></div>
   <div class="section-header"><h2>各买法胜率</h2>
-    <div class="section-actions sub" style="margin:0">eco &lt;$2000 · 强起 &lt;$3700 · 长枪 ≥$3700（队伍均消）</div></div>
+    <div class="section-actions sub" id="eco-thresholds" style="margin:0">阈值加载中…（队伍均消口径）</div></div>
   <div class="card" style="padding:8px"><div id="winbybuy-chart" style="height:320px" class="chart-loading"></div></div>
 </section>
 
@@ -182,10 +185,11 @@
 </section>
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/favorites.js?v={{ static_v }}"></script>
 <script src="/static/vendor/echarts.min.js"></script>
 <script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
 <script src="/static/charts.js?v={{ static_v }}"></script>
-<script src="/static/table_sort.js"></script>
+<script src="/static/table_sort.js?v={{ static_v }}"></script>
 <script>
 (async function () {
   const H = '{{ demo.hash }}';
@@ -220,6 +224,11 @@
         if (p.loss_streaks) {
           document.getElementById('eco-streaks').textContent =
             `最长连败 — T: ${p.loss_streaks.T ?? '-'} · CT: ${p.loss_streaks.CT ?? '-'}`;
+        }
+        if (p.thresholds) {
+          const th = p.thresholds;
+          document.getElementById('eco-thresholds').textContent =
+            `eco <$${th.eco_max} · 强起 <$${th.force_max} · 长枪 ≥$${th.force_max}（队伍均消）`;
         }
       } catch (e) { hideSkeleton('economy-chart'); hideSkeleton('winbybuy-chart'); }
     },
@@ -303,7 +312,7 @@
       const p = await fetchJson(`/api/demo/${H}/analysis/aim.json`);
       const rows = p.players || [];
       tb.innerHTML = rows.length ? rows.map((r) =>
-        `<tr><td>${r.name}</td><td class="num">${r.shots_fired}</td>` +
+        `<tr><td>${CSACommon.esc(r.name)}</td><td class="num">${r.shots_fired}</td>` +
         `<td class="num">${r.fire_kills}</td><td class="num">${(r.fire_kill_rate * 100).toFixed(1)}%</td>` +
         `<td class="num">${r.walk_share != null ? (r.walk_share * 100).toFixed(0) + '%' : '-'}</td>` +
         `<td class="num">${r.scope_share != null ? (r.scope_share * 100).toFixed(0) + '%' : '-'}</td>` +
@@ -323,7 +332,7 @@
         const cells = WCAT.map(([c]) =>
           `<td class="num">${r.kills_by_category[c] || 0}${r.deaths_by_category[c] ? `<span class="sub">/${r.deaths_by_category[c]}</span>` : ''}</td>`).join('');
         const tops = (r.top_weapons || []).map((w) => w.weapon).join(' · ');
-        return `<tr><td>${r.name}</td>${cells}<td class="sub" style="text-align:left">${tops}</td></tr>`;
+        return `<tr><td>${CSACommon.esc(r.name)}</td>${cells}<td class="sub" style="text-align:left">${CSACommon.esc(tops)}</td></tr>`;
       }).join('') : '<tr><td colspan="9" class="sub">无击杀数据</td></tr>';
     } catch (e) { tb.innerHTML = '<tr><td colspan="9" class="sub">数据不可用</td></tr>'; }
   }
@@ -395,8 +404,15 @@
       loaded.add(tab);
       (loaders[tab] || (() => {}))();
     } else {
-      // re-init charts inside a panel that was hidden (zero-size) at mount time
-      document.querySelectorAll(`[data-panel="${tab}"] .echart`).forEach(() => {});
+      // charts mounted while the panel was hidden (zero-size, e.g. the user
+      // switched tabs mid-fetch) init at 0x0 — resize them now that the
+      // panel is visible again
+      document.querySelectorAll(`[data-panel="${tab}"] .echart, [data-panel="${tab}"] [id$="-chart"]`).forEach((el) => {
+        if (window.echarts && el.tagName !== 'CANVAS') {
+          const inst = echarts.getInstanceByDom(el);
+          if (inst) inst.resize();
+        }
+      });
     }
   }
   document.querySelectorAll('#match-tabs .tab-btn').forEach((btn) => {
@@ -423,7 +439,7 @@
         box.innerHTML = hs.length ? hs.map((h) =>
           `<a class="hl-card" href="${h.deep_link}">` +
           `<div class="hl-tier">${TIER[h.tier] || h.tier}</div>` +
-          `<div class="hl-body"><div class="hl-name">${h.name}</div>` +
+          `<div class="hl-body"><div class="hl-name">${CSACommon.esc(h.name)}</div>` +
           `<div class="hl-meta">R${h.round} · ${h.kills} 杀 · ${h.side}</div></div>` +
           `<span class="hl-go">▶ 回放</span></a>`).join('')
           : '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">本场暂无高光</div></div>';

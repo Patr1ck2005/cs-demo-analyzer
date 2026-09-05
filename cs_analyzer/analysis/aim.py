@@ -20,7 +20,7 @@ from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisR
 from cs_analyzer.analysis.util import clean_sid
 from cs_analyzer.model.parsed_demo import ParsedDemo
 from cs_analyzer.replay.timeline import round_freeze_ends
-from cs_analyzer.web.weapons import canonical
+from cs_analyzer.analysis.weapons import canonical
 
 logger = logging.getLogger(__name__)
 

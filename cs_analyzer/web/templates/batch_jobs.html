@@ -67,7 +67,15 @@
       fetch('/api/jobs/' + id)
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
         .then((st) => { if (st.status === 'done' || st.status === 'error') { setRow(tr, st); live -= 1; } })
-        .catch((e) => console.warn('job poll failed:', String(e))); // transient — retry next tick
+        .catch((e) => {
+          // 404 = the in-memory job registry lost it (server restart) — it
+          // will never finish, so stop polling instead of spinning forever.
+          tr.querySelector('.bf-state').innerHTML = '<span class="badge t0">任务丢失</span>';
+          tr.querySelector('.bf-result').textContent = '服务已重启，任务状态不可查（解析是否入库请回库页确认）';
+          tr.dataset.job = '';
+          live -= 1;
+          console.warn('job poll failed:', String(e));
+        });
     }
     summary.textContent = live
       ? `剩余 ${live} 个任务解析中…`

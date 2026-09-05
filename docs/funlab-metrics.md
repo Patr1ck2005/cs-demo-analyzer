@@ -1,6 +1,18 @@
-# 趣味指标口径文档 v5（2026-09-05 全面口径审计）
+# 趣味指标口径文档 v6（2026-09-05 Phase S 稳定化）
 
-> **v5 新增（全面审计，用户裁决两项）**：
+> **v6 新增（Phase S 正确性修复，实现对齐既有口径——口径本身未变）**：
+> **① 抢人头/被抢人头加"本生命内"约束**（docstring 一直承诺 "in that life" 但实现未做）：
+> 上一回合对敌人造成的伤害不再计入本回合的软化判定，snipe_rate/stolen_rate 回落到真实值。
+> **② 武器名归一统一到 `analysis/weapons.canonical`**（此前 funlab 自带第三张别名表）：
+> 修复 `5e_2023pass3_m4a1_silencer`→"silencer"（M4A1-S/USP-S 购买被排除出发枪链）、
+> `_txzNN/_vip/_ace` 皮肤后缀（WMPVP 库 awp_rate 恒 0）、Tec-9/MAC-10/CZ75-Auto 等
+> 连字符购买名漏计。**③ 发枪成材率按回合末截断**（receiver 存活时后续回合击杀不再计入本发枪）。
+> **④ clutch_freq/multi_rate/team_dmg_rpr 分母改为出场回合数**（原为 demo 总回合，稀释替补）。
+> **⑤ 首杀定义统一**（basic_stats 与 teamplay 同窗口 `<=end_tick`、同排除自杀）。
+> **⑥ 五排画像闪光/残局王加软样本门槛**（闪助<3 / 残局胜<3 标"少"徽章，用户裁决）。
+> **⑦ 指标数勘误**：METRIC_DEFS 实际 **31 条**（v5 文档误写 32）。
+
+> **v5 历史裁决（2026-09-05 全面口径审计）**：
 > **① 鸟狙=装逼枪**（用户裁决：eco 局买鸟狙算装逼，不算叛逆长枪）。修复 v4 自相矛盾——
 > 旧代码把 ssg08 同时放进 RIFLE_WEAPONS 与 SHOWOFF_WEAPONS，装逼路径永远走不到；
 > 现在 RIFLE_WEAPONS={AK,M4,Galil,FAMAS,AUG,SG556,AWP}，鸟狙只认装逼。
@@ -13,7 +25,7 @@
 > - /compare 五排画像：闪光发动机/残局大师 → **每场次数**取王（次数进文案）；最佳搭档 → **每场联动强度**；
 > - /utility-lab：闪光榜按**价值/投掷**（投掷<3 标"少"）、烟中榜按**每场净值** (kills×2−deaths)/场次；
 > - /teams 队伍视图：车队/单排胜率 → **回合池化** Σ胜/Σ总（旧=场次简单平均）。
-> **④ 口径说明上页面**：`funlab_data.METRIC_DEFS`（32 指标+2 榜单）随 /api/funlab.json 下发，
+> **④ 口径说明上页面**：`funlab_data.METRIC_DEFS`（31 指标+2 榜单）随 /api/funlab.json 下发，
 > /fun-lab 页"📖 指标口径说明"面板逐项点开可见公式+边界；轴选择器下方实时显示两轴公式。
 > **⑤ deagle 别名补全**：`"Desert Eagle"→deagle`（此前显示名绕过 PRIMARY_WEAPONS，发枪链漏计沙鹰）。
 

@@ -38,12 +38,12 @@ def invalidate_feed() -> None:
 
 def _build() -> list[dict]:
     from cs_analyzer.analysis.library import scan_demos
-    from cs_analyzer.web.app import _analyze_module, _cache
+    from cs_analyzer.web import runtime
     from cs_analyzer.web.chart_data import highlights_payload
 
     per_demo = scan_demos(
-        _cache().cache_dir,
-        lambda demo: highlights_payload(_analyze_module(demo, "highlights"))["highlights"],
+        runtime.cache().cache_dir,
+        lambda demo: highlights_payload(runtime.analyze_module(demo, "highlights"))["highlights"],
     )
     merged = [h for lst in per_demo for h in lst]
     merged.sort(key=lambda h: (_RANK.get(h["tier"], 99), h["round"]))

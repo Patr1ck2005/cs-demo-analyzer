@@ -27,7 +27,23 @@
       '.fav-star:hover{transform:scale(1.25)}' +
       '.fav-star.on{color:#fbbf24}' +
       '.fav-note-dot{display:inline-block;width:7px;height:7px;border-radius:50%;' +
-      'background:var(--accent);margin-left:6px;vertical-align:middle}';
+      'background:var(--accent);margin-left:6px;vertical-align:middle}' +
+      '.fav-edit{background:none;border:1px solid var(--line,#2a2d47);cursor:pointer;font-size:13px;' +
+      'line-height:1;padding:4px 7px;margin-left:4px;color:var(--muted);border-radius:6px}' +
+      '.fav-edit:hover{color:var(--accent);border-color:var(--accent)}' +
+      '.fav-editor{position:fixed;inset:0;z-index:200;background:rgba(6,7,15,.6);' +
+      'display:flex;align-items:center;justify-content:center}' +
+      '.fav-editor-box{background:#151728;border:1px solid #2a2d47;border-radius:12px;' +
+      'padding:18px;width:min(480px,92vw);box-shadow:0 18px 50px rgba(0,0,0,.5)}' +
+      '.fav-editor-title{font-weight:600;margin-bottom:12px;display:flex;justify-content:space-between}' +
+      '.fav-editor-x{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px}' +
+      '.fav-editor label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}' +
+      '.fav-editor textarea,.fav-editor input{width:100%;box-sizing:border-box;background:#0e101d;' +
+      'color:var(--text,#eceaf6);border:1px solid #2a2d47;border-radius:8px;padding:8px;font:inherit}' +
+      '.fav-editor textarea{resize:vertical}' +
+      '.fav-editor-actions{margin-top:14px;display:flex;align-items:center;gap:10px}' +
+      '.fav-editor-save{background:var(--accent,#a78bfa);color:#17142a;border:none;border-radius:8px;' +
+      'padding:7px 18px;font-weight:600;cursor:pointer}';
     document.head.appendChild(st);
   }
 
@@ -37,6 +53,11 @@
     return '<button class="fav-star' + (on ? ' on' : '') + '" data-fav-scope="' + scope +
       '" data-fav-id="' + id + '" title="' + (on ? '取消收藏' : '收藏') + '">' +
       (on ? '★' : '☆') + (note ? '<span class="fav-note-dot"></span>' : '') + '</button>';
+  }
+
+  function editBtnHtml(scope, id) {
+    return '<button class="fav-edit" data-fav-scope="' + scope + '" data-fav-id="' + id +
+      '" title="编辑备注/标签" type="button">✎</button>';
   }
 
   // cache the doc for delegated renders
@@ -56,19 +77,103 @@
     ensureStyles();
     document.querySelectorAll('[data-match-card]:not([data-fav-mounted])').forEach(function (el) {
       el.setAttribute('data-fav-mounted', '1');
+      var id = el.getAttribute('data-match-card');
+      // standalone mount point (match detail header): star + edit inline
+      if (el.hasAttribute('data-fav-standalone')) {
+        var e = entryFor('match', id) || {};
+        el.innerHTML = starHtml('match', id, e) + editBtnHtml('match', id);
+        return;
+      }
       var slot = el.querySelector('.mc-actions');
       if (!slot) return;
-      var id = el.getAttribute('data-match-card');
       slot.insertAdjacentHTML('afterbegin', starHtml('match', id, entryFor('match', id)));
     });
     document.querySelectorAll('[data-player-star]:not([data-fav-mounted])').forEach(function (el) {
       el.setAttribute('data-fav-mounted', '1');
       var id = el.getAttribute('data-player-star');
-      el.innerHTML = starHtml('player', id, entryFor('player', id));
+      el.innerHTML = starHtml('player', id, entryFor('player', id)) + editBtnHtml('player', id);
     });
   }
 
+  // ---- note/tags editor overlay (Phase S: closes the L1 gap — the API
+  // always supported note/tags patches but no UI ever called them) ----
+  function openEditor(scope, id) {
+    var entry = entryFor(scope, id) || {};
+    var existing = get().then(function (d) {
+      _doc = d;
+      return (d[scope === 'match' ? 'matches' : 'players'] || {})[id] || {};
+    });
+    existing.then(function (e) {
+      var ov = document.createElement('div');
+      ov.className = 'fav-editor';
+      ov.innerHTML =
+        '<div class="fav-editor-box fav-editor">' +
+        '<div class="fav-editor-title"><span>' + (scope === 'match' ? '对局' : '选手') + '备注与标签</span>' +
+        '<button class="fav-editor-x" type="button" title="关闭">✕</button></div>' +
+        '<label for="fav-editor-note">备注</label>' +
+        '<textarea id="fav-editor-note" rows="5" maxlength="2000" ' +
+        'placeholder="比如：这把翻盘局 / 枪法状态好 / 队友 id 备注…"></textarea>' +
+        '<label for="fav-editor-tags">标签（逗号分隔）</label>' +
+        '<input id="fav-editor-tags" maxlength="600" placeholder="比如：五排, 翻盘, nuke">' +
+        '<div class="fav-editor-actions">' +
+        '<button class="fav-editor-save" type="button">保存</button>' +
+        '<span class="sub fav-editor-msg"></span></div></div>';
+      document.body.appendChild(ov);
+      var ta = ov.querySelector('#fav-editor-note');
+      var tagsIn = ov.querySelector('#fav-editor-tags');
+      ta.value = e.note || '';
+      tagsIn.value = (e.tags || []).join(', ');
+      ta.focus();
+      function close() { ov.remove(); }
+      ov.querySelector('.fav-editor-x').addEventListener('click', close);
+      ov.addEventListener('click', function (ev) { if (ev.target === ov) close(); });
+      ov.querySelector('.fav-editor-save').addEventListener('click', function () {
+        var msg = ov.querySelector('.fav-editor-msg');
+        post({
+          scope: scope, id: id,
+          patch: { note: ta.value, tags: tagsIn.value },
+          meta: collectMeta(scope, id),
+        }).then(function (res) {
+          if (res && res.ok) {
+            close();
+            // refresh dot markers on any star button for this item
+            document.querySelectorAll('.fav-star[data-fav-scope="' + scope + '"][data-fav-id="' + id + '"]')
+              .forEach(function (btn) {
+                var on = btn.classList.contains('on');
+                btn.innerHTML = (on ? '★' : '☆') + (ta.value.trim() ? '<span class="fav-note-dot"></span>' : '');
+              });
+          } else {
+            msg.textContent = '保存失败，请重试';
+          }
+        }).catch(function () { msg.textContent = '保存失败，请重试'; });
+      });
+    });
+  }
+
+  function collectMeta(scope, id) {
+    // reuse the same denormalization the star path uses
+    if (scope === 'match') {
+      var host = document.querySelector('[data-match-card="' + id + '"]');
+      if (!host) return null;
+      var fn = host.getAttribute('data-fav-meta-filename') ||
+        (host.querySelector('.mc-name') && host.querySelector('.mc-name').textContent.trim()) || '';
+      var mn = host.getAttribute('data-fav-meta-map') ||
+        (host.querySelector('.mc-map-name') && host.querySelector('.mc-map-name').textContent.trim()) || '';
+      return { filename: fn, map_name: mn };
+    }
+    var ph = document.querySelector('[data-player-star="' + id + '"]');
+    var nm = ph ? ph.getAttribute('data-player-name') : '';
+    return nm ? { name: nm } : null;
+  }
+
   document.addEventListener('click', function (ev) {
+    var edit = ev.target.closest('.fav-edit');
+    if (edit) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openEditor(edit.getAttribute('data-fav-scope'), edit.getAttribute('data-fav-id'));
+      return;
+    }
     var btn = ev.target.closest('.fav-star');
     if (!btn) return;
     ev.preventDefault();
@@ -79,27 +184,13 @@
     btn.classList.toggle('on', nowOn);
     btn.innerHTML = (nowOn ? '★' : '☆');
     // denormalize display meta from the DOM so /favorites shows names
-    var meta = null;
-    if (scope === 'match') {
-      var host = btn.closest('[data-match-card]');
-      if (host) {
-        var fn = host.querySelector('.mc-name');
-        var mn = host.querySelector('.mc-map-name');
-        meta = { filename: fn ? fn.textContent.trim() : '', map_name: mn ? mn.textContent.trim() : '' };
-      }
-    } else if (scope === 'player') {
-      var ph = btn.closest('[data-player-star]');
-      var nm = ph ? ph.getAttribute('data-player-name') : '';
-      if (nm) meta = { name: nm };
-    }
+    var meta = collectMeta(scope, id);
     var body = { scope: scope, id: id, patch: { starred: nowOn } };
     if (meta) body.meta = meta;
     post(body).then(function (res) {
       if (!res || !res.ok) { btn.classList.toggle('on', !nowOn); btn.innerHTML = nowOn ? '☆' : '★'; }
     });
-  });
-
-  // ---- /favorites page ----
+  });  // ---- /favorites page ----
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -156,14 +247,19 @@
             '<div class="sub">' + esc((e.tags || []).join(' · ')) + '</div></a>';
         }).join('') : '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">还没有收藏的选手</div><div>在选手生涯页点 ☆ 收藏。</div></div>';
         // notes
-        var notes = matches.concat(players).filter(function (kv) { return (kv[1].note || '').trim() && tagOk(kv[1]); });
+        var notes = matches.concat(players).filter(function (kv) { return tagOk(kv[1]); });
         nWrap.innerHTML = notes.length ? notes.map(function (kv) {
-          var e = kv[1], m = e.meta || {};
-          var href = kv[0] in (doc.matches || {}) ? '/match/' + esc(kv[0]) : '/player/' + esc(kv[0]);
-          var label = m.filename || m.name || kv[0].slice(0, 12);
-          return '<div style="margin-bottom:10px"><a href="' + href + '"><b>' + esc(label) + '</b></a>' +
-            '<div class="sub" style="white-space:pre-wrap">' + esc(e.note) + '</div></div>';
-        }).join('') : '<span class="sub">暂无备注 — 备注编辑在对局详情页（即将加入）。</span>';
+          var id = kv[0], e = kv[1], m = e.meta || {};
+          var scope = id in (doc.matches || {}) ? 'match' : 'player';
+          var href = scope === 'match' ? '/match/' + esc(id) : '/player/' + esc(id);
+          var label = m.filename || m.name || id.slice(0, 12);
+          return '<div style="margin-bottom:10px" data-fav-note-row="' + esc(id) + '">' +
+            '<a href="' + href + '"><b>' + esc(label) + '</b></a>' + editBtnHtml(scope, id) +
+            '<div class="sub" style="white-space:pre-wrap">' + esc(e.note) + '</div>' +
+            ((e.tags || []).length ? '<div>' + e.tags.map(function (t) {
+              return '<span class="badge kb-info" style="margin-right:4px">' + esc(t) + '</span>';
+            }).join('') + '</div>' : '') + '</div>';
+        }).join('') : '<span class="sub">暂无备注 — 在对局/选手页点 ✎ 即可编辑。</span>';
       }
       draw();
     });

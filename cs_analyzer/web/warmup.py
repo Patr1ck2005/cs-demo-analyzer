@@ -50,6 +50,26 @@ def start_once() -> None:
         _thread.start()
 
 
+def kick() -> None:
+    """Re-prewarm after an invalidate (Phase S).
+
+    start_once covers only the process-cold path; after an upload/sweep
+    invalidates every memo, the dashboard used to rebuild ~70s of aggregate
+    synchronously inside the first request (warm["ready"] stayed True).
+    kick() resets the readiness flags and spawns a fresh prewarm thread —
+    the skeleton/long-poll path covers the "cold again" state too. Safe to
+    call from any thread, any number of times.
+    """
+    global _thread
+    with _lock:
+        if _thread is not None and _thread.is_alive():
+            return  # already prewarming
+        _state.update(phase="idle", ready=False, error="", t_done=0.0)
+        _state.pop("done_once", None)
+        _thread = threading.Thread(target=_run, name="csa-warmup", daemon=True)
+        _thread.start()
+
+
 def wait_until_ready(timeout: float = POLL_WAIT_S) -> dict:
     """Long-poll: block until warm / failed / timeout, then return status.
 

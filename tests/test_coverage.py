@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from cs_analyzer.cache import DemoCache
 from cs_analyzer.coverage import (
     DemoCoverage,
     PlayerCoverage,
@@ -101,8 +102,11 @@ def test_render_coverage_report(tmp_path) -> None:
     assert "A" in html  # player rendered
 
 
-def test_scan_demo_real(real_demo_path) -> None:
-    demo = scan_demo(real_demo_path)
+def test_scan_demo_real(real_demo_path, tmp_path) -> None:
+    # tmp cache (Phase S): the default `.cache` fallback used to re-parse the
+    # fixture into the REAL repo cache on every test run, resurrecting the
+    # deleted test_demo orphan entry that whole-library reports then ingest
+    demo = scan_demo(real_demo_path, cache=DemoCache(tmp_path))
     assert demo.status == "ok"
     assert demo.map_name
     assert demo.players

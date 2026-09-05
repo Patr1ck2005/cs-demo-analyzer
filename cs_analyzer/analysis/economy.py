@@ -12,6 +12,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
+from cs_analyzer.analysis.util import clean_sid, round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ def build_purchase_log(demo: ParsedDemo) -> dict[int, dict[str, dict]]:
         rnd = round_at(int(row.get("tick", 0) or 0))
         if rnd == 0:
             continue
-        sid = str(row.get("steamid", "") or row.get("user_steamid", "") or "")
+        sid = clean_sid(row.get("steamid") or row.get("user_steamid") or "")
         if not sid:
             continue
         item = _short_weapon(row.get("item_name", row.get("weapon", "")))
@@ -78,8 +79,9 @@ class TeamRoundBuy(BaseModel):
 
 class EconomyResult(AnalysisResult):
     rounds: list[TeamRoundBuy] = Field(default_factory=list)
-    # per side: streak summary + win-rate by buy type
-    win_by_buy: dict[str, dict[str, dict[str, float]]] = Field(default_factory=dict)
+    # per side: streak summary + win-rate by buy type (win_rate None = no
+    # samples — the frontend must not read "no eco rounds" as "0% eco wins")
+    win_by_buy: dict[str, dict[str, dict[str, float | None]]] = Field(default_factory=dict)
     loss_streaks: dict[str, int] = Field(default_factory=dict)
 
 
@@ -132,7 +134,7 @@ class EconomyModule(AnalysisModule):
                 n = len(rows)
                 w = sum(1 for r in rows if r.won)
                 by_buy[buy] = {"n": float(n), "wins": float(w),
-                               "win_rate": round(w / n, 3) if n else 0.0}
+                               "win_rate": round(w / n, 3) if n else None}
             win_by_buy[side] = by_buy
             # longest loss streak (consecutive rounds with won=False)
             longest = cur = 0
@@ -150,17 +152,16 @@ class EconomyModule(AnalysisModule):
         )
 
     def _side_at_round_start(self, demo: ParsedDemo) -> dict[tuple[int, str], str]:
-        """(round, steamid) -> "T"|"CT" from the first tick in each round."""
+        """(round, steamid) -> "T"|"CT".
+
+        Single source of truth: util.round_player_sides (majority team_num
+        over the round's tick span, swap-safe). The previous private
+        implementation (first-256-tick last-wins) disagreed with it on
+        half-buy/swap demos, which split funlab vs economy eco classes.
+        """
+        sides = round_player_sides(demo)
         out: dict[tuple[int, str], str] = {}
-        ticks = demo.ticks
-        if ticks is None or ticks.empty or not {"tick", "steamid", "team_num"} <= set(ticks.columns):
-            return out
-        for i, r in enumerate(demo.regular_rounds):
-            sub = ticks[(ticks["tick"] >= r.start_tick) & (ticks["tick"] <= r.start_tick + 256)]
-            if sub.empty:
-                continue
-            for sid, team in zip(sub["steamid"].astype(str), sub["team_num"]):
-                code = 2 if team == 2 else 3 if team == 3 else None
-                if code is not None:
-                    out[(i + 1, sid)] = "T" if code == 2 else "CT"
+        for rnd, per_sid in sides.items():
+            for sid, side in per_sid.items():
+                out[(rnd, sid)] = side
         return out

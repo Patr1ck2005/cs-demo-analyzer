@@ -11,15 +11,26 @@
   };
 
   const instances = [];
+  const byDom = new Map(); // dom -> instance, so remounts dispose instead of merge-residue
 
-  /** Init a themed ECharts instance on `el` (id or element). */
+  /** Init a themed ECharts instance on `el` (id or element).
+   * A re-mount on the same dom DISPOSES the previous instance first —
+   * echarts.init() would return the old chart and setOption's default
+   * merge leaves stale series behind (routes T/CT switch bug, Phase S). */
   function mount(el, option) {
     const dom = typeof el === 'string' ? document.getElementById(el) : el;
     if (!dom || typeof echarts === 'undefined') return null;
     dom.classList.remove('chart-loading'); // drop the skeleton placeholder
+    const prev = byDom.get(dom);
+    if (prev) {
+      prev.dispose();
+      const i = instances.indexOf(prev);
+      if (i >= 0) instances.splice(i, 1);
+    }
     const chart = echarts.init(dom, 'csa');
-    chart.setOption(option);
+    byDom.set(dom, chart);
     instances.push(chart);
+    chart.setOption(option);
     return chart;
   }
 

@@ -5,7 +5,7 @@
 **本地优先的 CS2 Demo 分析平台** —— 解析 `.dem`，产出定量统计 + 电竞 OB 级实时 2D 回放
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-189_passing-3DDC97)](#)
+[![Tests](https://img.shields.io/badge/tests-239_passing-3DDC97)](#)
 [![License](https://img.shields.io/badge/License-MIT-a78bfa)](#license)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows11&logoColor=white)](#)
 [![ECharts](https://img.shields.io/badge/charts-Apache_ECharts-AA344D?logo=apacheecharts&logoColor=white)](https://echarts.apache.org/)
@@ -187,7 +187,7 @@ RWS 与 Rating 为自实现的专有公式近似（HLTV 2.0 / ESEA RWS 风格）
 
 ```bash
 pip install -e ".[dev]"
-pytest                    # 189 tests
+pytest                    # 239 tests
 ruff check cs_analyzer/
 ```
 

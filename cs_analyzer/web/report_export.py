@@ -25,9 +25,9 @@ def export_match_report(base_url: str, demo_hash: str, fmt: str, out_dir: Path) 
 
     fmt: "png" (full-page screenshot) or "pdf" (chromium print-to-pdf).
     """
-    from cs_analyzer.web.app import _cache, _load
+    from cs_analyzer.web import runtime
 
-    demo = _load(demo_hash)
+    demo = runtime.load_demo(demo_hash)
     if demo is None:
         raise LookupError(f"unknown demo {demo_hash[:12]}")
     meta = demo.metadata

@@ -61,9 +61,9 @@ def test_redirect_passes_query(web_client) -> None:
 def test_removed_routes_gone(web_client) -> None:
     """/coverage and /jobs/{id} page routes are deleted (Phase H)."""
     c, _, _ = web_client
-    # both fall through to the error.html convention (HTTP 200 + message)
+    # both fall through to the error.html convention (HTTP 404 + message)
     r = c.get("/coverage", follow_redirects=False)
-    assert r.status_code == 200
+    assert r.status_code == 404
     assert "页面不存在" in r.text
     r2 = c.get("/jobs/abc123", follow_redirects=False)
     assert r2.status_code == 404  # two-segment path: plain FastAPI 404
@@ -180,7 +180,7 @@ def test_player_career(web_client) -> None:
 def test_player_career_404(web_client) -> None:
     c, _, _ = web_client
     r = c.get("/player/unknown-steamid")
-    assert r.status_code == 200  # error.html convention
+    assert r.status_code == 404  # error.html convention (Phase S: real 404)
     assert "未找到选手" in r.text
 
 
@@ -220,9 +220,9 @@ def test_placeholder_pages(web_client) -> None:
         r = c.get(path)
         assert r.status_code == 200, path
         assert title in r.text
-    # unknown single-segment paths still 404 via the error convention
+    # unknown single-segment paths 404 via the error convention (Phase S)
     r = c.get("/not-a-real-page")
-    assert r.status_code == 200
+    assert r.status_code == 404
     assert "页面不存在" in r.text
 
 
@@ -817,9 +817,9 @@ def test_reports_page_and_match_report(web_client) -> None:
     assert "对局报告" in r2.text
     assert "选手数据" in r2.text
     assert "回合走势" in r2.text
-    # unknown demo -> error page convention
+    # unknown demo -> error page convention (Phase S: real 404)
     r3 = c.get("/report/deadbeef")
-    assert r3.status_code == 200
+    assert r3.status_code == 404
     assert "未找到该对局" in r3.text
 
 

@@ -297,12 +297,6 @@ tr.row-link { cursor: pointer; }
 .dropzone:hover::before, .dropzone.dragover::before { opacity: .8; }
 @keyframes ants { to { background-position: 26px 0; } }
 .dropzone input[type=file] { display: none; }
-.progress { height: 8px; border-radius: 4px; background: var(--panel2); overflow: hidden; }
-.progress i { display: block; height: 100%; width: 30%;
-              background: var(--grad-accent); border-radius: 4px;
-              box-shadow: 0 0 10px rgba(167, 139, 250, .5);
-              animation: progress-slide 1.2s ease-in-out infinite; }
-@keyframes progress-slide { 0% { transform: translateX(-100%);} 100% { transform: translateX(350%);} }
 
 /* chart skeleton placeholder (removed by CSACharts.mount) */
 .chart-loading { position: relative; overflow: hidden; min-height: 200px;
@@ -319,9 +313,6 @@ tr.row-link { cursor: pointer; }
 
 /* ============================= grids / media ============================= */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-.grid img { width: 100%; border-radius: 8px; border: 1px solid var(--line); }
-.upload { display: flex; gap: 10px; align-items: center; }
-video { width: 100%; border-radius: 8px; border: 1px solid var(--line); background: #000; }
 .pill-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
 .pill-row a { text-decoration: none; transition: transform .15s, filter .15s; }
 .pill-row a:hover { transform: translateY(-2px); filter: brightness(1.2); }
@@ -574,23 +565,10 @@ tr.low-sample td { opacity: .55; }
 .routes-legend i { display: inline-block; width: 14px; height: 3px;
                    border-radius: 2px; margin-right: 5px; vertical-align: 2px; }
 
-/* ============================= overlap analysis panel (legacy in-viewer bits) ============================= */
-.overlap-panel { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line);
-                 border-radius: var(--r-md); background: var(--panel2);
-                 display: flex; flex-direction: column; gap: 8px; }
-.ovp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ovp-label { font-size: var(--fs-xs); color: var(--muted); flex: none; }
-.ovp-rounds { display: flex; gap: 4px; flex-wrap: wrap; }
-.ovp-rounds .chip { min-width: 34px; text-align: center; }
-.ovp-rounds .chip.base { border-color: var(--accent); color: var(--accent); }
-.ovp-rounds .chip.off { opacity: .35; }
-.ovp-phase-val { font-size: var(--fs-xs); color: var(--text); min-width: 38px;
-                 font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
-.ovp-side .chip { min-width: 40px; text-align: center; }
-.ovp-hint { margin-left: auto; }
-#ovp-phase { flex: 1; max-width: 260px; accent-color: var(--accent); }
-
 /* ============================= Phase I: kill badges / route toggle / tactics ============================= */
+/* (Phase S removed the legacy .overlap-panel/.ovp-* viewer block; .ovp-label
+   and .ovp-phase-val remain — replay_viewer still uses them) */
+.ovp-label { font-size: var(--fs-xs); color: var(--muted); flex: none; }
 .kill-line .badge { margin-left: 4px; font-size: 10px; padding: 0 5px; line-height: 16px; }
 .kb-penetrated { color: #ffb02e; border-color: rgba(255, 176, 46, .45); }
 .kb-thrusmoke { color: #9aa0b8; border-color: rgba(154, 160, 184, .45); }

@@ -56,15 +56,15 @@ def _norm_spot(x: float, y: float, map_name: str, res_cache: dict) -> tuple[floa
 
 def _build() -> dict:
     from cs_analyzer.analysis.library import scan_demos
-    from cs_analyzer.web.app import _analyze_module, _cache
+    from cs_analyzer.web import runtime
     from cs_analyzer.web.store import list_demos
     from pathlib import Path
 
-    cache_dir = _cache().cache_dir
+    cache_dir = runtime.cache().cache_dir
     meta = {d["demo_hash"]: d for d in list_demos(cache_dir)}
 
     def work(demo) -> dict:
-        result = _analyze_module(demo, "utility_effect")
+        result = runtime.analyze_module(demo, "utility_effect")
         return {
             "demo_hash": demo.metadata.demo_hash,
             "map_name": demo.metadata.map_name,

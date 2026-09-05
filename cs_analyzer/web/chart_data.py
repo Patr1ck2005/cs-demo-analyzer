@@ -185,6 +185,8 @@ def duels_payload(result) -> dict:
 
 def economy_payload(result) -> dict:
     """Round buy classification -> combo chart (spend bars + buy-type line)."""
+    from cs_analyzer.analysis.economy import ECO_MAX, FORCE_MAX
+
     rounds = sorted({r.round for r in result.rounds})
     series = {}
     for side in ("T", "CT"):
@@ -198,6 +200,8 @@ def economy_payload(result) -> dict:
         "series": series,
         "win_by_buy": result.win_by_buy,
         "loss_streaks": result.loss_streaks,
+        # thresholds (Phase S: the template used to hardcode $2000/$3700)
+        "thresholds": {"eco_max": ECO_MAX, "force_max": FORCE_MAX},
     }
 
 

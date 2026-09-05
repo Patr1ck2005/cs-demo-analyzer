@@ -30,45 +30,31 @@ from collections import defaultdict
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
-from cs_analyzer.analysis.economy import ECO_MAX, build_purchase_log
+from cs_analyzer.analysis.economy import ECO_MAX, FORCE_MAX, build_purchase_log
+from cs_analyzer.analysis.util import clean_sid as _s
 from cs_analyzer.analysis.util import round_player_sides
+from cs_analyzer.analysis.weapons import canonical as norm_weapon
 from cs_analyzer.model.parsed_demo import ParsedDemo
 
 #: HP at or below which a kill counts as 抢人头 (收割线)
 VULTURE_HP = 30
 #: deaths avenged within this many ticks count as traded
 TRADE_WINDOW_TICKS = 128
-FORCE_MAX = 3700
 #: white-give (白给) life threshold: total damage dealt below this = whiff
 WHIFF_DMG = 10.0
 #: a weapon drop A->B is credited when B picks up within this window
 DROP_WINDOW_TICKS = 30 * 64
-#: same-weapon alias map (purchase display names -> pickup base names)
-WEAPON_ALIAS = {
-    "ak-47": "ak47", "m4a4": "m4a4", "m4a1-s": "m4a1_silencer",
-    "m4a1_silencer": "m4a1_silencer", "five-seven": "fiveseven",
-    "sg 553": "sg556", "galil ar": "galilar", "ssg 08": "ssg08",
-    "desert eagle": "deagle",  # 5E 显示名（v5：散点口径说明审计时补）
-}
 #: primary weapons eligible for drop accounting (rifles/pistols; not nades/gear)
 PRIMARY_WEAPONS = {
     "ak47", "m4a4", "m4a1_silencer", "m4a1", "galilar", "famas", "aug",
     "sg556", "ssg08", "awp", "deagle", "fiveseven", "tec9", "glock",
     "usp_silencer", "p250", "cz75a", "elite", "revolver", "hkp2000",
 }
-
-
-def norm_weapon(name: str) -> str:
-    """Normalize a weapon name to the pickup-style base name (lowercase,
-    5E skin prefixes stripped, alias-collapsed)."""
-    n = str(name or "").lower().strip()
-    if n.startswith("5e_"):
-        parts = n.split("_")
-        n = parts[-1] if len(parts) > 1 else n
-    n = WEAPON_ALIAS.get(n, n)
-    if n.startswith("weapon_"):
-        n = n[len("weapon_"):]
-    return n
+#: 起长枪（叛逆者口径）—— 沙鹰/鸟狙不算（鸟狙=装逼枪，用户裁决 v5）
+RIFLE_WEAPONS = {"ak47", "m4a4", "m4a1_silencer", "m4a1", "galilar",
+                 "famas", "aug", "sg556", "awp"}
+#: 装逼枪（一枪秒人/赌一枪命中 = 花活枪；鸟狙=装逼枪是用户裁决）
+SHOWOFF_WEAPONS = {"deagle", "ssg08"}
 
 
 class FunLabResult(AnalysisResult):
@@ -79,19 +65,6 @@ class FunLabResult(AnalysisResult):
     buys: list[dict] = Field(default_factory=list)
     # inferred weapon drops this demo: [{round, donor, receiver, weapon, cost}]
     drops: list[dict] = Field(default_factory=list)
-
-
-def _s(v) -> str:
-    """Str; NaN/None -> '' (player_death steamid columns carry NaN — avoid
-    the fake-'nan'-player trap from HANDOFF §7.8)."""
-    import math
-
-    if v is None:
-        return ""
-    if isinstance(v, float) and math.isnan(v):
-        return ""
-    s = str(v).strip()
-    return "" if s.lower() == "nan" else s
 
 
 def _f(v) -> float:
@@ -168,6 +141,14 @@ class FunLabModule(AnalysisModule):
                     "eco" if avg < ECO_MAX else ("force" if avg < FORCE_MAX else "full"))
         res.buys = [{"round": k[0], "side": k[1], "buy": v} for k, v in buys.items()]
 
+        # per-player ROUNDS PLAYED (present in side_of) — the METRIC_DEFS
+        # denominators promise 出场回合数; using len(reg) (demo total)
+        # diluted substitutes/late joiners
+        rounds_played: dict[str, int] = defaultdict(int)
+        for _rnd, per_sid in side_of.items():
+            for sid in per_sid:
+                rounds_played[sid] += 1
+
         def round_at(tick: int) -> int:
             for r in reg:
                 if r.start_tick <= tick <= r.end_tick:
@@ -205,7 +186,9 @@ class FunLabModule(AnalysisModule):
                      if int(row.get("tick", 0) or 0) >= start_tick and _s(row.get("user_steamid"))]
             drows.sort(key=lambda r: int(r.get("tick", 0) or 0))
 
-        # per-victim life windows for whiff accounting
+        # per-victim life windows for whiff accounting; a life's end tick is
+        # the death that closes it (被抢人头 finisher lookup is scoped to the
+        # same life so softens can't be "stolen" across a death)
         life_windows: dict[str, list[tuple[int, int]]] = defaultdict(list)
         prev_end: dict[str, int] = {}
         for row in drows:
@@ -213,6 +196,17 @@ class FunLabModule(AnalysisModule):
             t = int(row.get("tick", 0) or 0)
             life_windows[vic].append((prev_end.get(vic, start_tick - 1) + 1, t))
             prev_end[vic] = t
+
+        def life_span(vic: str, t: int) -> tuple[int, int]:
+            """(start, end) of vic's life window containing tick t.
+
+            end is the death tick that closes that life; a tick outside every
+            window (still alive after their last death) gets an open-ended span.
+            """
+            for s0, e0 in life_windows.get(vic, ()):
+                if s0 <= t <= e0:
+                    return s0, e0
+            return prev_end.get(vic, start_tick - 1) + 1, (1 << 62)
 
         # ---- whiff lives (<10 dmg dealt in a whole life) ----
         for att in set(att_dmg_ticks.keys()) | set(life_windows.keys()):
@@ -234,10 +228,13 @@ class FunLabModule(AnalysisModule):
                 a = P(att, _s(row.get("attacker_name")))
                 a["kills"] += 1
                 pre_hp = _f(row.get("user_health", 100) or 100)
-                # 抢人头: victim below the line AND another teammate had hit them
+                # 抢人头: victim below the line AND another teammate had hit
+                # them EARLIER IN THAT LIFE (life starts at the victim's
+                # previous death; docstring promises "in that life")
                 if pre_hp <= VULTURE_HP:
+                    life_start, _life_end = life_span(vic, t)
                     others_hit = [a2 for t2, a2, dh in vic_hp_events.get(vic, [])
-                                  if t2 < t and a2 != att and a2 != vic and dh > 0
+                                  if life_start <= t2 < t and a2 != att and a2 != vic and dh > 0
                                   and side_at(a2, t2) == side_at(att, t)]
                     if others_hit:
                         a["snipe_kills"] += 1
@@ -303,8 +300,12 @@ class FunLabModule(AnalysisModule):
                     continue
                 # did this hit take the victim to <= line for the first time?
                 if hp_now[vic] - dh <= VULTURE_HP < hp_now[vic]:
-                    # find the finish: next death of this victim within the life
-                    finishes = [dt for dt in death_tick_by_vic.get(vic, []) if dt >= t]
+                    # find the finish: vic's next death at/after the soften,
+                    # still inside the SAME life window (a soften dies with
+                    # the life it was dealt in)
+                    _ls, life_end = life_span(vic, t)
+                    finishes = [dt for dt in death_tick_by_vic.get(vic, [])
+                                if t <= dt <= life_end]
                     if not finishes:
                         continue
                     dt = finishes[0]
@@ -412,14 +413,15 @@ class FunLabModule(AnalysisModule):
                     b = P(B, _s(prow.get("user_name") or B))
                     a["drops_made"] += 1
                     a["drops_value"] += cost
-                    a["own_spend"] += 0  # spend tracked separately below
                     b["drops_received"] += 1
                     b["drops_value_received"] += cost
                     # 雪中送炭: donor's side was on eco/force this round
                     if buys.get((rn, side_at(A, t1))) in ("eco", "force"):
                         a["drops_poor"] += 1
                     # outcome for the receiver: kills with this weapon before
-                    # their death (or round end); 0 kills + died = wasted
+                    # their death or the ROUND END (docstring/口径 says 当回合 —
+                    # kills in later rounds with the same gun don't credit
+                    # this drop); 0 kills + died = wasted
                     kills_w = 0
                     died_after = False
                     for r2 in drows:
@@ -427,17 +429,19 @@ class FunLabModule(AnalysisModule):
                         if _s(r2.get("user_steamid")) == B and vt >= t2:
                             died_after = True
                             break
-                    # count B's kills with wn between pickup and death/round end
+                    rnd_bounds = next((r for r in reg if r.number == rn), None)
+                    round_end = rnd_bounds.end_tick if rnd_bounds else (1 << 62)
+                    vt_cap = vt_limit(drows, B, t2) if died_after else round_end
+                    cap = min(vt_cap, round_end)
+                    # count B's kills with wn between pickup and cap
                     if demo.events.get("player_death") is not None:
                         for _, krow in demo.events["player_death"].iterrows():
                             kt = int(krow.get("tick", 0) or 0)
-                            if kt < t2:
+                            if kt < t2 or kt > cap:
                                 continue
                             if _s(krow.get("attacker_steamid")) != B:
                                 continue
                             if norm_weapon(krow.get("weapon", "")) != wn:
-                                continue
-                            if died_after and kt > vt_limit(drows, B, t2):
                                 continue
                             kills_w += 1
                     if died_after and kills_w == 0:
@@ -474,13 +478,10 @@ class FunLabModule(AnalysisModule):
                 if s == side:
                     P(sid)["eco_rounds_played"] += 1
         # eco 局个性打法三分（用户命名，v5 口径审计裁决 2026-09-05）:
-        #   叛逆者 = 全队唯一买长枪（AK/M4/Galil/FAMAS/AUG/SG/AWP——沙鹰鸟狙不算，
+        #   叛逆者 = 全队唯一买长枪（RIFLE_WEAPONS——沙鹰鸟狙不算，
         #            鸟狙=装逼枪是用户裁决，v4 文档"狙类含SSG"作废）
         #   装逼   = 买沙鹰或鸟狙、且未买长枪（"我就想玩个心跳"）
         #   纯eco  = 整回合消费 <500$（几乎裸吊）
-        RIFLE_WEAPONS = {"ak47", "m4a4", "m4a1_silencer", "m4a1", "galilar",
-                         "famas", "aug", "sg556", "awp"}
-        SHOWOFF_WEAPONS = {"deagle", "desert eagle", "ssg08"}  # 一枪秒人/赌一枪命中 = 花活枪
         rifle_buyers: dict[tuple[int, str], list[str]] = defaultdict(list)  # (round, side) -> sids
         per_player_eco = defaultdict(lambda: {"rifles": set(), "showoff": set(), "spend": 0})
         if demo.events.get("item_purchase") is not None and not demo.events["item_purchase"].empty:
@@ -579,7 +580,10 @@ class FunLabModule(AnalysisModule):
         # ---- derive per-player rates/means ----
         for p in players.values():
             k = max(p["kills"], 1)
-            # keep sums so the web memo can average across demos correctly
+            # keep sums so the web memo can average across demos correctly;
+            # per-demo "rounds played" replaces the demo-total len(reg) so
+            # substitutes aren't diluted (METRIC_DEFS: 出场回合数)
+            p["rounds"] = rounds_played.get(p["steamid"], p["rounds"])
             p["dist_sum"] = round(p["_dist_sum"], 1)
             p["dist_n"] = p["_dist_n"]
             del p["_dist_n"], p["_dist_sum"]

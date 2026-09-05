@@ -32,8 +32,8 @@
     wall.innerHTML = list.length ? list.map((h) =>
       `<a class="hl-card" href="${h.deep_link}">` +
       `<div class="hl-tier">${TIER_LABEL[h.tier] || h.tier}</div>` +
-      `<div class="hl-body"><div class="hl-name">${h.name}</div>` +
-      `<div class="hl-meta">${h.map_name} · R${h.round} · ${h.kills} 杀 · ${h.side}</div></div>` +
+      `<div class="hl-body"><div class="hl-name">${CSACommon.esc(h.name)}</div>` +
+      `<div class="hl-meta">${CSACommon.esc(h.map_name)} · R${h.round} · ${h.kills} 杀 · ${CSACommon.esc(h.side)}</div></div>` +
       `<span class="hl-go">▶ 回放</span></a>`).join('')
       : '<div class="empty-state" style="grid-column:1/-1"><div class="empty-title">暂无高光</div></div>';
   }

@@ -32,11 +32,11 @@ def invalidate_teamplay() -> None:
 
 def _build() -> dict:
     from cs_analyzer.web.aggregation import aggregated
-    from cs_analyzer.web.app import _cache
+    from cs_analyzer.web import runtime
 
     agg = aggregated()
     demo_ratings: dict[str, dict[str, float]] = {}
     for p in agg.players:
         for d in p.demos:
             demo_ratings.setdefault(d["demo_hash"], {})[p.steamid] = d["Rating"]
-    return build_teamplay_report(_cache().cache_dir, demo_ratings=demo_ratings)
+    return build_teamplay_report(runtime.cache().cache_dir, demo_ratings=demo_ratings)

@@ -57,23 +57,32 @@
     }
   } catch (e) { /* card stays placeholder */ }
 
-  // jobs (poll every 2s)
+  // jobs (poll every 2s; stop after 5 consecutive failures instead of
+  // silently spinning forever when the server goes away)
   const jobsEl = document.getElementById('sys-jobs');
+  let pollFailures = 0;
   async function pollJobs() {
     try {
       const r = await fetch('/api/jobs');
-      if (!r.ok) return;
+      if (!r.ok) throw new Error('HTTP ' + r.status);
       const jobs = await r.json();
+      pollFailures = 0;
       if (!jobs.length) { jobsEl.textContent = '暂无任务。'; return; }
       jobsEl.innerHTML = jobs.slice(0, 12).map((j) => {
         const cls = j.status === 'done' ? 'ok' : j.status === 'error' ? 't0' : 'ct';
         return `<div style="padding:3px 0"><span class="badge ${cls}">${j.status}</span> ` +
           `${j.label || j.id} ${j.error ? '· <span style="color:var(--err)">' + j.error + '</span>' : ''}</div>`;
       }).join('');
-    } catch (e) { /* keep previous frame */ }
+    } catch (e) {
+      pollFailures += 1;
+      if (pollFailures >= 5) {
+        clearInterval(jobsTimer);
+        jobsEl.textContent = '任务队列不可达（服务异常？）— 已停止自动刷新。';
+      }
+    }
   }
   pollJobs();
-  setInterval(pollJobs, 2000);
+  const jobsTimer = setInterval(pollJobs, 2000);
 
   // unparsed files
   const upEl = document.getElementById('sys-unparsed');

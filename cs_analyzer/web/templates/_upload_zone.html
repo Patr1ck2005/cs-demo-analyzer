@@ -1,10 +1,42 @@
-<!-- upload zone: shared by dashboard (compact) and /matches -->
+<!-- upload zone: shared by the dashboard (compact) -->
 <form class="upload-drop" action="/upload" method="post" enctype="multipart/form-data"
-      id="upload-form">
+      id="upload-form" data-guard="1">
   <label class="dropzone" id="dropzone">
     <input type="file" name="files" accept=".dem" required multiple id="file-input">
     <div class="empty-title">拖拽 .dem 到这里，或点击选择文件（可多选）</div>
     <div class="sub" style="margin:4px 0 0">上传后自动解析并入库；重复内容自动跳过</div>
   </label>
-  <div style="margin-top:10px"><button class="btn btn-primary" type="submit">上传并解析</button></div>
+  <div style="margin-top:10px"><button class="btn btn-primary" type="submit" data-upload-btn>上传并解析</button></div>
 </form>
+<script>
+(function () {
+  var form = document.getElementById('upload-form');
+  if (!form || form.dataset.guarded) return;
+  form.dataset.guarded = '1';
+  // double-submit guard: the server dedups by content hash only after the
+  // FIRST upload has finished parsing, so two rapid submits of the same file
+  // would both enqueue a parse job
+  form.addEventListener('submit', function () {
+    var btn = form.querySelector('[data-upload-btn]');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = '上传中…（解析完成后自动跳转）';
+    // safety: re-enable after 60s in case navigation was blocked
+    setTimeout(function () { btn.disabled = false; btn.textContent = '上传并解析'; }, 60000);
+  });
+  // drag-drop: keep the accept filter honest — reject non-.dem drops client-side
+  var dz = document.getElementById('dropzone');
+  ['dragover', 'drop'].forEach(function (ev) {
+    dz.addEventListener(ev, function (e) {
+      if (ev !== 'drop' || !e.dataTransfer || !e.dataTransfer.files.length) return;
+      var bad = [...e.dataTransfer.files].filter(function (f) {
+        return !/\.dem$/i.test(f.name);
+      });
+      if (bad.length) {
+        e.preventDefault();
+        alert('只支持 .dem 文件：\n' + bad.map(function (f) { return f.name; }).join('\n'));
+      }
+    });
+  });
+})();
+</script>

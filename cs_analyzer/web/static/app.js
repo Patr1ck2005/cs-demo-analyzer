@@ -61,6 +61,7 @@ function pollJob(jobId, onDone, onError, intervalMs) {
   const timer = setInterval(async () => {
     try {
       const r = await fetch('/api/jobs/' + jobId);
+      if (!r.ok) throw new Error('HTTP ' + r.status); // 404 etc: job registry lost it
       const j = await r.json();
       if (j.status === 'done') {
         clearInterval(timer);

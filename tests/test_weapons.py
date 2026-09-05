@@ -87,13 +87,12 @@ def test_payload_shape() -> None:
     assert "aliases" in p and "labels" in p and "categories" in p
 
 
-def test_api_meta_weapons_endpoint(web_client) -> None:
+def test_api_meta_weapons_endpoint_removed(web_client) -> None:
+    """Phase S: /api/meta/weapons.json was a registered-but-never-consumed
+    API (the JS mirror is generated, not fetched) — the route is gone."""
     c, _, _ = web_client
     r = c.get("/api/meta/weapons.json")
-    assert r.status_code == 200
-    data = r.json()
-    assert data["icons_base"] == "/static/img/weapons/"
-    assert data["aliases"]["ak47"] == "ak47"
+    assert r.status_code == 404
 
 
 def test_weapon_icon_served(web_client) -> None:

@@ -160,19 +160,33 @@ def _demo_date(filename: str) -> str | None:
 
 
 def _scan_all() -> dict:
-    """Expensive pass: per-demo per-player vectors + lineup/date metadata."""
+    """Expensive pass: per-demo per-player vectors + lineup/date metadata.
+
+    Computed under the module lock (Phase S): the previous lock-outside
+    pattern let an invalidate landing mid-scan get overwritten by the stale
+    result — every other web memo computes inside its lock.
+    """
     global _scan
     if _scan is not None:
         return _scan
+    with _lock:
+        if _scan is not None:  # double-checked: another thread won the race
+            return _scan
+        _scan = _scan_locked()
+        return _scan
+
+
+def _scan_locked() -> dict:
     from cs_analyzer.analysis.library import scan_demos
-    from cs_analyzer.web.app import _analyze_module, _cache
+    from cs_analyzer.analysis.regulars import compute_regulars
+    from cs_analyzer.web import runtime
     from cs_analyzer.web.store import list_demos
 
-    cache_dir = _cache().cache_dir
+    cache_dir = runtime.cache().cache_dir
     meta = {d["demo_hash"]: d for d in list_demos(cache_dir)}
 
     def work(demo) -> dict:
-        result = _analyze_module(demo, "funlab")
+        result = runtime.analyze_module(demo, "funlab")
         return {
             "demo_hash": demo.metadata.demo_hash,
             "players": result.players,
@@ -197,12 +211,9 @@ def _scan_all() -> dict:
         if entry["is_five_e"]:
             five_e_player_sets.append((e["demo_hash"], sids))
 
-    # regulars: >=3 appearances across the 5E set (teamplay definition)
-    appear: dict[str, int] = defaultdict(int)
-    for _, sids in five_e_player_sets:
-        for sid in sids:
-            appear[sid] += 1
-    regulars = {sid for sid, n in appear.items() if n >= 3}
+    # regulars: >=3 appearances across the 5E set (single definition,
+    # analysis.regulars — teamplay/lineups share it)
+    regulars = compute_regulars(dict(five_e_player_sets))
 
     # lineup size per demo = how many regulars were in the match
     for e in entries:
@@ -210,8 +221,6 @@ def _scan_all() -> dict:
 
     dates = sorted({e["date"] for e in entries if e["date"]})
     out = {"entries": entries, "regulars": regulars, "dates": dates}
-    with _lock:
-        _scan = out
     return out
 
 

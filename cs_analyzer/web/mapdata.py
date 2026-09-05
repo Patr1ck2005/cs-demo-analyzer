@@ -76,19 +76,19 @@ def best_players_for_map(cells: dict[str, dict], min_rounds: int = 10,
 def _build() -> dict:
     from cs_analyzer.analysis.library import scan_demos
     from cs_analyzer.web.aggregation import aggregated
-    from cs_analyzer.web.app import _analyze_module, _cache
+    from cs_analyzer.web import runtime
     from cs_analyzer.web.store import list_demos
     from cs_analyzer.web.utilitylab_data import _norm_spot
 
-    cache_dir = _cache().cache_dir
+    cache_dir = runtime.cache().cache_dir
     meta = {d["demo_hash"]: d for d in list_demos(cache_dir)}
     agg = aggregated()
     per_player_map = _pool_map_players(agg.players)
 
     def work(demo) -> dict:
-        routes = _analyze_module(demo, "routes")
+        routes = runtime.analyze_module(demo, "routes")
         try:
-            postplant = _analyze_module(demo, "postplant")
+            postplant = runtime.analyze_module(demo, "postplant")
         except Exception:  # noqa: BLE001 — postplant optional per demo
             postplant = None
         reg = demo.regular_rounds

@@ -13,26 +13,27 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 25 个 demo 在库、212 测试全绿、visual_check 22 页零 console 错误**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 24 个 demo 在库、239 测试全绿、visual_check 22 页零 console 错误**。
 
-**Git 状态（关键）**：
-- origin/main = `938e01e`（Phase M 三连已推送：fe907b2 funlab 模块 / 381df5f /fun-lab / 938e01e 交接同步；Phase L 在此之前 027cf59/0d18492/ac5c7fa）
-- **工作区新一批"待审"改动（Phase M5 全面口径审计——2026-09-05，尚未批准提交）**：
+**Git 状态（Phase S 前夕）**：origin/main = `5b457d6`（M5 两笔 + Phase N 两笔已推送）。
+**Phase S 稳定化已开工**（用户令："全面审计并整改一次 + 稳定化开发计划"，计划已批准、按批执行）——
+四路深度审计（后端架构/前端/分析正确性/工程化）+ 22 页视觉巡检已完成，批次明细见 §12。
+
+- **Phase M5/N 历史摘要**（已提交推送）：
   - **反样本量偏差整改**（用户原则："人与人对比的指标必须排除打得多=数据高"）：
     舔包王榜→每回合口径（用户裁决"除总回合数"）/ 地图最强选手→回合加权 Rating+同图多场池化
     （原 rating×rounds 且同图覆盖只留最后一场）/ 五排画像闪光·残局·最佳搭档→每场比率 /
     道具闪光榜→价值/投掷（<3 次标"少"）·烟中榜→每场净值 / 队伍视图组胜率→回合池化
   - **两处 funlab bug**：① ssg08 同时在长枪集+装逼集，装逼率永远漏鸟狙→鸟狙只认装逼（用户裁决）；
     ② "Desert Eagle" 显示名缺别名，沙鹰绕过发枪链→补 "desert eagle"→deagle
-  - **口径上页面**（用户要求"点开必须能看到介绍"）：`funlab_data.METRIC_DEFS` 32 指标
+  - **口径上页面**（用户要求"点开必须能看到介绍"）：`funlab_data.METRIC_DEFS` 31 指标
     label/formula/note 随 /api/funlab.json 下发；/fun-lab 新增"📖 指标口径说明"面板（逐项展开）
     + 轴选择下方实时两轴公式行 + 榜单卡头口径小字；utility/map/teams 页口径脚注；
     compare 最佳搭档显示"X.X/场·共N次"
-  - **docs/funlab-metrics.md v5**：两项新裁决（鸟狙=装逼枪 / 舔包王每回合）+ 全部整改记录
-  - **聚类分析立项 §9.7**（用户点名"前沿研究性分析"）：多维指标空间选手风格聚类，M5 后的
-    全比率指标矩阵天然适配；建议 DBSCAN+稳健标准化优先（25 场小样本），依赖 scikit-learn
-  - 测试 212→**221 全绿**（+9 test_metric_audit.py）；4 页截图验收 output/.visual/m5_*.png
-  - ↑ Phase M5 批次；以下 Phase L/M 批次**已全部提交推送**：
+  - **docs/funlab-metrics.md v6**（Phase S 升版）：S 数值修复记录 + 指标数勘误（31 非 32）
+  - **聚类分析 §10**（Phase N 已完成）：风格星系 + YamZzi 离群发现
+  - 测试 212→221（M5）→231（N）→**239**（S 进行中）
+  - **Phase M 历史批次**（已全部提交推送）：
   - **口径文档 `docs/funlab-metrics.md` v2**：用户逐条裁决（抢人头/被抢人头改名、白给 <10 伤害、
     发枪全指标做、急停 v2、预设按意义组合）；**总原则：轴上只允许比率/每回合值，绝对值仅榜单/tooltip**（"打得多≠数据好"）
   - **发枪检测链（funlab.py 核心）**：无掉落事件，购买→拾取反推。四道闸门：同回合同款主武器/
@@ -164,7 +165,7 @@ CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量�
 - 全量 pytest 189 全绿；playwright 零 console 错误
 - HANDOFF / dev_log 同步；已按用户批准分两个 commit 推送（1a9a3c5 K5 / 44f7e7f K2 / cd2ec98 K6 文档）
 
-## 3. Phase K 已完成部分（细节，供返工参考）
+## 3a. Phase K 已完成部分（细节，供返工参考）
 
 - **K1 重叠两 bug**（已在工作区）：① syncPanelFocus 的 overlap guard 移除，updateCamFollow 增加重叠分支（目标=聚焦选手在半场各回合同相位位置的均值 map-px）；② frame() 重排为 updateCamFollow → (camMoved 时) drawMapLayer → drawMainLayer → drawFxLayer → drawTimeline——修复底图滞后一帧。playwright 实测重叠 zoom 1.00→2.46 滑镜、回放无回归
 - **K3 5E 导入**：9 个 zip 解压到 `demos/`（g161-*.dem），全部解析入缓存（match_id 正确提取，rounds 16-30，10/10 玩家，无 Team 0）。探针脚本 `output/_probe5e.py`、解析脚本 `output/_parse_5e.py`
@@ -368,9 +369,68 @@ METRIC_DEFS 完整性/free_pickup_pr 分母/map 池化+门槛/lineups 池化）�
 - **小件 2 — compare 雷达空箱提示**：未选人时显示"勾选上方选手以叠加生涯雷达"。
 - 验收截图 `output/.visual/n_galaxy.png / n_anubis.png / n_compare_hint.png`。
 
-## 10. 给新对话的第一步建议
+## 11. 给新对话的第一步建议
 
 1. 读本文件 §0-§2（Phase L 全貌）、§7 的「5E 五排数据洞察」
 2. `git status` 确认待审改动还在（Phase L 一批）；`git log` 若出现新 commit 说明用户已批准提交
 3. Phase L 全部完成——下一步候选见 §9 未来路线
 4. 任何 commit 前重读 §0 铁律 1 与铁律 5（路由注册顺序）
+
+## 12. Phase S —— 稳定化（2026-09-05，计划已批准，分批执行）
+
+用户令："全面审计并整改一次 + 视觉检验 + 架构检验 + 稳定化开发计划；找出开发到中途、太分散的地方。"
+用户三裁决：**补全收藏备注/标签编辑器 / 全部清理磁盘残留 / 先推送再稳定化**（4 提交已推送 origin/main）。
+
+### 审计（四路深度 + 视觉巡检）
+- **视觉**：22+ 页 playwright 巡检（含 6 tab 逐个点击、fun-lab/compare/matches 交互、900px 窄视口）
+  零 console 错误、零 4xx/5xx；生涯页"Jake"高光=同 steamid 曾用名（非 bug）。
+- **P0 三项**：① routes T/CT 切换串台（charts.js merge 残留，10/25 场不对称可触发，实测复现）；
+  ② funlab 抢人头/被抢人头跨生命误归因；③ funlab.norm_weapon 与真实武器名脱节
+  （M4A1-S/USP-S 排除出发枪链、WMPVP awp_rate 恒 0、Tec-9 等连字符名漏计）。
+- **架构**：app.py 身份过载（8 数据模块反向 import）、analysis→web 越层、常客判定 3 份、
+  eco/force 阈值 4 处、换边逻辑 3 份、fetchJson ≥3 变体、悬空 placeholder 机制/悬空 API、
+  warmup 失效后再冷阻塞 ~70s、async upload 阻塞事件循环、_kill_feed 双跑、/report 绕过 memo、
+  funlab _scan_all 锁外竞态、收藏非原子写、pyproject 漏 uvicorn+scipy。
+- **工程**：文档漂移（HANDOFF 双 10/双 3、GOALS 占位页、funlab-metrics 32→31、README 189、
+  ARCHITECTURE studio 幽灵）；孤儿缓存 test_demo（25 缓存 vs 24 demo）；_probe5e 991MB。
+
+### 批次与完成状态
+- **S0 推送** ✅（938e01e→5b457d6，remote 更名 cs-demo-analyzer 已同步）
+- **S1 数据/磁盘卫生** ✅：孤儿缓存删除+`_stale_cache_sweep` 双向对账（stale 重解析+孤儿 GC，
+  demos/ 空时跳过防误删）；output 残渣清理（~1GB：_probe5e/991MB + 82 个探针脚本/旧图 +
+  孤儿 web/{hash}/radar|pref|studio + aggregate 旧图）；batch_jobs/system 轮询失败终止（任务丢失/连败 5 停）；
+  **+4 测试**（孤儿 GC 四场景）。
+- **S2 前端修复+收藏编辑器** ✅：routes P0（mount() 按 dom dispose 旧实例+instances 去重）；
+  tab 懒加载竞态（空 forEach→真 resize）；XSS 收口（新建 static/js/common.js 全局 esc/fetchJson，
+  match_detail/highlights/player_career/compare 全部转义）；**收藏编辑器**（favorites.js 内联浮层
+  备注textarea+标签输入+保存；match 详情页头独立星标挂载点 data-fav-standalone；/favorites 备注区
+  可编辑+标签徽章；collectMeta 从 data-fav-meta-* 读展示名）——API 的 patch note/tags 首次有 UI 消费；
+  compare 假 sortable 移除；table_sort.js 补 ?v=；上传防重（禁按钮+客户端 .dem 校验）；
+  player_career picker 空串守卫+热力图 dispose；pollJob 补 r.ok。E2E：routes CT=3 PASS、
+  收藏 round-trip PASS、零 console 错误。
+- **S3 分析正确性（口径不变，实现对齐）** ✅：武器归一统一 `analysis/weapons.py`
+  （canonical 增强：5e_/5Ex 段剥离+_txz/_vip/_ace 后缀+连字符别名，实库 164 名 100% 覆盖；
+  web/weapons.py 变薄适配层；aim/kill_context/weapon_splits 改 import analysis——越层消除）；
+  生命窗口（funlab.life_span 助手，抢人头/被抢人头均限本生命）；发枪成材率回合末截断；
+  首杀统一（basic_stats 排自杀+窗口 <=）；economy 换边统一 round_player_sides+clean_sid；
+  preference 弃 MR12 硬编码；ratings KAST trade 补队友复仇校验+无死亡回合只给上场者；
+  funlab 分母改出场回合数；FORCE_MAX/常客单源（analysis.regulars.compute_regulars 三处收敛）；
+  economy buy n=0 返 None；**+3 测试**（跨生命/归一/发枪回合边界）。数值变化见 docs v6。
+- **S4 架构收敛** ✅：`web/runtime.py` 门面（8 数据模块不再 import app——解环第一步）；
+  `_demo_context`/`_kill_feed`/`_kill_groups` 下沉 `web/match_data.py`（_kill_feed 双跑修复，
+  app.py 1351→~1130 行）；`/report/{h}` 下沉 `web/report_data.py` 复用 memo；upload 改 sync def；
+  funlab _scan_all 锁内 double-checked（修复过程中发现并修复重入死锁）；invalidate_aggregate
+  清 _analysis_cache/_module_cache + warmup.kick()（失效后再冷走骨架，kick 有 ready 守卫防测试风暴）；
+  favorites/ui-prefs 原子写（tmp+os.replace）+ui-prefs 加锁；未找到页真 404（4 处+测试同步）；
+  economy.json 下发 thresholds（模板 $2000/$3700 硬编码退役）；删 _PLACEHOLDER_PAGES 机制+
+  placeholder.html+悬空 /api/meta/weapons.json；system_import 失效出循环；
+  **test_scan_demo_real 改 tmp 缓存**（真凶：它每次跑测试都往真实 .cache 重建 test_demo 孤儿）。
+- **S5 卫生+文档** ✅：CSS 死类（.upload/.progress 全套/.stat-unit/legacy .ovp-*/video{}/.grid img，
+  保留 .ovp-label/.ovp-phase-val）；pyproject 补 uvicorn/scipy/starlette+pytest-timeout+package-data；
+  HANDOFF 编号修复（3a/11）+§1 刷新+本节；GOALS/README/funlab-metrics v6 同步；
+  （dev_log/ARCHITECTURE studio 清理在收尾批）。
+
+### S 里程碑状态
+- 239 测试全绿；真实缓存 24 条（孤儿 GC 验证不反弹）；routes/收藏/上传 E2E PASS。
+- 待收尾：ARCHITECTURE.md studio 段删除、dev_log 尾部列表符+Phase S 条目、cli/maps-loader/
+  warmup 失败分支补测、全页巡检复跑、分批提交（等用户批准）。

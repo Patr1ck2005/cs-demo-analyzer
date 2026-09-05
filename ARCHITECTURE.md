@@ -370,14 +370,13 @@ CsDemoAnalyzer/
 │   │
 │   ├── web/                           # LTG-2 本地 Web 平台 (FastAPI)
 │   │   ├── __init__.py
-│   │   ├── app.py                     # 路由: 首页/上传/demo/选手/聚合/studio/viewer + API
+│   │   ├── app.py                     # 路由: 仪表盘/对局/选手/高光/对比/系统 + 6 专题页 + API
 │   │   ├── store.py                   # demo 索引
 │   │   ├── tasks.py                   # 线程任务管理器 (后台渲染)
 │   │   ├── viewer_data.py             # canvas 回放数据包 (8Hz 快照, VIEWER_DATA_VERSION)
-│   │   ├── replay_map.py              # 视频预渲染 MVP (RENDER_VERSION, studio 用)
 │   │   ├── coverage.py                # 解析覆盖度扫描 + 报告
-│   │   ├── templates/                 # Jinja2 页面 (7 页 + viewer/studio/coverage)
-│   │   └── static/                    # style.css (电竞风 token) / viewer_canvas.js / studio.js / app.js
+│   │   ├── templates/                 # Jinja2 页面 (仪表盘/对局库/对局详情/生涯/高光/对比/系统 + viewer/overlap/专题页)
+│   │   └── static/                    # style.css (电竞风 token) / viewer_canvas.js / charts.js / js/ 模块 / app.js / common.js
 │   │
 │   └── maps/                          # 地图资源
 │       ├── __init__.py

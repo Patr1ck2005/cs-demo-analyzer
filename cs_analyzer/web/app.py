@@ -229,7 +229,7 @@ def player_career(request: Request, steamid: str):
     row = next((p for p in result.players if p.steamid == steamid), None)
     if row is None:
         return TEMPLATES.TemplateResponse(
-            request, "error.html", {"message": f"未找到选手 {steamid}"}
+            request, "error.html", {"message": f"未找到选手 {steamid}"}, status_code=404
         )
     # B4: career radar must normalize with the same server-side ranges as the
     # per-demo radar (the old hardcoded template ranges were wrong).
@@ -323,64 +323,14 @@ def style_map_api():
 def report_match_page(request: Request, demo_hash: str):
     """Print-friendly single-match report (exported to PNG/PDF by playwright;
     also printable from the browser)."""
-    from datetime import datetime, timezone
-
-    from cs_analyzer.analysis import AnalysisRunner
-    from cs_analyzer.config import AnalysisConfig
+    from cs_analyzer.web.report_data import report_context
 
     demo = _load(demo_hash)
     if demo is None:
         return TEMPLATES.TemplateResponse(
-            request, "error.html", {"message": "未找到该对局"})
-    runner = AnalysisRunner(AnalysisConfig(enabled_modules=["basic_stats", "ratings", "highlights"]))
-    results = runner.run(demo)
-    basic, ratings = results.get("basic_stats"), results.get("ratings")
-    hl = results.get("highlights")
-    reg = demo.regular_rounds
-    t_wins = sum(1 for r in reg if r.winner_side == "T")
-    team_of: dict[str, str] = {}
-    for p in demo.players:
-        team_of[p.steamid] = p.team
-    side_of_team = {demo.metadata.team_a.name: demo.metadata.team_a.starting_side,
-                    demo.metadata.team_b.name: demo.metadata.team_b.starting_side}
-    players = []
-    if basic is not None and ratings is not None:
-        rt_by = {p.steamid: p for p in ratings.players}
-        for b in sorted(basic.players, key=lambda x: -(rt_by[x.steamid].Rating if x.steamid in rt_by else 0)):
-            rt = rt_by.get(b.steamid)
-            players.append({
-                "name": b.name,
-                "side": side_of_team.get(team_of.get(b.steamid, ""), "?"),
-                "kills": b.kills, "deaths": b.deaths,
-                "adr": b.ADR, "kast": rt.KAST if rt else 0.0,
-                "hs": (b.headshot_kills / b.kills * 100) if b.kills else 0.0,
-                "rating": rt.Rating if rt else 0.0,
-            })
-    highlights = []
-    if hl is not None:
-        for h in hl.sorted():
-            if h.tier in ("ace", "k4", "1v4", "k3", "1v3"):
-                highlights.append({"tier": h.tier, "name": h.name, "round": h.round,
-                                   "kills": h.kills, "side": h.side})
-    meta = demo.metadata
-    return TEMPLATES.TemplateResponse(request, "report_match.html", {
-        "meta": {
-            "map_name": meta.map_name,
-            "filename": Path(meta.demo_path).name,
-            "match_id": getattr(meta, "match_id", None),
-            "demo_hash": meta.demo_hash,
-        },
-        "score": {
-            "t": reg[-1].t_score if reg else 0,
-            "ct": reg[-1].ct_score if reg else 0,
-            "rounds": len(reg),
-        },
-        "t_wr": (t_wins / len(reg)) if reg else 0.0,
-        "trend": [{"n": r.number, "w": r.winner_side} for r in reg],
-        "players": players,
-        "highlights": highlights,
-        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-    })
+            request, "error.html", {"message": "未找到该对局"}, status_code=404)
+    return TEMPLATES.TemplateResponse(
+        request, "report_match.html", report_context(demo))
 
 
 @app.get("/api/favorites")
@@ -439,18 +389,12 @@ def system_page(request: Request):
     return TEMPLATES.TemplateResponse(request, "system.html", {})
 
 
-_PLACEHOLDER_PAGES: dict[str, tuple[str, str]] = {}
-
-
 @app.get("/{placeholder}", response_class=HTMLResponse)
 def placeholder_page(request: Request, placeholder: str):
-    # /coverage retired from the web (CLI-only now) — 404, not a placeholder
-    if placeholder in ("coverage",) or placeholder not in _PLACEHOLDER_PAGES:
-        return TEMPLATES.TemplateResponse(request, "error.html", {"message": "页面不存在"})
-    title, blurb = _PLACEHOLDER_PAGES[placeholder]
-    return TEMPLATES.TemplateResponse(
-        request, "placeholder.html", {"title": title, "blurb": blurb}
-    )
+    """Catch-all for unknown single-segment paths (Phase S: the old
+    _PLACEHOLDER_PAGES registry has been empty since Phase L made all five
+    "placeholder" pages real — the mechanism was dead code)."""
+    return TEMPLATES.TemplateResponse(request, "error.html", {"message": "页面不存在"}, status_code=404)
 
 
 def _save_upload(file: UploadFile) -> Path:
@@ -482,8 +426,13 @@ def _save_upload(file: UploadFile) -> Path:
 
 
 @app.post("/upload")
-async def upload(request: Request, files: list[UploadFile] = File(...)):
-    """Multi-demo upload: save all, dedup by content hash, batch-parse the rest."""
+def upload(request: Request, files: list[UploadFile] = File(...)):
+    """Multi-demo upload: save all, dedup by content hash, batch-parse the rest.
+
+    Sync def on purpose (Phase S): file copies are blocking MBs-to-GBs IO —
+    as async def they ran on the event loop and froze every other request
+    for the whole upload; FastAPI runs sync handlers in its thread pool.
+    """
     saved: list[tuple[str, Path]] = []
     for f in files:
         try:
@@ -556,7 +505,7 @@ def match_detail(request: Request, demo_hash: str):
     demo = _load(demo_hash)
     if demo is None:
         return TEMPLATES.TemplateResponse(
-            request, "error.html", {"message": f"未找到 demo {demo_hash[:12]}，请先上传/解析"}
+            request, "error.html", {"message": f"未找到 demo {demo_hash[:12]}，请先上传/解析"}, status_code=404
         )
     analysis = _analyze(demo)
     ctx = _demo_context(demo, analysis)
@@ -973,9 +922,14 @@ def system_unparsed():
 
 @app.post("/system/import")
 def system_import():
-    """Submit parse jobs for every unparsed .dem, then return to /system."""
+    """Submit parse jobs for every unparsed .dem, then return to /system.
+
+    Invalidate once AFTER the loop (Phase S): each parse job invalidates in
+    its own finally anyway; N invalidates here just re-armed warmup N times.
+    """
     cache = _cache()
     demos_dir = _demos_dir()
+    submitted = 0
     if demos_dir.is_dir():
         for dem in sorted(demos_dir.glob("*.dem")):
             try:
@@ -983,10 +937,12 @@ def system_import():
                     continue
             except OSError:
                 continue
-            from cs_analyzer.web.aggregation import invalidate_aggregate
-
-            invalidate_aggregate()
             tasks.tasks.submit(_parse_job, label=dem.name, path=str(dem))
+            submitted += 1
+    if submitted:
+        from cs_analyzer.web.aggregation import invalidate_aggregate
+
+        invalidate_aggregate()
     return RedirectResponse("/system", status_code=303)
 
 
@@ -1050,12 +1006,6 @@ def get_viewer_layers(demo_hash: str, with_layers: str = Query("shots,economy", 
                         headers={"Cache-Control": "no-cache"})
 
 
-@app.get("/api/meta/weapons.json")
-def weapons_meta():
-    """Weapon alias/label/category table (mirror: static/js/weapon_meta.js)."""
-    return JSONResponse(weapons.payload())
-
-
 # ---- Phase H+: user-tunable viewer visual preferences ----
 
 def _ui_prefs_path() -> Path:
@@ -1076,16 +1026,25 @@ def ui_prefs_get():
 
 @app.post("/api/ui-prefs")
 async def ui_prefs_set(request: Request):
-    """Save viewer visual preferences from the tuning panel."""
+    """Save viewer visual preferences from the tuning panel (atomic write,
+    same lock discipline as favorites — two concurrent POSTs must not be
+    able to interleave into a half-written file)."""
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
         return JSONResponse({"error": "invalid json"}, status_code=400)
     if not isinstance(body, dict):
         return JSONResponse({"error": "expected object"}, status_code=400)
+    import os
+
+    from cs_analyzer.web import favorites_store
+
     p = _ui_prefs_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(body, ensure_ascii=False, indent=1), encoding="utf-8")
+    with favorites_store._lock:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(body, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, p)
     logger.info("ui-prefs saved (%d keys)", len(body))
     return JSONResponse({"ok": True, "count": len(body)})
 
@@ -1120,11 +1079,18 @@ _sweep_started = False
 
 
 def _stale_cache_sweep() -> None:
-    """Re-parse demos whose cache went stale (e.g. PARSER_VERSION bump).
+    """Reconcile the parse cache with demos/ (once per process, cheap hashing).
 
-    Runs once per process, on the first library page render: hashing is cheap,
-    stale entries re-parse in the background task pool (~10s each). Without
-    this, a version bump leaves every demo 404 until manually re-parsed.
+    Two directions:
+    - stale: a cached demo whose .dem re-hashed differently (e.g.
+      PARSER_VERSION bump re-creates the cache dir) is re-parsed in the
+      background task pool;
+    - orphan: a cache entry whose source .dem is gone (deleted after a test
+      upload, manual cleanup) is GC'd — otherwise it keeps masquerading as a
+      real match in every whole-library report forever.
+
+    Without this, a version bump leaves every demo 404 until manually
+    re-parsed, and deleted sources leave zombie matches polluting aggregates.
     """
     global _sweep_started
     if _sweep_started:
@@ -1134,198 +1100,35 @@ def _stale_cache_sweep() -> None:
     demos_dir = _demos_dir()
     if not demos_dir.is_dir():
         return
+    from cs_analyzer.analysis.library import cached_demo_hashes
+    from cs_analyzer.web.aggregation import invalidate_aggregate
+
+    known: set[str] = set()
     for dem in sorted(demos_dir.glob("*.dem")):
         try:
             demo_hash = DemoCache.hash_demo(dem)
         except OSError:
             logger.exception("sweep: hash failed for %s", dem)
             continue
+        known.add(demo_hash)
         if cache.exists(demo_hash):
             continue
         logger.info("sweep: re-parsing stale demo %s (%s)", dem.name, demo_hash[:12])
-        from cs_analyzer.web.aggregation import invalidate_aggregate
-
         invalidate_aggregate()
         tasks.tasks.submit(_parse_job, label=dem.name, path=str(dem))
+    # orphan GC: only when demos/ is non-empty (an emptied/moved demos dir
+    # must not wipe the whole cache). Runs from lifespan before the server
+    # accepts requests, so no parse job can be in flight here.
+    if known:
+        for demo_hash in cached_demo_hashes(cache.cache_dir):
+            if demo_hash in known:
+                continue
+            logger.info("sweep: GC orphan cache %s (no source .dem)", demo_hash[:12])
+            shutil.rmtree(Path(cache.cache_dir) / demo_hash, ignore_errors=True)
+            invalidate_aggregate()
 
 
 def _demo_context(demo: ParsedDemo, analysis: dict) -> dict:
-    meta = demo.metadata
-    reg = demo.regular_rounds
-    t_score = reg[-1].t_score if reg else 0
-    ct_score = reg[-1].ct_score if reg else 0
+    from cs_analyzer.web.match_data import demo_context
 
-    basic = analysis["basic"]
-    ratings = analysis["ratings"]
-    from cs_analyzer.coverage import _player_position_stats
-
-    pos_stats = _player_position_stats(demo)  # one pass, not once per player
-    players = []
-    for bs in basic.players:
-        rt = ratings.by_steamid(bs.steamid) if ratings else None
-        players.append(
-            {
-                "steamid": bs.steamid,
-                "name": bs.name,
-                "team": bs.team,
-                "team_label": {"Team 2": "T", "Team 3": "CT"}.get(bs.team, "Team 0"),
-                "K": bs.kills,
-                "D": bs.deaths,
-                "A": bs.assists,
-                "ADR": round(bs.ADR, 1),
-                "KPR": round(bs.KPR, 2),
-                "Rating": round(rt.Rating, 2) if rt else 0.0,
-                "RWS": round(rt.RWS, 1) if rt else 0.0,
-                "KAST": round(rt.KAST, 0) if rt else 0,
-                "replayable": pos_stats.get(bs.steamid, (False, 0.0))[0],
-            }
-        )
-    players.sort(key=lambda p: p["Rating"], reverse=True)
-
-    rounds = [
-        {"number": r.number, "winner_side": r.winner_side, "t_score": r.t_score, "ct_score": r.ct_score}
-        for r in reg
-    ]
-    kills = _kill_feed(demo)
-
-    return {
-        "demo": {
-            "hash": meta.demo_hash,
-            "filename": Path(meta.demo_path).name,
-            "map_name": meta.map_name,
-            "provider": meta.provider.value,
-            "t_score": t_score,
-            "ct_score": ct_score,
-            "num_rounds": len(reg),
-        },
-        "players": players,
-        "rounds": rounds,
-        "kills": _kill_groups(demo, rounds),
-        "has_preference": analysis["preference"] is not None,
-    }
-
-
-def _player_context(demo: ParsedDemo, analysis: dict, steamid: str) -> dict | None:
-    meta = demo.metadata
-    basic = analysis["basic"]
-    ratings = analysis["ratings"]
-    pref = analysis["preference"]
-    bs = basic.by_steamid(steamid) if basic else None
-    if bs is None:
-        return None
-    rt = ratings.by_steamid(steamid) if ratings else None
-    from cs_analyzer.analysis.preference import PlayerPreference
-
-    pp = None
-    if pref is not None:
-        pp = next((p for p in pref.players if p.steamid == steamid), None)
-
-    replayable = _replayable(demo, steamid)
-
-    player = {
-        "steamid": steamid,
-        "name": bs.name,
-        "team": bs.team,
-        "team_label": {"Team 2": "T", "Team 3": "CT"}.get(bs.team, "Team 0"),
-        "K": bs.kills,
-        "D": bs.deaths,
-        "A": bs.assists,
-        "ADR": round(bs.ADR, 1),
-        "KPR": round(bs.KPR, 2),
-        "HS%": round(bs.headshot_pct, 1),
-        "Rating": round(rt.Rating, 2) if rt else 0.0,
-        "RWS": round(rt.RWS, 1) if rt else 0.0,
-        "KAST": round(rt.KAST, 0) if rt else 0,
-        "replayable": replayable,
-    }
-    pref_data = None
-    if pp is not None:
-        pref_data = {
-            "utility_counts": pp.utility_counts,
-            "engagement_fraction": round(pp.avg_first_engagement_fraction, 2),
-            "engagement_rounds": pp.engagement_rounds,
-            "avg_pitch": round(pp.avg_pitch, 1),
-            "pitch_samples": pp.pitch_samples,
-            "position_count": len(pp.position_samples),
-        }
-    return {
-        "demo": {
-            "hash": meta.demo_hash,
-            "filename": Path(meta.demo_path).name,
-            "map_name": meta.map_name,
-        },
-        "player": player,
-        "pref": pref_data,
-    }
-
-
-def _replayable(demo: ParsedDemo, steamid: str) -> bool:
-    from cs_analyzer.coverage import _player_position_stats
-
-    stats = _player_position_stats(demo)
-    return stats.get(steamid, (False, 0.0))[0]
-
-
-def _kill_feed(demo: ParsedDemo) -> list[dict]:
-    df = demo.events.get("player_death")
-    if df is None or df.empty:
-        return []
-    # P5: kill-context badges straight off the player_death flag columns
-    _BADGES = (
-        ("penetrated", "穿", "穿墙击杀"),
-        ("thrusmoke", "烟", "烟雾中击杀"),
-        ("noscope", "盲", "未开镜击杀"),
-        ("attackerinair", "空", "空中击杀"),
-        ("headshot", "HS", "爆头"),
-    )
-    rows = []
-    for _, r in df.iterrows():
-        badges = []
-        for col, label, title in _BADGES:
-            try:
-                hit = bool(r.get(col, False))
-            except (TypeError, ValueError):
-                hit = False
-            if hit:
-                badges.append({"code": col, "label": label, "title": title})
-        rows.append(
-            {
-                "tick": int(r.get("tick", 0)),
-                "round": _round_at_tick(demo, int(r.get("tick", 0))),
-                "attacker": r.get("attacker_name", ""),
-                "victim": r.get("user_name", ""),
-                "weapon": r.get("weapon", ""),
-                "badges": badges,
-            }
-        )
-    rows.sort(key=lambda x: x["tick"])
-    return rows
-
-
-def _kill_groups(demo: ParsedDemo, rounds: list[dict]) -> list[dict]:
-    """Kill feed grouped by round (D3): [{round, winner_side, kills: [...]}].
-
-    Keeps every kill (no truncation) but collapses each round group in the UI.
-    """
-    kills = _kill_feed(demo)
-    if not kills:
-        return []
-    winner = {r["number"]: r["winner_side"] for r in rounds}
-    groups: dict[int, list[dict]] = {}
-    for k in kills:
-        groups.setdefault(k["round"], []).append(k)
-    return [
-        {
-            "round": rnd,
-            "winner_side": winner.get(rnd, ""),
-            "kills": groups[rnd],
-        }
-        for rnd in sorted(groups)
-    ]
-
-
-def _round_at_tick(demo: ParsedDemo, tick: int) -> int:
-    rnd = demo.data.round_at_tick(tick)
-    return rnd.number if rnd else 0
-
-
+    return demo_context(demo, analysis)

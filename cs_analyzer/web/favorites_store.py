@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,9 +52,14 @@ def load_favorites(out_dir: Path) -> dict:
 
 
 def save_favorites(out_dir: Path, doc: dict) -> None:
+    """Atomic write (tmp + os.replace): a crash mid-write must not leave a
+    truncated favorites.json — the old direct write could be fail-soft-read
+    as an empty doc and then OVERWRITTEN, silently wiping every favorite."""
     p = favorites_path(out_dir)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, p)
 
 
 def apply_patch(doc: dict, scope: str, item_id: str, patch: dict, meta: dict | None = None) -> dict:

@@ -202,12 +202,35 @@ def _kast_round_deaths(rows: list[dict]) -> dict[str, float]:
 
 
 def test_kast_traded_victim_credited() -> None:
-    """B1: A kills B@100, C kills A@150 (within 128t window) -> B was traded."""
+    """B1: teammate avenges within the window -> victim was traded.
+
+    Phase S tightened semantics: the avenger must be a TEAMMATE of the
+    victim (teammates stay teammates across halftime) — Carol (Team 2)
+    kills Bob (Team 3); Alice (Team 3) kills Carol @150 -> traded.
+    """
+    kast = _kast_round_deaths([
+        {"tick": 100, "killer": S_CAROL, "victim": S_BOB},
+        {"tick": 150, "killer": S_ALICE, "victim": S_CAROL},
+    ])
+    assert kast[S_BOB] == pytest.approx(100.0)   # traded -> counts
+
+
+def test_kast_trade_requires_teammate_avenger() -> None:
+    """Phase S: an ENEMY killing the killer is not a trade; nor is the
+    killer dying to the world (no avenger)."""
+    # teamkill: Alice kills teammate Bob; Carol (enemy of Bob) "avenges" —
+    # that does not credit Bob (she avenged nothing of his)
     kast = _kast_round_deaths([
         {"tick": 100, "killer": S_ALICE, "victim": S_BOB},
         {"tick": 150, "killer": S_CAROL, "victim": S_ALICE},
     ])
-    assert kast[S_BOB] == pytest.approx(100.0)   # traded -> counts
+    assert kast[S_BOB] == pytest.approx(0.0)
+    # killer dies to world damage (no attacker) -> no trade either
+    kast2 = _kast_round_deaths([
+        {"tick": 100, "killer": S_CAROL, "victim": S_BOB},
+        {"tick": 150, "killer": None, "victim": S_CAROL},  # fall / bomb
+    ])
+    assert kast2[S_BOB] == pytest.approx(0.0)
 
 
 def test_kast_untraded_victim_not_credited() -> None:

@@ -58,9 +58,23 @@ def invalidate_aggregate() -> None:
     from cs_analyzer.web import style_map
 
     style_map.invalidate_style_map()
+    # S: per-demo in-memory analysis caches key by demo_hash — a re-parse of
+    # the same hash (PARSER_VERSION bump) must not keep serving old modules
+    from cs_analyzer.web.app import _analysis_cache, _module_cache
+
+    _analysis_cache.clear()
+    _module_cache.clear()
+    # S: re-arm the background prewarm so "cold again" shows the skeleton
+    # instead of blocking the first dashboard request for ~70s. Only when
+    # the library WAS warm — tests and cold-start invalidates must not
+    # spawn scan threads.
+    from cs_analyzer.web import warmup
+
+    if warmup.status().get("ready"):
+        warmup.kick()
 
 
 def _compute() -> AggregateResult:
-    from cs_analyzer.web.app import _cache, _settings
+    from cs_analyzer.web import runtime
 
-    return compute_aggregate(_cache().cache_dir, _settings().analysis)
+    return compute_aggregate(runtime.cache().cache_dir, runtime.settings().analysis)

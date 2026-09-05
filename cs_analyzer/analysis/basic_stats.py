@@ -153,6 +153,8 @@ class BasicStatsModule(AnalysisModule):
 
     @staticmethod
     def _first_killers_per_round(deaths_df: pd.DataFrame, rounds: list) -> dict[str, int]:
+        """Round-opening kill wins. Suicides don't count (att==vic), matching
+        teamplay._first_kills — one FK definition, two consumers."""
         if deaths_df.empty or "tick" not in deaths_df.columns:
             return {}
         result: dict[str, int] = {}
@@ -163,7 +165,8 @@ class BasicStatsModule(AnalysisModule):
                 continue
             first = round_deaths.sort_values("tick").iloc[0]
             attacker = first.get("attacker_steamid")
-            if attacker and isinstance(attacker, str):
+            victim = first.get("user_steamid")
+            if attacker and isinstance(attacker, str) and attacker != victim:
                 result[attacker] = result.get(attacker, 0) + 1
         return result
 
