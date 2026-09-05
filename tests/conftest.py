@@ -153,6 +153,12 @@ def web_client(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "_cache", lambda: cache)
     monkeypatch.setattr(web_app, "OUT_DIR", tmp_path / "web")
     monkeypatch.setattr(web_app, "_demos_dir", lambda: tmp_path / "demos")
+    # T2: pin settings to DEFAULTS — the repo's configs/default.yaml turns
+    # scan_executor on, and web tests must stay on the deterministic thread
+    # path (no real process spawns per memo).
+    from cs_analyzer.config import Settings as _Settings
+
+    monkeypatch.setattr(web_app, "_settings", lambda: _Settings())
     # aggregate memo must not leak between tests (module-level singleton)
     from cs_analyzer.web import aggregation
 

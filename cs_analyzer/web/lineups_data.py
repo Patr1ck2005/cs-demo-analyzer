@@ -155,3 +155,14 @@ def _build() -> dict:
         "groups": {"stack": group(stacks), "solo": group(solos)},
         "matches": matches,
     }
+
+
+# ---- T1 snapshot pair (called by web.snapshots under _lock) ----
+
+def _snapshot_payload() -> dict | None:
+    return _report
+
+
+def restore_snapshot(payload: dict) -> None:
+    global _report
+    _report = payload

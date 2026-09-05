@@ -8,9 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from cs_analyzer.config import AnalysisConfig
 from cs_analyzer.analysis import AnalysisRunner
-from cs_analyzer.analysis.library import scan_demos
+from cs_analyzer.analysis.library import scan_demos, scan_demos_proc
+from cs_analyzer.config import AnalysisConfig
 
 
 @dataclass
@@ -135,59 +135,76 @@ def _demo_row(demo) -> DemoRow:
     )
 
 
-def compute_aggregate(cache_dir: Path = Path(".cache"), analysis: AnalysisConfig | None = None) -> AggregateResult:
-    """Compute cross-demo aggregation from all cached demos.
+def _aggregate_from_demo(demo, runner=None) -> tuple[DemoRow, list[dict]] | None:
+    """Per-demo aggregate work (module-level: shared by the thread pool path
+    and, via ``_aggregate_worker``, the Phase T2 process pool path)."""
+    from cs_analyzer.config import AnalysisConfig
 
-    Phase L0: per-demo work (parquet load + basic_stats/ratings) runs in a
-    thread pool (analysis/library.py); the merge below stays serial and in
-    sorted-hash order, so the output is identical to the old serial loop.
-    """
-    runner = AnalysisRunner(analysis or AnalysisConfig(enabled_modules=["basic_stats", "ratings"]))
-
-    def work(demo) -> tuple[DemoRow, list[dict]]:
-        results = runner.run(demo)
-        basic = results.get("basic_stats")
-        ratings = results.get("ratings")
-        row = _demo_row(demo)
-        per_player: list[dict] = []
-        if basic is not None and ratings is not None:
-            for bs in basic.players:
-                rt = ratings.by_steamid(bs.steamid)
-                per_player.append({
-                    "steamid": bs.steamid,
-                    "name": bs.name,
+    if runner is None:
+        runner = AnalysisRunner(AnalysisConfig(enabled_modules=["basic_stats", "ratings"]))
+    results = runner.run(demo)
+    basic = results.get("basic_stats")
+    ratings = results.get("ratings")
+    row = _demo_row(demo)
+    per_player: list[dict] = []
+    if basic is not None and ratings is not None:
+        for bs in basic.players:
+            rt = ratings.by_steamid(bs.steamid)
+            per_player.append({
+                "steamid": bs.steamid,
+                "name": bs.name,
+                "kills": bs.kills,
+                "deaths": bs.deaths,
+                "rounds": bs.rounds,
+                "headshot_kills": bs.headshot_kills,
+                "first_kills": bs.first_kills,
+                "survivals_weighted": bs.Survivals * bs.rounds,
+                "damage": bs.damage,
+                "entry": {
+                    "demo": Path(demo.metadata.demo_path).name,
+                    "demo_hash": demo.metadata.demo_hash,
+                    "map_name": demo.metadata.map_name,
+                    "rounds": bs.rounds,
                     "kills": bs.kills,
                     "deaths": bs.deaths,
-                    "rounds": bs.rounds,
-                    "headshot_kills": bs.headshot_kills,
-                    "first_kills": bs.first_kills,
-                    "survivals_weighted": bs.Survivals * bs.rounds,
+                    "KPR": bs.KPR,
+                    "ADR": bs.ADR,
                     "damage": bs.damage,
-                    "entry": {
-                        "demo": Path(demo.metadata.demo_path).name,
-                        "demo_hash": demo.metadata.demo_hash,
-                        "map_name": demo.metadata.map_name,
-                        "rounds": bs.rounds,
-                        "kills": bs.kills,
-                        "deaths": bs.deaths,
-                        "KPR": bs.KPR,
-                        "ADR": bs.ADR,
-                        "damage": bs.damage,
-                        "Rating": rt.Rating if rt else 0.0,
-                        "KAST": rt.KAST if rt else 0.0,
-                        "RWS": rt.RWS if rt else 0.0,
-                    },
-                })
-        return row, per_player
+                    "Rating": rt.Rating if rt else 0.0,
+                    "KAST": rt.KAST if rt else 0.0,
+                    "RWS": rt.RWS if rt else 0.0,
+                },
+            })
+    return row, per_player
 
+
+def _aggregate_shard_from_demo(demo, runner=None) -> dict | None:
+    """Shard payload shape of :func:`_aggregate_from_demo` — the ONE
+    serialization shared by the process worker, the thread path and the web
+    shard cache (T3: single source of truth, no shape drift)."""
+    from dataclasses import asdict
+
+    pair = _aggregate_from_demo(demo, runner)
+    if pair is None:
+        return None
+    row, per_player = pair
+    return {"row": asdict(row), "per_player": per_player}
+
+
+def merge_aggregate_shards(payloads) -> AggregateResult:
+    """Merge per-demo shard payloads (in the caller's deterministic order)
+    into the AggregateResult — the only merge, used by compute_aggregate and
+    the web shard path alike."""
     players: dict[str, PlayerRow] = {}
     demo_rows: list[DemoRow] = []
-    for row, per_player in scan_demos(cache_dir, work):
+    for payload in payloads:
+        if payload is None:
+            continue
+        row = DemoRow(**payload["row"])
         demo_rows.append(row)
-        for pp in per_player:
+        for pp in payload["per_player"]:
             row_stats = players.setdefault(
-                pp["steamid"], PlayerRow(steamid=pp["steamid"], name=pp["name"])
-            )
+                pp["steamid"], PlayerRow(steamid=pp["steamid"], name=pp["name"]))
             row_stats.name = pp["name"]
             row_stats.total_kills += pp["kills"]
             row_stats.total_deaths += pp["deaths"]
@@ -200,3 +217,47 @@ def compute_aggregate(cache_dir: Path = Path(".cache"), analysis: AnalysisConfig
     ordered = sorted(players.values(), key=lambda p: p.avg_rating, reverse=True)
     demo_rows.sort(key=lambda d: d.match_key)
     return AggregateResult(players=ordered, demos=demo_rows)
+
+
+def _aggregate_worker(args: tuple[str, str]) -> dict | None:
+    """Process-pool worker (module-level — Windows spawn pickles by name).
+    Loads inside the child, ships back the SHARD payload (T3: the exact
+    shape the web shard cache persists). fail-soft like the thread path."""
+    import logging
+
+    from cs_analyzer.cache import DemoCache
+
+    cache_dir, demo_hash = args
+    logger = logging.getLogger(__name__)
+    try:
+        demo = DemoCache(Path(cache_dir)).load(demo_hash)
+        if demo is None:
+            return None
+        return _aggregate_shard_from_demo(demo)
+    except Exception:  # noqa: BLE001 — one broken demo must not kill the scan
+        logger.exception("aggregate worker failed for %s", demo_hash[:12])
+        return None
+
+
+def compute_aggregate(cache_dir: Path = Path(".cache"), analysis: AnalysisConfig | None = None,
+                      executor: str = "thread") -> AggregateResult:
+    """Compute cross-demo aggregation from all cached demos.
+
+    Phase L0: per-demo work runs in a thread pool (analysis/library.py); the
+    merge stays serial and in sorted-hash order, so the output is identical
+    to the old serial loop. Phase T2: ``executor="process"`` runs the same
+    per-demo body in a process pool (bench -53.5%). A custom ``analysis``
+    config with non-default modules keeps the thread path (the process
+    worker is fixed to basic_stats+ratings, all this report ever needs).
+    """
+    default_modules = ["basic_stats", "ratings"]
+    custom = analysis is not None and list(analysis.enabled_modules) != default_modules
+    if executor == "process" and not custom:
+        payloads = scan_demos_proc(cache_dir, _aggregate_worker,
+                                   fallback_fn=_aggregate_shard_from_demo)
+    else:
+        from cs_analyzer.analysis import AnalysisRunner
+
+        runner = AnalysisRunner(analysis or AnalysisConfig(enabled_modules=default_modules))
+        payloads = scan_demos(cache_dir, lambda d: _aggregate_shard_from_demo(d, runner))
+    return merge_aggregate_shards(payloads)

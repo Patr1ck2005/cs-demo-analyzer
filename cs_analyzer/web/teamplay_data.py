@@ -40,3 +40,14 @@ def _build() -> dict:
         for d in p.demos:
             demo_ratings.setdefault(d["demo_hash"], {})[p.steamid] = d["Rating"]
     return build_teamplay_report(runtime.cache().cache_dir, demo_ratings=demo_ratings)
+
+
+# ---- T1 snapshot pair (called by web.snapshots under _lock) ----
+
+def _snapshot_payload() -> dict | None:
+    return _report
+
+
+def restore_snapshot(payload: dict) -> None:
+    global _report
+    _report = payload

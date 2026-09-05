@@ -614,6 +614,15 @@ def test_feed_memo_invalidates_with_aggregate(web_client) -> None:
 
     feed_data.all_highlights()
     assert feed_data._feed is not None
+    # Phase T regression guard: the thread path (_feed_from_demo) had a
+    # silent NameError — fail-soft scan turned it into an EMPTY feed while
+    # the process path kept working. Call the thread-path fn directly so a
+    # broken import/name fails LOUDLY here (the 1-kill synthetic demo has
+    # zero qualifying highlights — an empty result is legitimate, an
+    # exception is not).
+    _c, _h, demo = web_client
+    result = feed_data._feed_from_demo(demo)
+    assert isinstance(result, list)
     aggregation.invalidate_aggregate()
     assert feed_data._feed is None
 

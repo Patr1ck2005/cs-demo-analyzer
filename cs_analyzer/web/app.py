@@ -900,8 +900,25 @@ def system_status():
             "parser_version": PARSER_VERSION,
             "viewer_data_version": viewer_data.VIEWER_DATA_VERSION,
             "layer_version": viewer_data.LAYER_VERSION,
+            # T1: disk snapshot inventory for the performance panel
+            "snapshots": _snapshots_status(),
+            "warmup": _warmup_status_public(),
         }
     )
+
+
+def _warmup_status_public() -> dict:
+    from cs_analyzer.web import warmup
+
+    st = warmup.status()
+    st.pop("error", "")  # the traceback is noise in the panel
+    return st
+
+
+def _snapshots_status() -> dict:
+    from cs_analyzer.web import snapshots, warmup
+
+    return snapshots.status(OUT_DIR, _cache().cache_dir)
 
 
 @app.get("/api/system/unparsed.json")

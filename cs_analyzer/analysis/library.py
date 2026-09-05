@@ -15,9 +15,10 @@ Thread-safety notes:
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 from cs_analyzer.cache import DemoCache
 from cs_analyzer.model.parsed_demo import ParsedDemo
@@ -101,3 +102,84 @@ def scan_demos(
         mapper = ex.map(work if strict else safe, hashes)
         results = list(mapper)
     return [r for r in results if r is not None]
+
+
+def scan_demos_proc(cache_dir: Path,
+                    worker: Callable[[tuple[str, str]], T | None],
+                    *,
+                    workers: int = DEFAULT_WORKERS,
+                    fallback_fn: Callable[[ParsedDemo], T | None] | None = None) -> list[T]:
+    """Process-pool sibling of scan_demos (Phase T2, bench ADOPT +53.5%).
+
+    ``worker`` must be a MODULE-LEVEL function taking ``(cache_dir: str,
+    demo_hash: str)`` — Windows spawn pickles it by qualified name, closures
+    are unusable. Workers load AND analyze inside the child and return small
+    payloads only: a ParsedDemo cannot cross the boundary (pickling ~30MB of
+    ticks per demo OOMs the result queue — measured 2026-09-05). Results
+    keep sorted-hash order like the thread path; per-demo failures are
+    fail-soft when the worker swallows them (web workers do).
+
+    ``fallback_fn`` (a demo-level thread-mode fn) is the degradation path:
+    a hard child death (Rust panic → BrokenProcessPool, spawn restrictions)
+    reruns the whole scan on the thread pool instead of failing the report.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    hashes = cached_demo_hashes(cache_dir)
+    if not hashes:
+        return []
+    args = [(str(cache_dir), h) for h in hashes]
+    try:
+        with ProcessPoolExecutor(max_workers=max(1, workers)) as ex:
+            results = list(ex.map(worker, args))
+    except Exception:  # noqa: BLE001 — degrade instead of failing the report
+        logger.exception("process scan failed — falling back to thread pool")
+        if fallback_fn is None:
+            raise
+        return scan_demos(cache_dir, fallback_fn, workers=workers)
+    return [r for r in results if r is not None]
+
+
+def scan_hashes(cache_dir: Path, hashes: list[str],
+                fn: Callable[[ParsedDemo], T]) -> list[tuple[str, T]]:
+    """Thread scan of an EXPLICIT hash subset (Phase T3 增量重算: only the
+    demos missing a shard get loaded). Returns [(demo_hash, fn(demo))] in
+    the given order; unloadable demos are dropped, per-demo exceptions are
+    logged and dropped (fail-soft, same as scan_demos)."""
+    cache = DemoCache(cache_dir)
+
+    def safe(h: str) -> tuple[str, T] | None:
+        try:
+            demo = cache.load(h)
+            if demo is None:
+                return None
+            return h, fn(demo)
+        except Exception:  # noqa: BLE001
+            logger.exception("subset scan failed for %s", h[:12])
+            return None
+
+    with ThreadPoolExecutor(max_workers=max(1, DEFAULT_WORKERS)) as ex:
+        return [r for r in ex.map(safe, hashes) if r is not None]
+
+
+def scan_hashes_proc(cache_dir: Path, hashes: list[str],
+                     worker: Callable[[tuple[str, str]], T | None],
+                     *,
+                     fallback_fn: Callable[[ParsedDemo], T] | None = None,
+                     workers: int = DEFAULT_WORKERS) -> list[tuple[str, T]]:
+    """Process scan of an EXPLICIT hash subset (T3). Same contract as
+    scan_demos_proc but only for the listed hashes, and results carry their
+    demo_hash (shard association must survive)."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    if not hashes:
+        return []
+    try:
+        with ProcessPoolExecutor(max_workers=max(1, workers)) as ex:
+            results = list(ex.map(worker, [(str(cache_dir), h) for h in hashes]))
+    except Exception:  # noqa: BLE001 — degrade instead of failing the report
+        logger.exception("process subset scan failed — falling back to threads")
+        if fallback_fn is None:
+            raise
+        return scan_hashes(cache_dir, hashes, fallback_fn)
+    return [(h, r) for h, r in zip(hashes, results, strict=True) if r is not None]

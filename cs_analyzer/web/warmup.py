@@ -1,10 +1,20 @@
-"""Background cold-start prewarm (Phase L0).
+"""Background cold-start prewarm (Phase L0, T1 snapshot-aware).
 
 The first dashboard hit used to pay the entire whole-library scan
 synchronously (~70s white screen: aggregate ~17s + highlight feed ~50s).
 The server now starts listening immediately; a daemon thread prewarms every
 cross-demo memo in sequence, and the dashboard renders a skeleton that
 long-polls /api/warmup.json until the data is ready.
+
+Phase T1: the prewarm first tries to seed every memo from the disk
+snapshots (web/snapshots.py). When the library fingerprint matches, the
+expensive steps are skipped entirely and "ready" lands in well under a
+second; only the missing memos are actually recomputed. After a real
+rebuild the snapshots are re-written so the NEXT restart hits them.
+
+Two warm-up waves: the dashboard-critical five memos must be ready before
+"ready" flips true; the专题页 reports (map/lineups/style-map) fill in the
+background right after, so the专题 pages never gate the dashboard.
 
 Started from the FastAPI lifespan (real uvicorn runs it; a bare TestClient
 does not, so tests stay deterministic). After an invalidate (new demo
@@ -22,11 +32,14 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _thread: threading.Thread | None = None
 _state: dict = {
-    "phase": "idle",  # idle -> aggregate -> highlights -> teamplay -> done | error
+    "phase": "idle",  # idle -> snapshots -> aggregate -> ... -> wave2 -> done | error
     "ready": False,
     "error": "",
     "t_started": 0.0,
     "t_done": 0.0,
+    # T1 diagnostics for the /system performance panel
+    "snapshot_hits": [],   # memo names seeded from disk
+    "snapshot_saved": [],  # memo names persisted after the rebuild
 }
 
 #: /api/warmup.json?wait=1 long-poll ceiling per request (the dashboard JS
@@ -64,7 +77,8 @@ def kick() -> None:
     with _lock:
         if _thread is not None and _thread.is_alive():
             return  # already prewarming
-        _state.update(phase="idle", ready=False, error="", t_done=0.0)
+        _state.update(phase="idle", ready=False, error="", t_done=0.0,
+                      snapshot_hits=[], snapshot_saved=[])
         _state.pop("done_once", None)
         _thread = threading.Thread(target=_run, name="csa-warmup", daemon=True)
         _thread.start()
@@ -93,7 +107,8 @@ def reset_for_tests() -> None:
     global _thread
     with _lock:
         _thread = None
-        _state.update(phase="idle", ready=False, error="", t_started=0.0, t_done=0.0)
+        _state.update(phase="idle", ready=False, error="", t_started=0.0, t_done=0.0,
+                      snapshot_hits=[], snapshot_saved=[])
         _state.pop("done_once", None)
 
 
@@ -101,24 +116,85 @@ def _run() -> None:
     with _lock:
         if _state["phase"] not in ("idle", "error"):
             return  # another thread is already running (or already done)
-        _state.update(phase="aggregate", ready=False, error="",
-                      t_started=time.time(), t_done=0.0)
+        _state.update(phase="snapshots", ready=False, error="",
+                      t_started=time.time(), t_done=0.0,
+                      snapshot_hits=[], snapshot_saved=[])
     t0 = time.perf_counter()
     try:
-        for step_name, step in (
-            ("aggregate", _step_aggregate),
-            ("highlights", _step_highlights),
-            ("teamplay", _step_teamplay),
-            ("utilitylab", _step_utilitylab),
-            ("funlab", _step_funlab),
+        # ---- T1: try to seed everything from disk snapshots ----
+        hits: list[str] = []
+        try:
+            from cs_analyzer.web import runtime, snapshots
+
+            hits = snapshots.restore_all(runtime.out_dir(), runtime.cache().cache_dir)
+        except Exception:  # noqa: BLE001 — snapshot IO must never kill warmup
+            logger.exception("snapshot restore pass failed — full rebuild")
+        with _lock:
+            _state["snapshot_hits"] = hits
+        logger.info("warmup: %d/%d memo(s) restored from snapshots",
+                    len(hits), len(snapshots.SNAPSHOT_NAMES) if hits else 0)
+
+        # ---- wave 1: dashboard-critical memos (skip the ones restored) ----
+        for step_name, snap_name, step in (
+            ("aggregate", "aggregate", _step_aggregate),
+            ("highlights", "feed", _step_highlights),
+            ("teamplay", "teamplay", _step_teamplay),
+            ("utilitylab", "utilitylab", _step_utilitylab),
+            ("funlab", "funlab_scan", _step_funlab),
         ):
+            if snap_name in hits:
+                continue  # snapshot already seeded this memo
             with _lock:
                 _state["phase"] = step_name
             step()
+
         with _lock:
             _state.update(phase="done", ready=True, done_once=True,
                           t_done=time.time())
-        logger.info("warmup done in %.1fs", time.perf_counter() - t0)
+        logger.info("warmup done in %.1fs (%d snapshot hits)",
+                    time.perf_counter() - t0, len(hits))
+
+        # ---- T1: persist what we have so the NEXT restart hits ----
+        # Only after a real rebuild: when every memo was restored the files
+        # are already current. Run after ready=True — the dashboard must not
+        # wait on disk IO.
+        try:
+            from cs_analyzer.web import runtime, snapshots
+
+            saved = snapshots.save_all(runtime.out_dir(), runtime.cache().cache_dir)
+            with _lock:
+                _state["snapshot_saved"] = sorted(n for n, ok in saved.items() if ok)
+        except Exception:  # noqa: BLE001
+            logger.exception("snapshot save pass failed (fail-soft)")
+
+        # ---- wave 2:专题页 memos (no dashboard gate; restored instantly when
+        # their snapshots exist, recomputed here otherwise) ----
+        with _lock:
+            _state["phase"] = "wave2"
+        for step_name, step in (
+            ("map", _step_map),
+            ("lineups", _step_lineups),
+            ("stylemap", _step_stylemap),
+        ):
+            with _lock:
+                _state["phase"] = f"wave2:{step_name}"
+            try:
+                step()
+            except Exception:  # noqa: BLE001 — wave2 failures are not fatal
+                logger.exception("warmup wave2 step %s failed", step_name)
+        with _lock:
+            _state["phase"] = "done"
+
+        # second save: wave 2 just materialized map/lineups/style-map, so the
+        # NEXT restart restores those too (no ~85s wave2 scan on a warm boot)
+        try:
+            from cs_analyzer.web import runtime, snapshots
+
+            saved = snapshots.save_all(runtime.out_dir(), runtime.cache().cache_dir)
+            with _lock:
+                _state["snapshot_saved"] = sorted(n for n, ok in saved.items() if ok)
+        except Exception:  # noqa: BLE001
+            logger.exception("snapshot wave2 save pass failed (fail-soft)")
     except Exception:  # noqa: BLE001 — pages still work via lazy memos
         logger.exception("warmup failed")
         with _lock:
@@ -153,3 +229,21 @@ def _step_funlab() -> None:
     from cs_analyzer.web import funlab_data
 
     funlab_data.funlab_report()
+
+
+def _step_map() -> None:
+    from cs_analyzer.web import mapdata
+
+    mapdata.map_report()
+
+
+def _step_lineups() -> None:
+    from cs_analyzer.web import lineups_data
+
+    lineups_data.lineups_report()
+
+
+def _step_stylemap() -> None:
+    from cs_analyzer.web import style_map
+
+    style_map.style_map_report()

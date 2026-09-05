@@ -29,6 +29,12 @@ def cache():
     return _web_app()._cache()
 
 
+def out_dir():
+    """App OUT_DIR (output/web) — snapshot/ui stores hang off it; tests
+    monkeypatch web_app.OUT_DIR and this picks the patch up dynamically."""
+    return _web_app().OUT_DIR
+
+
 def load_demo(demo_hash: str):
     return _web_app()._load(demo_hash)
 

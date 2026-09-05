@@ -150,7 +150,7 @@ def invalidate_funlab() -> None:
 
 
 def _demo_date(filename: str) -> str | None:
-    """YYYYMMDD from the 5E filename (g161-20260902… / g161-n-20260902…).
+    r"""YYYYMMDD from the 5E filename (g161-20260902… / g161-n-20260902…).
     WMPVP numeric filenames (92069433…) match \d{8} too but carry no date —
     only trust g161-prefixed names."""
     if not filename.startswith("g161"):
@@ -172,27 +172,75 @@ def _scan_all() -> dict:
     with _lock:
         if _scan is not None:  # double-checked: another thread won the race
             return _scan
-        _scan = _scan_locked()
+        from cs_analyzer.web import runtime
+
+        executor = getattr(runtime.settings(), "scan_executor", "thread")
+        _scan = _scan_compute(executor)
         return _scan
 
 
-def _scan_locked() -> dict:
-    from cs_analyzer.analysis.library import scan_demos
-    from cs_analyzer.analysis.regulars import compute_regulars
+def _funlab_from_demo(demo) -> dict:
+    """Per-demo vector extraction, thread path (uses the per-demo module memo
+    so /fun-lab lazy rebuilds share results with other pages)."""
     from cs_analyzer.web import runtime
-    from cs_analyzer.web.store import list_demos
 
-    cache_dir = runtime.cache().cache_dir
-    meta = {d["demo_hash"]: d for d in list_demos(cache_dir)}
+    result = runtime.analyze_module(demo, "funlab")
+    return {
+        "demo_hash": demo.metadata.demo_hash,
+        "players": result.players,
+    }
 
-    def work(demo) -> dict:
-        result = runtime.analyze_module(demo, "funlab")
+
+def _funlab_worker(args: tuple[str, str]) -> dict | None:
+    """Process-pool worker (T2): runs the funlab module IN the child, ships
+    the small per-player vectors back. Fail-soft like the thread path."""
+    import logging
+    from pathlib import Path
+
+    from cs_analyzer.analysis import AnalysisRunner
+    from cs_analyzer.cache import DemoCache
+    from cs_analyzer.config import AnalysisConfig
+
+    cache_dir, demo_hash = args
+    logger = logging.getLogger(__name__)
+    try:
+        demo = DemoCache(Path(cache_dir)).load(demo_hash)
+        if demo is None:
+            return None
+        result = AnalysisRunner(AnalysisConfig(enabled_modules=["funlab"])) \
+            .run_one(demo, "funlab")
         return {
             "demo_hash": demo.metadata.demo_hash,
             "players": result.players,
         }
+    except Exception:  # noqa: BLE001
+        logger.exception("funlab worker failed for %s", demo_hash[:12])
+        return None
 
-    per_demo = scan_demos(cache_dir, work)
+
+def _scan_compute(executor: str = "thread") -> dict:
+    """Whole-library funlab scan (T3 shard cache: per-demo vectors cached;
+    a new demo costs one demo's module run + a cheap re-merge)."""
+    from cs_analyzer.analysis.library import scan_hashes, scan_hashes_proc
+    from cs_analyzer.analysis.regulars import compute_regulars
+    from cs_analyzer.web import runtime, snapshots
+    from cs_analyzer.web.store import list_demos
+
+    cache_dir = runtime.cache().cache_dir
+    meta = {d["demo_hash"]: d for d in list_demos(cache_dir)}
+    hashes = snapshots._cached_demo_hashes(cache_dir)
+    sharded, missing = snapshots.load_shards("funlab_scan", runtime.out_dir(),
+                                             cache_dir, hashes)
+    if missing:
+        if executor == "process":
+            pairs = scan_hashes_proc(cache_dir, missing, _funlab_worker,
+                                     fallback_fn=_funlab_from_demo)
+        else:
+            pairs = scan_hashes(cache_dir, missing, _funlab_from_demo)
+        for h, payload in pairs:
+            snapshots.save_shard("funlab_scan", runtime.out_dir(), cache_dir, h, payload)
+            sharded[h] = payload
+    per_demo = [sharded[h] for h in hashes if h in sharded]
 
     # date + five_e flag per demo, from the filename
     entries: list[dict] = []
@@ -222,6 +270,33 @@ def _scan_locked() -> dict:
     dates = sorted({e["date"] for e in entries if e["date"]})
     out = {"entries": entries, "regulars": regulars, "dates": dates}
     return out
+
+
+# ---- T1 snapshot pair (called by web.snapshots under _lock) ----
+# The expensive layer is the SCAN (whole-library funlab module run); the
+# per-filter report merges are cheap, so only the scan is snapshotted. Sets
+# (player_ids/regulars) are not JSON-native — sorted lists on the wire.
+
+def _snapshot_payload() -> dict | None:
+    if _scan is None:
+        return None
+    return {
+        "entries": [{**{k: v for k, v in e.items() if k != "player_ids"},
+                     "player_ids": sorted(e["player_ids"])}
+                    for e in _scan["entries"]],
+        "regulars": sorted(_scan["regulars"]),
+        "dates": list(_scan["dates"]),
+    }
+
+
+def restore_scan_snapshot(payload: dict) -> None:
+    global _scan
+    _scan = {
+        "entries": [{**e, "player_ids": set(e["player_ids"])}
+                    for e in payload.get("entries", [])],
+        "regulars": set(payload.get("regulars", [])),
+        "dates": list(payload.get("dates", [])),
+    }
 
 
 _SUM_FIELDS = [

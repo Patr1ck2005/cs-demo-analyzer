@@ -156,3 +156,14 @@ def _build() -> dict:
         "spots_by_map": spots_by_map,
         "maps": sorted(spots_by_map.keys()),
     }
+
+
+# ---- T1 snapshot pair (called by web.snapshots under _lock) ----
+
+def _snapshot_payload() -> dict | None:
+    return _report
+
+
+def restore_snapshot(payload: dict) -> None:
+    global _report
+    _report = payload

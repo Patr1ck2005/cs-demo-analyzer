@@ -161,3 +161,14 @@ def _build() -> dict:
     out.sort(key=lambda m: -m["demos"])
     return {"maps": out, "generated": __import__("datetime").datetime.now(
         __import__("datetime").timezone.utc).isoformat(timespec="seconds")}
+
+
+# ---- T1 snapshot pair (called by web.snapshots under _lock) ----
+
+def _snapshot_payload() -> dict | None:
+    return _report
+
+
+def restore_snapshot(payload: dict) -> None:
+    global _report
+    _report = payload

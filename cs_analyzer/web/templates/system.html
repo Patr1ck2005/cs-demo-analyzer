@@ -20,6 +20,12 @@
   </div>
 </div>
 
+<div class="section-header"><h2>性能面板</h2>
+  <div class="section-actions"><span class="sub" style="margin:0">Phase T1 · 跨场聚合快照</span></div></div>
+<div class="card">
+  <div id="sys-perf" class="sub">加载中…</div>
+</div>
+
 <div class="section-header"><h2>任务队列</h2></div>
 <div class="card">
   <div id="sys-jobs" class="sub">加载中…</div>
@@ -54,8 +60,36 @@
       document.getElementById('sys-cache').innerHTML =
         `缓存条目 <b>${s.cache_entries}</b> 个 · 占用 <b>${s.cache_size_mb}</b> MB<br>` +
         `解析器 PARSER <b>${s.parser_version}</b> · viewer-data <b>v${s.viewer_data_version}</b> · layers <b>v${s.layer_version}</b>`;
+      renderPerf(s);
     }
   } catch (e) { /* card stays placeholder */ }
+
+  // Phase T1 performance panel: snapshot inventory + prewarm diagnostics
+  function renderPerf(s) {
+    const el = document.getElementById('sys-perf');
+    if (!el) return;
+    const snap = s.snapshots || { snapshots: [] };
+    const wu = s.warmup || {};
+    const cur = (snap.snapshots || []).filter(x => x.current).length;
+    const total = (snap.snapshots || []).length;
+    const wuT = wu.t_done && wu.t_started ? (wu.t_done - wu.t_started) : null;
+    let html = `<div style="margin-bottom:8px">快照 <b>${cur}/${total}</b> 与当前库指纹一致` +
+      ` · 指纹 <code class="kbd">${(snap.fingerprint || '').slice(0, 12)}</code>` +
+      (wuT != null ? ` · 本次预热 <b>${wuT.toFixed(1)}s</b>（快照命中 ${wu.snapshot_hits ? wu.snapshot_hits.length : 0} 项）` : '') +
+      `</div>`;
+    html += '<table style="width:100%"><thead><tr><th>快照</th><th>状态</th><th>大小</th><th>落盘时间</th></tr></thead><tbody>' +
+      (snap.snapshots || []).map(x => {
+        const st = !x.exists ? '<span class="badge t0">未生成</span>'
+          : x.current ? '<span class="badge ok">有效</span>'
+          : '<span class="badge ct">过期</span>';
+        return `<tr><td><code>${x.name}</code></td><td>${st}</td>` +
+          `<td>${x.size_kb != null ? x.size_kb + ' KB' : '—'}</td>` +
+          `<td class="sub">${x.saved_at || '—'}</td></tr>`;
+      }).join('') + '</tbody></table>' +
+      `<div class="sub" style="margin-top:8px">快照命中时重启后预热秒级完成；新增 demo / 解析器升级 / 代码更新会自动失效重算。` +
+      `快照文件位于 <code>output/web/snapshots/</code>，可随时删除（下次启动自动重建）。</div>`;
+    el.innerHTML = html;
+  }
 
   // jobs (poll every 2s; stop after 5 consecutive failures instead of
   // silently spinning forever when the server goes away)

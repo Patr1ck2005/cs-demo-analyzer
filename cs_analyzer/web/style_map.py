@@ -229,3 +229,14 @@ def _build() -> dict:
         "cut_ratio": CUT_RATIO, "gate": report.get("gate", {}),
         "points": points,
     }
+
+
+# ---- T1 snapshot pair (called by web.snapshots under _lock) ----
+
+def _snapshot_payload() -> dict | None:
+    return _memo
+
+
+def restore_snapshot(payload: dict) -> None:
+    global _memo
+    _memo = payload

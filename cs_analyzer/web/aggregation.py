@@ -8,8 +8,9 @@ changes (parse job finishes, stale sweep submits, system import).
 from __future__ import annotations
 
 import threading
+from dataclasses import asdict
 
-from cs_analyzer.analysis.aggregate import AggregateResult, compute_aggregate
+from cs_analyzer.analysis.aggregate import AggregateResult, DemoRow, PlayerRow
 
 _lock = threading.Lock()
 _result: AggregateResult | None = None
@@ -72,9 +73,83 @@ def invalidate_aggregate() -> None:
 
     if warmup.status().get("ready"):
         warmup.kick()
+    # T3: shard GC — demo renames/re-parses/code bumps leave files the next
+    # scan will never read again. Fail-soft and cheap (a directory walk).
+    try:
+        from cs_analyzer.web import runtime, snapshots
+
+        snapshots.gc_shards(runtime.out_dir(), runtime.cache().cache_dir)
+    except Exception:  # noqa: BLE001 — hygiene must never break invalidation
+        pass
 
 
 def _compute() -> AggregateResult:
-    from cs_analyzer.web import runtime
+    """Whole-library aggregate with the T3 shard cache: per-demo work runs
+    only for demos whose (code, model) pair has no valid shard; hits are
+    reassembled and merged exactly like a fresh compute, so a NEW demo costs
+    one demo's work, not a full-library rescan."""
+    from cs_analyzer.analysis.aggregate import _aggregate_worker, merge_aggregate_shards
+    from cs_analyzer.web import runtime, snapshots
 
-    return compute_aggregate(runtime.cache().cache_dir, runtime.settings().analysis)
+    cache_dir = runtime.cache().cache_dir
+
+    hashes = snapshots._cached_demo_hashes(cache_dir)
+    sharded, missing = snapshots.load_shards("aggregate", runtime.out_dir(),
+                                             cache_dir, hashes)
+    if missing:
+        executor = getattr(runtime.settings(), "scan_executor", "thread")
+        if executor == "process":
+            from cs_analyzer.analysis.library import scan_hashes_proc
+
+            pairs = scan_hashes_proc(cache_dir, missing, _aggregate_worker,
+                                     fallback_fn=_aggregate_from_demo_thread)
+        else:
+            from cs_analyzer.analysis import AnalysisRunner
+            from cs_analyzer.analysis.aggregate import _aggregate_shard_from_demo
+            from cs_analyzer.analysis.library import scan_hashes
+            from cs_analyzer.config import AnalysisConfig
+
+            runner = AnalysisRunner(AnalysisConfig(enabled_modules=["basic_stats",
+                                                                    "ratings"]))
+            pairs = scan_hashes(cache_dir, missing,
+                                lambda d: _aggregate_shard_from_demo(d, runner))
+        for h, payload in pairs:
+            snapshots.save_shard("aggregate", runtime.out_dir(), cache_dir, h, payload)
+            sharded[h] = payload
+
+    # sorted-hash order (identical to the old serial contract)
+    return merge_aggregate_shards(sharded[h] for h in hashes if h in sharded)
+
+
+def _aggregate_from_demo_thread(demo):
+    """Thread-mode shard fn for the process fallback path (fallback_fn of
+    scan_hashes_proc must produce the SAME dict shape as the worker)."""
+    from cs_analyzer.analysis.aggregate import _aggregate_shard_from_demo
+
+    return _aggregate_shard_from_demo(demo)
+
+
+# ---- T1 snapshot pair (called by web.snapshots under _lock) ----
+
+def _snapshot_payload() -> dict | None:
+    """JSON-able snapshot of the current aggregate, or None when cold.
+
+    AggregateResult is intentionally cheap to rebuild: PlayerRow/DemoRow
+    properties are all DERIVED from the additive totals, so asdict() of the
+    plain fields loses nothing.
+    """
+    if _result is None:
+        return None
+    return {
+        "players": [asdict(p) for p in _result.players],
+        "demos": [asdict(d) for d in _result.demos],
+    }
+
+
+def restore_snapshot(payload: dict) -> None:
+    """Seed the memo from a snapshot payload (fail-loud: snapshots.restore_all
+    catches and falls back to a recompute)."""
+    global _result
+    players = [PlayerRow(**p) for p in payload.get("players", [])]
+    demos = [DemoRow(**d) for d in payload.get("demos", [])]
+    _result = AggregateResult(players=players, demos=demos)

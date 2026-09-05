@@ -11,5 +11,10 @@ analysis:
     - basic_stats
     - ratings
 
+# Phase T2: whole-library scan executor. "process" = per-demo work in a
+# process pool (bench 2026-09-05: 53.5% faster than the thread pool on
+# load+analyze); a dying child degrades to the thread pool automatically.
+scan_executor: process
+
 cache_dir: .cache
 log_level: INFO

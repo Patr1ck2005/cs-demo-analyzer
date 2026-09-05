@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,12 +43,24 @@ class Settings(BaseSettings):
     analysis: AnalysisConfig = AnalysisConfig()
     cache_dir: Path = Path(".cache")
     log_level: str = "INFO"
+    # Phase T2: whole-library scan executor. "thread" (default, tests/API
+    # deterministic) or "process" (configs/default.yaml — the real server;
+    # bench: -53.5% on load+analyze, results stay small payloads).
+    scan_executor: str = "thread"
 
     model_config = SettingsConfigDict(
         env_prefix="CSA_",
         env_nested_delimiter="__",
         extra="ignore",
     )
+
+    @field_validator("scan_executor")
+    @classmethod
+    def _check_scan_executor(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in ("thread", "process"):
+            raise ValueError(f"scan_executor must be 'thread' or 'process', got {v!r}")
+        return v
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Settings:

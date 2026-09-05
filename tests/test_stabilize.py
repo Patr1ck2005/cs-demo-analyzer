@@ -252,9 +252,13 @@ def test_warmup_error_path_sets_error_phase(monkeypatch):
     """warmup failure branch: a crashing step lands phase='error' (the
     dashboard JS relies on this to leave the skeleton instead of polling
     forever)."""
-    from cs_analyzer.web import warmup
+    from cs_analyzer.web import snapshots, warmup
 
     warmup.reset_for_tests()
+    # hermetic: no real snapshot reads (a disk hit would skip the stubbed
+    # step and the error path would never trigger)
+    monkeypatch.setattr(snapshots, "restore_all", lambda out_dir, cache_dir: [])
+    monkeypatch.setattr(snapshots, "save_all", lambda out_dir, cache_dir: {})
     monkeypatch.setattr(warmup, "_step_aggregate",
                         lambda: (_ for _ in ()).throw(RuntimeError("boom")))
     warmup.start_once()
@@ -272,11 +276,14 @@ def test_warmup_kick_rearms_after_ready(monkeypatch):
     and stall the suite."""
     import time as _t
 
-    from cs_analyzer.web import warmup
+    from cs_analyzer.web import snapshots, warmup
 
     warmup.reset_for_tests()
+    monkeypatch.setattr(snapshots, "restore_all", lambda out_dir, cache_dir: [])
+    monkeypatch.setattr(snapshots, "save_all", lambda out_dir, cache_dir: {})
     for name in ("_step_aggregate", "_step_highlights", "_step_teamplay",
-                 "_step_utilitylab", "_step_funlab"):
+                 "_step_utilitylab", "_step_funlab", "_step_map",
+                 "_step_lineups", "_step_stylemap"):
         monkeypatch.setattr(warmup, name, lambda: None)
     warmup.kick()
     deadline = _t.monotonic() + 10
