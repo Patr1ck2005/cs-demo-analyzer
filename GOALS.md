@@ -29,8 +29,9 @@
   - 信息架构：顶栏六链接（仪表盘/对局/选手/高光/对比/系统）；`/`=仪表盘（KPI+最近对局卡墙+上传+高光精选）；`/matches` 对局库双视图；`/match/{h}` 五 Tab 详情（概览/击杀/经济/道具/路线，?tab= 深链）；`/players` 选手库+`/player/{sid}` 跨场生涯页；`/highlights` 高光库；`/compare` 大数据对比（≥5 场门槛+全库分位+雷达叠加）；`/system` 系统页；5 个专题页（趣味数据/道具/地图/队伍/收藏，均已真实化）；旧 /demo/... URL 301 兼容
   - 设计系统：紫罗兰主强调（#a78bfa）+ 三字体体系（Inter/Rajdhani/JetBrains Mono 本地 vendor）+ 拉满展示级动效（全部 respects prefers-reduced-motion）
   - 数据管线：aggregation memo（single-flight+失效钩子）、highlights 模块（多杀/残局/ACE 事件推导）、compare 分位数、系统状态/未入库管理 API
+  - 性能底座（Phase T 2026-09-06）：全库快照落盘（冷重启 175s→5.2s）+ 进程池扫描（重算 -35%）+ per-demo 分片增量（新 demo 5×）+ /system 性能面板
 - **技术要点**：对比=大数据思想（个体 vs 大样本基线，非两两 PK）；viewer JS 双前缀契约（demo|match）+ 源码契约测试；API 路径全程零改动
-- **状态**：🟢 Phase H 完成（待提交，146 测试全绿）
+- **状态**：🟢 Phase H 完成 + Phase T 性能底座完成（2026-09-06，工作区待审）
 
 ### LTG-3 [地基] 解析工具集扎实化 —— 已交付
 - **成品**：`csa coverage` 扫描全部真实 demo → `output/coverage/coverage.html`（总览矩阵 + 逐 demo 明细 + 调查结论 + 已知限制，全中文高信息量）

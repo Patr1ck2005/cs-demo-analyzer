@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-05（Phase M5 全面口径审计完成——反样本量偏差整改 + 指标口径上页面 + 聚类分析立项 §9.7，待审+待验收）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-06（Phase T 性能底座完成——快照落盘 §13 + 进程池 ADOPT + 分片增量，待审+待验收）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,12 +13,13 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 24 个 demo 在库、239 测试全绿、visual_check 22 页零 console 错误**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 24 个 demo 在库、261 测试全绿、visual_check 22 页零 console 错误**。
 
-**Git 状态（Phase S 前夕）**：origin/main = `5b457d6`（M5 两笔 + Phase N 两笔已推送）。
-**Phase S 稳定化已开工**（用户令："全面审计并整改一次 + 稳定化开发计划"，计划已批准、按批执行）——
-四路深度审计（后端架构/前端/分析正确性/工程化）+ 22 页视觉巡检已完成，批次明细见 §12。
+**Git 状态（Phase T 完成待审）**：origin/main = `c7f42ed`（Phase S 稳定化已提交推送）。
+**Phase T 性能底座已完成**（长周期路线图用户批准：T 性能底座 → U 分析强化 → V 竞技 AI；发布线继续冻结）——
+快照落盘/进程池/分片增量三件全部落地，明细见 §13。**工作区待审，等用户验收 + provenance**。
 
+- **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
 - **Phase M5/N 历史摘要**（已提交推送）：
   - **反样本量偏差整改**（用户原则："人与人对比的指标必须排除打得多=数据高"）：
     舔包王榜→每回合口径（用户裁决"除总回合数"）/ 地图最强选手→回合加权 Rating+同图多场池化
@@ -184,25 +185,28 @@ CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量�
 | 本会话 shell | pwsh（无 bash）；python 输出偶发被管道吞——**重要结果写到文件再读** |
 | 中文 .bat | **GBK + CRLF，禁 chcp 65001**（UTF-8 中文 + goto/call 标签定位会错位执行乱码；LF-only 也断） |
 | pwsh 管道挂起 | bat 启动的孤儿 uvicorn 继承管道句柄 → `Start-Process -Wait` 永远等不到——测试用文件重定向 + 轮询状态，别 -Wait |
+| **uvicorn 静默死亡（T 期实锤）** | agent 用 `Start-Process -WindowStyle Hidden`（无重定向）拉起的 uvicorn 会被父 pwsh 进程退出连带杀死——**必须 `-RedirectStandardOutput/-RedirectStandardError` 落盘文件**（挂在真实句柄上），否则"刚起→跑巡检就死"且零日志 |
 
 **探针脚本模式**（demoparser2 pyo3 会 Rust panic 杀进程，探针必须子进程隔离）：`scripts/probe_events.py`、`scripts/probe_ammo.py`。
 
 ## 5. 关键入口
 
 ```bash
-"D:\Program Files\Python311\python.exe" -m pytest -q        # 208 全绿
+"D:\Program Files\Python311\python.exe" -m pytest -q        # 261 全绿
 "D:\Program Files\Python311\python.exe" -m uvicorn cs_analyzer.web.app:app --port 8000
-scripts/visual_check.py                                      # playwright 21 页
+scripts/visual_check.py                                      # playwright 22 页
 scripts/probe_events.py                                      # 事件可用性探针（子进程隔离）
+scripts/bench_startup.py                                     # T4：冷启动三场景计时（起 8123 专用端口）
+scripts/bench_process_pool.py                                # T2：进程池收益实测（决策依据）
 ```
 
 核心文件：
 - 解析: `cs_analyzer/parser/backend.py`（`_MATCH_ID_PATTERNS` 双平台 match_id、`_empirical_tick_rate`、legacy 降级重试）, `manager.py`（tick_fields 含 inventory）
 - 缓存: `cache.py`（PARSER_VERSION **1.8.0**）
-- 分析: `cs_analyzer/analysis/`——14 模块（basic_stats/ratings/preference/duels/economy/utility_effect/routes/highlights + kill_context/hitgroups/aim/postplant/weapon_splits + **teamplay**）+ **util.py**（`round_player_sides` 换边安全阵营，L0 numpy 化）+ **library.py**（L0 线程池全库扫描）
+- 分析: `cs_analyzer/analysis/`——14 模块（basic_stats/ratings/preference/duels/economy/utility_effect/routes/highlights + kill_context/hitgroups/aim/postplant/weapon_splits + **teamplay**）+ **util.py**（`round_player_sides` 换边安全阵营，L0 numpy 化）+ **library.py**（L0 线程池全库扫描 + T2 `scan_demos_proc` 进程池 + T3 `scan_hashes`/`scan_hashes_proc` 子集扫描）+ **aggregate.py**（T3 起 per-demo 产出统一为 shard dict 形态 + `merge_aggregate_shards` 唯一合并）
 - 回放前端: `static/viewer_canvas.js`（回放+重叠子模式+聚焦跟随+买装条）、`js/viewer_overlays.js`（事件覆盖层，SMOKE_SCALE=1.2）、`js/viewer_control.js`（控图/3D）、`js/viewer_prefs.js`（19 参数调节面板）、`js/viewer_camera.js`
-- Web: `app.py`（路由；**专题页路由必须注册在 /{placeholder} 之前** + `/api/warmup.json` 预热协议）、`chart_data.py`（载荷）、`viewer_data.py`（v4 数据包）、`store.py`（match_key）、`aggregation.py`（memo 总失效入口：aggregate+teamplay+feed+utilitylab+mapdata+lineups）、`warmup.py`（L0 启动预热）、`feed_data.py` / `teamplay_data.py` / `utilitylab_data.py` / `mapdata.py` / `lineups_data.py`（五个 memo 报告）、`favorites_store.py`、`report_export.py`、`weapons.py`（武器单一事实源）
-- 地图: `cs_analyzer/maps/data/`——**6 图**（mirage/ancient/inferno/nuke/dust2/cache），yaml 含 provenance 注释与换算公式
+- Web: `app.py`（路由；**专题页路由必须注册在 /{placeholder} 之前** + `/api/warmup.json` 预热协议 + `/api/system/status.json` 含快照清单）、`chart_data.py`（载荷）、`viewer_data.py`（v4 数据包）、`store.py`（match_key）、`aggregation.py`（memo 总失效入口：aggregate+teamplay+feed+utilitylab+mapdata+lineups+style_map + T3 分片 GC）、`warmup.py`（T1 快照感知两波预热）、`snapshots.py`（**T1/T3 核心**：全库快照 + per-demo 分片 + 指纹 + GC）、`feed_data.py` / `teamplay_data.py` / `utilitylab_data.py` / `mapdata.py` / `lineups_data.py`（memo 报告，各带 T1 snapshot pair）、`funlab_data.py`（scan 两层 + T3 分片）、`style_map.py`、`favorites_store.py`、`report_export.py`、`weapons.py`（武器单一事实源）
+- 地图: `cs_analyzer/maps/data/`——**7 图**（mirage/ancient/inferno/nuke/dust2/cache/anubis，anubis 为 Phase N 小件 1 补入），yaml 含 provenance 注释与换算公式
 
 ## 6. 数据资产
 
@@ -258,26 +262,42 @@ e839a1a docs: README visual overhaul + robust start_web.bat
 04e39a9 Phase G | 03c9eb4 Phase F | 933e9b1 Phase E | ...（更早见 git log）
 ```
 
-Phase L 全部改动在工作区待审（见 §1）。完整阶段日志见 dev_log.md（每个 Phase 一条，含模型名）。
+Phase T 全部改动在工作区待审（见 §1/§13）。完整阶段日志见 dev_log.md（每个 Phase 一条，含模型名）。
 
-## 9. 未来路线（Phase L 之后）
+## 9. 未来路线（Phase T 之后 = 长周期路线图的 U/V 阶段）
 
-1. **收藏备注编辑 UI**：/favorites 已可星标/标签筛选/看备注，对局详情页内嵌标签/备注编辑器可作下一小步
-2. **在线发布**（用户拍板暂缓，方向已定）：`csa export-static` 静态快照导出 → gh-pages（只读分享版）；公开仓库 + steamid/昵称匿名化；发布前 rename 仓库（现名 CS-Radar-Map-Generation 是早期项目名）
-3. 控图算法 v2（视线/交战权重，用户暂缓中）
-4. 更多地图 PNG（任何新地图：MurkyYT/cs2-map-icons + radar_info 公式，流程见 K4）
-5. 预热进程池/磁盘快照（L0 线程池受 GIL 限制，全库预热 ~58s 后台完成；如需更快可上 ProcessPoolExecutor 或聚合快照落盘）
-6. 可选：aim 模块接 inventory 做武器持有时间线；Rating 2.1
-7. **选手风格聚类（Phase N 候选·2026-09-05 用户点名"前沿研究性分析"）**：在多维指标空间里看"谁和谁打得像"、每人自动生成风格画像。
-   - 数据基座已就绪：funlab METRIC_DEFS 32 指标全部是**比率/每回合口径**（M5 审计后），
-     天然消除"打得多=数值大"的聚类偏置；sample gate 复用 ≥3 场。
-   - 建议管线（用户风格：先审口径再写码）：① 特征矩阵 = 选定指标 z-score 标准化（缺轴补库中位数）；
-     ② 降维 UMAP/PCA 到 2D 做"风格星系图"（ECharts scatter，点=选手，颜色=簇，复用 14 色板）；
-     ③ 聚类 KMeans(κ≈3-6, 轮廓系数选 k) 或 DBSCAN（低样本更稳）；④ 输出每簇"风格标签"
-     （自动取簇内 top-deviation 指标命名，如"远程狙踞型/近战疯狗型/经济铁公鸡型"）+
-     每人"最像的队友"(最近邻余弦)。25 demos×~7 常客是小样本——**优先 DBSCAN+稳健标准化**，
-     KMeans 结果只做参照。依赖：scikit-learn(+umap-learn 可选)；**铁律 2b：装完立即 `pip install -e ".[dev]"`**。
-   - 展示位：/fun-lab 新增"风格星系"预设 tab，或 /compare 新卡；两轴=UMAP1/2（无量纲，允许）。
+**路线图总纲（2026-09-06 用户批准）**：T 性能底座 ✅ → **U 分析强化 → V 竞技 AI**；
+发布线/内容生产冻结；数据飞轮 = 被动积累（~10 场新 5E zip 一次入库批）。
+
+### Phase U —— 分析深度强化（下一个大阶段，U1→U2→U3）
+1. **U1 Rating 2.1 对齐**：`analysis/ratings.py` 新增 HLTV 2.1（实现前先 web_search 核实
+   公开权重——开局击杀/死亡、多杀回合、残局，不凭记忆写系数）；生涯页 2.0 vs 2.1 并排卡 +
+   全库分位；口径进 METRIC_DEFS 单一数据源；合成 demo 数值回归。
+2. **U2 武器持有时间线**：新 `analysis/weapon_timeline.py` 从缓存 inventory 列推导
+   持有时长/切枪序列/eco 武器使用（PARSER_VERSION 不 bump）；/match 战术 Tab 甘特/主题河流
+   （注意 ECharts 容器显式宽度老坑）；生涯页"武器偏好演变"。
+3. **U3 控图算法 v2（解冻）**：viewer_control.js 高斯核之上加 交战衰减/存活加权/密度去重；
+   权重全进 viewer_prefs 面板，v1/v2 开关并存；验收 = 同回合 v1/v2 截图并排可解释
+   （无地图几何，不做物理射线遮挡——诚实边界）。
+
+### Phase V —— 竞技 AI 深水区（跨数据积累周期，24 场=方法验证期）
+1. **V1 回合胜负概率**：新 `analysis/win_probability.py`——特征=存活差/买法态/装备差/
+   下包态/路线簇；numpy 手写 logistic（L2）+ bootstrap 置信带 + LOO AUC 上页面；
+   **验收页 = /match 胜势曲线**（逐回合实时胜率 + 事件标注）。零新依赖（不装 sklearn）。
+2. **V2 经济决策 EV**：新 `analysis/economy_ev.py`——决策状态→胜率+存活 EV 查询表；
+   每格最低样本量（不足灰显 + 实际 N）；**验收页 = /match 经济 Tab 决策 EV 面板**。
+3. **V3 风格星系迭代**：时间窗向量漂移轨迹 + 变化点标注（style_map 管线自动随样本增长）。
+- **纪律**：所有结论页强制标注样本量/置信区间；新依赖先报备 + 铁律 2b。
+
+### 其他路线（保持）
+1. ~~收藏备注编辑 UI~~ ✅ 已随 Phase S 完成（收藏编辑器）
+2. **在线发布**（用户拍板继续暂缓，方向已定）：`csa export-static` 静态快照导出 → gh-pages（只读分享版）；公开仓库 + steamid/昵称匿名化
+3. ~~控图算法 v2~~ → 升格为 U3（本路线图）
+4. 更多地图 PNG（任何新地图：MurkyYT/cs2-map-icons + radar_info 公式，流程见 K4；K4 双重验证含 y 翻转锚点实测）
+5. ~~预热进程池/磁盘快照~~ ✅ 已随 Phase T 完成（§13）
+6. ~~可选：aim 模块接 inventory 做武器持有时间线；Rating 2.1~~ → 升格为 U1/U2（本路线图）
+7. ~~选手风格聚类~~ ✅ Phase N 完成；迭代 → V3（本路线图）
+8. **T 遗留小件**（§13）：teamplay/utilitylab/mapdata/lineups 接分片（模式照 feed 抄）
 
 ## 9a. Phase M5 —— 全面口径审计（2026-09-05，完成待审）
 
@@ -432,5 +452,86 @@ METRIC_DEFS 完整性/free_pickup_pr 分母/map 池化+门槛/lineups 池化）�
 
 ### S 里程碑状态
 - 239 测试全绿；真实缓存 24 条（孤儿 GC 验证不反弹）；routes/收藏/上传 E2E PASS。
-- 待收尾：ARCHITECTURE.md studio 段删除、dev_log 尾部列表符+Phase S 条目、cli/maps-loader/
-  warmup 失败分支补测、全页巡检复跑、分批提交（等用户批准）。
+- ✅ 收尾项已全部随 S 提交完成（ARCHITECTURE studio 删除、dev_log Phase S 条目、
+  test_stabilize 补测 cli/maps-loader/warmup 失败分支、22 页巡检复跑、分批提交）。
+
+## 13. Phase T —— 性能与工程底座（2026-09-06，完成待审）
+
+**长周期路线图**（用户四问四答拍板，见批准计划）：主航道 = T 性能底座 → U 分析强化
+（Rating 2.1 对齐 / 武器持有时间线 / 控图 v2 解冻）→ V 竞技 AI（回合胜负概率 / 经济 EV /
+风格星系迭代，被动积累样本分阶段）；发布线（gh-pages）与内容生产（GIF 导出）继续冻结；
+大阶段制；验收形态 = 平台内新功能网页。
+
+### T1 聚合快照落盘 ✅
+- **`web/snapshots.py`（新，~370 行）**：8 个跨场 memo（aggregate/feed/teamplay/utilitylab/
+  map/lineups/funlab_scan/style_map）的 payload 持久化到 `output/web/snapshots/<name>.json`
+  （原子写 tmp+os.replace，favorites 同款）。指纹 = SHA256(SNAPSHOT_VERSION + PARSER_VERSION
+  + **producer 源码内容摘要**（22 个 .py，口径修复自动失效）+ 逐 demo model.json 内容哈希)。
+  **design rules**：只由预热线程在成功重建后落盘（请求路径零 IO）；invalidate 不删文件
+  （指纹失配即惰性失效）；单文件损坏=单项 miss 不传染。
+- **warmup 两波**：第 1 波 dashboard 五 memo（快照命中则跳过）→ ready；第 2 波专题页
+  （map/lineups/stylemap）+ 二次 save_all（8/8 补齐）。`/api/warmup.json` 新增
+  `snapshot_hits`/`snapshot_saved`；`/api/system/status.json` 新增 `snapshots` 清单 +
+  `warmup` 状态。
+- **8 个 memo 模块各带 snapshot pair**（`_snapshot_payload`/`restore_snapshot`）；
+  aggregate 走 dataclass asdict↔重建（属性全派生零损失）；funlab 是 scan 层快照
+  （set↔sorted-list 编解码），report 合并保持内存内。
+- **/system 性能面板**（模板新增 section）：快照 N/N 有效 · 指纹前缀 · 本次预热秒数 ·
+  逐快照状态/大小/落盘时间表 + 操作说明（可随时删除自动重建）。
+- **验收**：快照命中重启 ready **5.2s**（基线 175s）；进程内 restore_all **0.068s**（8 文件）。
+
+### T2 进程池实测与决策 ✅ ADOPT（-53.5% 实测 → 实库 -58%）
+- **`scripts/bench_process_pool.py`**：serial/thread4/proc4 三场景。**关键实测**：
+  ① ParsedDemo 跨进程 pickle 回传 **MemoryError**（ticks ~30MB/场）→ 唯一可行设计 =
+  worker 内加载+分析、只回传小载荷；② worker 内计算 thread4 31.8s vs proc4 14.8s。
+- **落地**：`Settings.scan_executor`（默认 `thread`；`configs/default.yaml` 置 `process`，
+  **测试经 conftest 钉死默认值**——套件 42s→14s）；`library.scan_demos_proc` +
+  `scan_hashes_proc`（子集版，T3 用），**BrokenProcessPool 自动降级线程池**（实测触发过：
+  探针无 `__main__` 守卫 → spawn 重导入 → 降级后结果逐字段一致，降级链路被实证）。
+- **接入三重头**：aggregate（worker 返回 shard dict 形态）/ feed（highlights）/ funlab。
+  process vs thread 全库一致验收：178 玩家/24 demo **field_mismatches=[]**，
+  25.1s vs **10.5s**。
+- 全量重算（wipe 快照）基线：**201s → 131s（-35%）**；aggregate 单 memo 10s。
+- **注意**：Windows spawn 会重新导入 `__main__`——任何新探针脚本必须带
+  `if __name__ == "__main__"` 守卫（本轮踩过）。
+
+### T3 分片增量 ✅（aggregate/feed/funlab 三重头 + GC）
+- **shard API**（snapshots.py）：`shards/<memo>/<src8>/<demo_hash>_<model8>.json`——
+  src8=源码摘要（代码变→整目录作废 GC 清）、model8=model.json 哈希（重解析→自动 miss）。
+  **分片有效性与库指纹无关**：新 demo 到来，旧 23 场分片照常命中。
+- **memo 改造**：compute 先 `load_shards` → 只对 missing 走 `scan_hashes[_proc]` →
+  `save_shard` 回写 → 按当前库 sorted-hash 全量合并（合并顺序=旧契约，输出逐字段一致）。
+  aggregate 的 per-demo 形态统一为 shard dict（process worker / 线程 / 落盘一份序列化）。
+- `invalidate_aggregate` 尾部挂 `gc_shards`（孤儿分片清理，fail-soft）。
+- **验收（探针）**：冷建分片 9.5-9.8s → 全热合并 **0.08-0.19s** → **+1 demo 增量 1.9-2.0s（5×）**；
+  模拟新 demo 后 total_demos+1、清理还原验证通过。
+- **范围裁决**：teamplay 的扫描封装在 `analysis.teamplay` 内部（CLI+web 共用），接分片要动
+  analysis API——本轮跳过，utilitylab/mapdata/lineups 三小 memo 同为后续小件（模式已定型，
+  照 feed 抄即可）。
+
+### T4 收尾 ✅
+- `scripts/bench_startup.py`（冷启动基准：8123 专用端口，--wipe-snapshots 对照场景，
+  JSON 落盘 `output/bench_*.json`）。
+- /system 性能面板 + `visual_check` 22 页复跑 FAILURES: none + playwright 截图
+  `output/.visual/t1_system_perf.png`/`t_final_system.png` read_image 人工复核通过。
+- 测试 239→**261**（test_snapshots.py 16 项 + test_process_scan.py 2 项 + 稳定化补丁）；
+  全量 14s（thread 钉死后无 spawn）。
+- **test_stabilize 两个 warmup 测试改为封闭式**（monkeypatch restore_all/save_all）——
+  真实快照文件存在时，快照命中会让被 stub 的步骤跳过、error 路径不再触发（本轮踩过并修复）。
+- **⚠️ 重大回归教训（本轮抓到并修复）**：T3 重构把 `_feed_from_demo` 的 `runtime` import
+  丢了——线程路径 NameError 被 scan_demos 的 fail-soft 吞成**空 feed**，而 process worker
+  路径正常（warmup 走 process）→ **线上 200 条高光掩盖了线程路径全坏**；原测试只断言
+  `_feed is not None` 也照样绿。三重修复：① 修 import；② ruff F821 进验收清单
+  （未定义名=真 bug；仓库其余 ~84 条 ruff 为存量基线）；③ test_feed 增加**直接调用线程路径
+  fn** 的回归断言（异常会响，空列表是 1 杀合成 demo 的合法结果）。**教训：fail-soft +
+  双执行路径 + 弱断言 = 静默坏死三角**，"worker/线程双路径"改造必须每条路径有直达测试。
+
+### T 遗留（后续小件，非阻塞）
+1. teamplay/utilitylab/mapdata/lineups 接入分片（模式照 feed 抄）
+2. `bench_startup.py` 增量场景尚未脚本化（本轮用探针手工验证）
+3. `library_fingerprint` 的源码摘要每次进程启动读 22 个文件（<50ms，可接受）
+
+### T 里程碑状态
+- **261 测试全绿；22 页巡检零失败；快照命中 ready 5.2s；重算 131s；增量 5×**。
+- 待办：分批提交（等用户批准 + provenance）。**U 阶段（Rating 2.1 → 武器时间线 → 控图 v2）
+  是下一个大阶段**，V 阶段（胜势曲线 → 经济 EV → 星系迭代）随样本积累跟进。

@@ -5,12 +5,12 @@
 **本地优先的 CS2 Demo 分析平台** —— 解析 `.dem`，产出定量统计 + 电竞 OB 级实时 2D 回放
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-239_passing-3DDC97)](#)
+[![Tests](https://img.shields.io/badge/tests-261_passing-3DDC97)](#)
 [![License](https://img.shields.io/badge/License-MIT-a78bfa)](#license)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows11&logoColor=white)](#)
 [![ECharts](https://img.shields.io/badge/charts-Apache_ECharts-AA344D?logo=apacheecharts&logoColor=white)](https://echarts.apache.org/)
 
-**实时回放 · 控图染色 · 枪法纪律 · 经济博弈 · 下包攻防 · 大数据对比**
+**实时回放 · 控图染色 · 枪法纪律 · 经济博弈 · 下包攻防 · 大数据对比 · 秒开快照**
 
 ![replay](docs/screenshots/replay_hero.gif)
 
@@ -187,9 +187,15 @@ RWS 与 Rating 为自实现的专有公式近似（HLTV 2.0 / ESEA RWS 风格）
 
 ```bash
 pip install -e ".[dev]"
-pytest                    # 239 tests
+pytest                    # 261 tests
 ruff check cs_analyzer/
 ```
+
+### 性能（Phase T）
+
+跨场聚合快照落盘 + 进程池扫描 + per-demo 分片增量：冷重启到数据就绪 **~5s**（24 demo 库，
+此前 ~175s）；全量重算 201s→131s；新增 demo 只补算新 demo（5×）。`/system` 页有实时
+性能面板（快照清单/指纹/预热耗时），快照目录 `output/web/snapshots/` 可随时删除自动重建。
 
 ## License
 
