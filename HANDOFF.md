@@ -534,4 +534,105 @@ METRIC_DEFS 完整性/free_pickup_pr 分母/map 池化+门槛/lineups 池化）�
 ### T 里程碑状态
 - **261 测试全绿；22 页巡检零失败；快照命中 ready 5.2s；重算 131s；增量 5×**。
 - 待办：分批提交（等用户批准 + provenance）。**U 阶段（Rating 2.1 → 武器时间线 → 控图 v2）
-  是下一个大阶段**，V 阶段（胜势曲线 → 经济 EV → 星系迭代）随样本积累跟进。
+
+## 14. Phase D —— 职业选手数据集（2026-09-06 启动，D1 侦察完成）
+
+用户令：下载职业选手（s1mple/m0NESY/donk 等）**天梯 demo 优先**做参照数据集；
+一次性做到尾。规模拍板：先 30 场验证再扩容；D 盘余 57.6GB。
+
+### D1 通道侦察结论（2026-09-06 实测）
+
+| 通道 | 状态 | 细节 |
+|---|---|---|
+| **FACEIT open API** | 🟡 **需免费 API key** | `open.faceit.com/data/v4`：无 key=403；假 key=400 `invalid_token`（key 有效即可用：players→history→matches→`demo_url` 直链 FACEIT CDN，社区下载器 Bl4CkGuuN/FACEIT-Demo-Downloader 证实此协议）。key 在 faceit.com 开发者页免费注册即得 |
+| HLTV | 🔴 403 | Cloudflare 拦截，UA/sec-ch-ua/Referer/代理全试皆 403；mirror 站也 403/302 |
+| **bo3.gg** | 🟡 **元数据真实、demo 文件已删** | API 完全公开无鉴权：`matches?sort=-start_date`、`matches/{slug}`（含 match_maps）、`matches/{slug}/games/{de_map}`（真实 players_stats/game_rounds/**steam64 配对**）、`games/{id}/players_stats`（ZywOo=76561198113666193 等全部选手 steam64）。但 `demo_url` 指向的 CDN 子域 DNS 全灭（cdn/static/demos.bo3.gg 不解析），`bo3.gg/{demo_url}` 返回 SPA HTML 非文件——**2020 至今所有抽样 demo 文件本体均已不可下载**；desc 列表只暴露 10 场 2026-11/12 未来占位赛（parsed=waiting） |
+| Valve MM | 🔴 不可行 | 职业选手的 MM sharecode 无法获取（只能本人账号） |
+| Leetify/csstats/scope.gg | 🔴 无公开 demo 直链 | |
+
+**结论**：demo 文件本体唯一可行通道 = **FACEIT open API + 免费 key**。bo3.gg 虽拿不到
+demo 文件，但其**公开统计 API（含职业选手 steam64、逐图逐回合数据）可直接做职业基准
+参照数据**（无需 demo 文件）——D3 可双轨：demo 文件（等 key）/ bo3 统计聚合（立即可做）。
+
+### D 阶段待用户输入
+1. **FACEIT API key**（用户到 faceit.com → Developers 免费注册 App 即得；或提供已有 key）
+2. key 到位前：D3 改用 bo3.gg 统计 API 做职业基准（无需 demo 文件），U/V 不受影响
+
+### D2/D3 完成状态（2026-09-06，key 未到，双线落地）
+- **D2a 下载器框架** ✅：`scripts/pro_fetch.py`（FACEIT open API 协议：players→history→
+  matches→demo_url 直链；幂等 + parse-check 门 + manifest.json + 限速）——**等 key 即用**，
+  无 key 时 exit 2 并提示注册路径
+- **D3a 统计基准采集器** ✅：`scripts/pro_baseline.py` → `output/pro_baseline.json`。
+  坑：bo3.gg 对非浏览器 UA 返回字面 `null`（反爬）；数字 id 端点有长冷却（by-slug 才稳）；
+  限速触发后 `null` 持续 ~1 分钟（脚本内置 8s 间隔 + null 三次退避重试）。三人数据已入库：
+  s1mple 711 场 / m0NESY 839 场 / donk 795 场，各 9-10 图逐图拆分（rating/avg_kills/avg_damage）
+  + accuracy（爆头率）+ 六月均分
+- **D3b 职业基准卡** ✅：`web/pro_baseline_data.py`（mtime 感知读取）+ `/api/pro-baseline.json`
+  + /compare 新"职业基准参照"区块（三人卡：场次/K-D/近期图池 ADR 带）。
+  **口径诚实**：bo3 评分与本地 demo 统计非同一标尺，卡片只做参照带不做跨尺排名
+
+## 15. Phase U/V —— 分析强化与竞技 AI（2026-09-06，一次到底全部完成）
+
+### U1 Rating 2.1 对齐 ✅
+- **公式核实**（web archive）：HLTV 新闻 40051 "Introducing Rating 2.1"（Wayback 快照）——
+  2.1 是 2.0 的口径修正而非新公式：KAST 保枪规则（败回合无 K/A 的存活不计 KAST）、
+  败回合存活在 survival 子评分降权、CS2 助攻 26 伤（原 41）加成上调、均值回 1.00（实测漂移 1.06）。
+  混合常数沿用 HLTV 2017 公开的 2.0 blend（0.0073/0.3591/0.5329/0.2372/0.0032/0.1587）。
+- **`analysis/ratings21.py`**：KAST21 重算（败回合 save 规则）+ Impact 助攻 1.25× +
+  DPR 存活折半 + 1/1.06 再校准；result 带 rounds_total（回合加权）。
+  **注册坑**：新模块必须加进 runner.py 的 import 清单，否则 run_one 报
+  "failed to produce a result"（本轮踩过）。
+- 展示：生涯页"场均 Rating 2.1"卡（2.0 对照 + 保枪回合数）+ KAST%(2.1)。
+  实库：CCTV909 2.1=1.91 vs 2.0=2.02（保枪者降分方向正确）。
+
+### U2 武器持有时间线 ✅
+- **`analysis/weapon_timeline.py`**：active_weapon_name 逐 tick → 持有段（死亡分段）
+  → 每武器持有时长/段数/击杀转化 + 每回合开局主武器（round_equips）。
+  武器名用 `analysis.weapons.canonical` 归一（否则事件表 ak47 vs 展示名 AK-47 对不上，
+  kills 恒 0——踩过）；is_alive=False 的 tick 必须参与遍历（作为分段边界），
+  只遍历 alive 会把两段粘成一段（踩过）。
+- API `/api/demo/{h}/analysis/weapon_timeline.json` + 战术 Tab"武器持有时间线"
+  （ECharts custom series 每回合一格、按武器哈希取色、tooltip 带时长与击杀）。
+  **custom series 坑**：data value 数组维度要与 encode 对齐（value=[yIdx, r-0.4, r+0.4] +
+  encode x:[1,2] y:0）——第一版 value 只有 2 维导致渲染空白（踩过）。
+
+### U3 控图算法 v2 ✅（解冻）
+- viewer_control.js computeInstant 增三因子：**交战衰减**（新鲜击杀点半径 400u 内
+  |field|×0.45，6s TTL 线性衰减）、**存活加权**（死亡 tick 强制分段+清场）、
+  **密度去重**（|v|^0.72——3 人抱团不再 3×线性）。
+- viewer_prefs 新"控图 v2"参数组（v2 开关/交战半径/衰减/存续/去重指数），
+  canvas 侧 setFightProvider 从 D.events.kills 取 ≤TTL 的击杀点（attacker/victim 中点）。
+- 验收：v2 开/关回合 13 对照截图（output/.visual/u3_v2_on/off.png）像素差 1.98%。
+
+### V1 回合胜势曲线 ✅
+- **`analysis/win_probability.py`**：逐事件快照（存活差/买法差/装备差/下包/回合计数）
+  → **numpy 手写 logistic（L2）+ 特征标准化**（原始量纲梯度爆炸——未标准化时全 1.0，踩过）
+  + 80% bootstrap 置信带。单场拟合；跨场 LOO 聚合列遗留小件。
+- 实库 AUC **0.94**（184 快照）；API `/api/demo/{h}/analysis/win_probability.json`；
+  概览 Tab"胜势曲线（实验）"：24 回合曲线 + 下包 pin 标记 + 击杀事件色点 + 置信带。
+- AUC 排序用 average-rank（ties 平均）；测试覆盖 ties/单调性/可分数据三性质。
+
+### V2 经济决策 EV 表 ✅
+- **`analysis/economy_ev.py`**：决策状态（买法/方/比分差/连败≥2）→ 胜率+平均存活；
+  **N<5 灰显铁律**（"1 局 100%"误导教训的制度化）。
+- `web/ev_data.py` 跨库聚合 memo（invalidate 链挂入）+ `/api/ev/table.json`
+  + 经济 Tab"决策 EV 查询表"（36 格实库：eco/force/full × T/CT × 比分 × 连败）。
+  **UnboundLocalError 坑**：模块级 `_cells` 在函数内写前必须 `global` 声明（踩过）。
+
+### V3 风格演变轨迹 ✅
+- style_map._style_trajectories：funlab scan 按时间窗（5 场/窗）向量漂移 →
+  同一 SVD 基投影 → 星系虚线轨迹 + 窗口节点 W1/W2…；漂移阈值 1.5·√k（29 维→8.1）。
+- /fun-lab 星系"演变轨迹"开关（ECharts lines series **data 必须是 [{coords:[…]}] 每线一元素**
+  ——写成分散 coord 会静默失败，踩过）；实库 4 人轨迹（CCTV909 5 窗）。
+
+### U/V 里程碑状态
+- **276 测试全绿**（261→276）；visual_check 22 页零失败（player_career 一次偶发超时复跑过）。
+- 新 API：weapon_timeline / win_probability / economy_ev / ev/table / pro-baseline（路由在通配前）。
+- 新文件：analysis/{ratings21,weapon_timeline,win_probability,economy_ev}.py、
+  web/{pro_baseline_data,ev_data}.py、scripts/{pro_fetch,pro_baseline}.py、
+  tests/{test_ratings21,test_weapon_timeline,test_win_probability,test_economy_ev}.py
+
+### 遗留（下轮小件）
+1. D2b：30 场 FACEIT demo 下载（等用户 key；`scripts/pro_fetch.py --key ...` 即跑）
+2. V1 跨场 LOO 拟合（现单场拟合；web 层聚合训练样本后 refit）
+3. V3 轨迹阈值做成 prefs

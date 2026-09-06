@@ -39,6 +39,14 @@
 - **同时验证**：解析层全部路径 + 缓存命中/耗时 + 异常记录 + 事件表覆盖矩阵
 - **状态**：🟢 完成（判定逻辑沉淀在 `cs_analyzer/coverage.py` + `scripts/probe_team0.py`）
 
+### LTG-4 [研究] 职业基准与竞技 AI —— Phase D/U/V 交付（2026-09-06）
+- **LTG-4a 职业基准参照**：bo3.gg 公开统计 API 采集三人基准（s1mple/m0NESY/donk，711-839 场）
+  → /compare 职业基准卡（逐图 ADR 带/K-D/场次）；demo 文件层等 FACEIT key（`scripts/pro_fetch.py` 即用）
+- **LTG-4b 竞技 AI**：胜势曲线（回合逐事件 T 胜率，numpy logistic AUC 0.94）、
+  决策 EV 查询表（买法×比分×连败，N<5 灰显）、风格演变轨迹（时间窗漂移 + 星系开关）
+- **验收形态**：平台内网页（概览胜势曲线 / 经济 EV 表 / fun-lab 轨迹 / compare 职业卡）——全部落地并截图人工复核
+- **状态**：🟢 方法验证期完成（276 测试全绿）；样本随数据飞轮增长自动增强
+
 ## 短期台阶（通往 LTG，agent 可验收）
 
 - **STG-1 回放打磨** ✅ 完成——重叠类回合/结束淡出（`overlay_fade_seconds`）、射击标记 z-order 降到轨迹之下、HUD 事件流已含道具投掷（验证）、开局时长按 opening 秒数（验证）、HUD 侧别色反馈（T黄/CT蓝）

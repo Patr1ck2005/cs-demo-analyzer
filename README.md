@@ -5,7 +5,7 @@
 **本地优先的 CS2 Demo 分析平台** —— 解析 `.dem`，产出定量统计 + 电竞 OB 级实时 2D 回放
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-261_passing-3DDC97)](#)
+[![Tests](https://img.shields.io/badge/tests-276_passing-3DDC97)](#)
 [![License](https://img.shields.io/badge/License-MIT-a78bfa)](#license)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows11&logoColor=white)](#)
 [![ECharts](https://img.shields.io/badge/charts-Apache_ECharts-AA344D?logo=apacheecharts&logoColor=white)](https://echarts.apache.org/)
@@ -173,6 +173,19 @@ csa coverage "demos/*.dem" --out report.html   # 解析覆盖度报告
 | `aim` | 开火转化、移动状态开火、首发延迟 |
 | `postplant` | 守包/retake 胜率、拆弹尝试与用时 |
 | `weapon_splits` | 武器类别击杀/死亡拆分 |
+| `ratings21` | HLTV Rating 2.1 口径近似（KAST 保枪规则 + 助攻加成 + 再校准） |
+| `weapon_timeline` | 逐 tick 武器持有段 / 每回合开局主武器 / 持有时长击杀转化 |
+| `win_probability` | 回合胜势曲线（逐事件 logistic + bootstrap 置信带） |
+| `economy_ev` | 决策 EV 查询表（买法×比分×连败，N<5 灰显） |
+
+## 职业基准与竞技 AI
+
+- **职业基准参照**：bo3.gg 公开统计 API 采集 s1mple / m0NESY / donk 等选手的逐图数据
+  （`python scripts/pro_baseline.py s1mple m0nesy donk`），/compare 页职业基准卡展示。
+- **胜势曲线**：对局概览页逐回合 T 方胜率曲线，含下包标记与 80% 置信带（单场拟合，样本随库增长增强）。
+- **决策 EV**：经济 Tab 的买法×比分差×连败状态查询表，小样本格自动灰显。
+- **风格演变**：趣味数据页风格星系支持时间窗演变轨迹（同一选手跨窗口向量漂移）。
+- **控图 v2**：交战衰减 + 存活加权 + 密度去重（⚙ 面板可调，v1/v2 开关并存）。
 
 ## 缓存
 
@@ -187,7 +200,7 @@ RWS 与 Rating 为自实现的专有公式近似（HLTV 2.0 / ESEA RWS 风格）
 
 ```bash
 pip install -e ".[dev]"
-pytest                    # 261 tests
+pytest                    # 276 tests
 ruff check cs_analyzer/
 ```
 

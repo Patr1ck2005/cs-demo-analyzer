@@ -31,6 +31,10 @@
   </div>
 </div>
 <div class="card" style="padding:10px 12px" id="tp-contrast"></div>
+
+<div class="section-header"><h2>职业基准参照</h2>
+  <div class="section-actions sub" id="pro-note" style="margin:0">D3 · bo3.gg 统计口径（与本地评分非同一标尺）</div></div>
+<div class="grid" id="pro-cards" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))"></div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/vendor/echarts.min.js"></script>
@@ -195,6 +199,35 @@
       tile('车队局（≥' + tp.library.stack_threshold + ' 常客同场）', sv.stack, sv.mixed) + `</div>` +
       `<div class="sub" style="margin-top:6px">车队局 ${sv.stack_matches} 场；混野为其余 ` +
       `${sv.mixed_matches} 场 5E（常客不足同场）。Rating 为该组常客样本均值。</div>`;
+  })();
+
+  // ---- D3b: pro reference baseline (bo3.gg stats layer) ----
+  (async function () {
+    const box = document.getElementById('pro-cards');
+    let pro;
+    try {
+      const r = await fetch('/api/pro-baseline.json');
+      pro = await r.json();
+    } catch (e) { if (box) box.innerHTML = '<div class="sub">职业基准数据不可用</div>'; return; }
+    if (!pro.available) {
+      if (box) box.innerHTML = '<div class="sub" style="padding:8px">' + (pro.note || '') + '</div>';
+      return;
+    }
+    if (document.getElementById('pro-note')) {
+      document.getElementById('pro-note').textContent =
+        'D3 · 采集于 ' + (pro.collected_at || '').slice(0, 10) + ' · bo3.gg 统计口径（与本地评分非同一标尺）';
+    }
+    box.innerHTML = pro.players.map((p) => {
+      const maps = (p.top_maps || []).map((m) =>
+        `<div class="sub" style="display:flex;justify-content:space-between;font-size:11px">` +
+        `<span>${m.map.replace('de_', '')}</span>` +
+        `<span>${m.maps_count} 场 · ADR ${m.avg_damage != null ? m.avg_damage.toFixed(1) : '-'}</span></div>`).join('');
+      return `<div class="card" style="margin-bottom:0;padding:10px 12px">` +
+        `<div style="font-size:15px;font-weight:600">${p.nickname}</div>` +
+        `<div class="sub" style="font-size:11px">${p.games ?? '-'} 场 · ${p.rounds ?? '-'} 回合` +
+        `${p.kd != null ? ' · K/D ' + p.kd : ''}</div>` +
+        `<div style="margin:6px 0 2px;font-size:12px;color:#c4b5fd">近期图池</div>${maps}</div>`;
+    }).join('');
   })();
 })();
 </script>
