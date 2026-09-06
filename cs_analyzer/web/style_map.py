@@ -189,6 +189,7 @@ def _build() -> dict:
             "n_players": len(players), "points": [], "features_used": [],
             "features_excluded": [], "pca": {"var_pc1": 0.0, "var_pc2": 0.0},
             "cut_ratio": CUT_RATIO, "gate": report.get("gate", {}),
+            "trajectories": [],
         }
 
     x, used, excluded = _feature_matrix(players, keys)
@@ -221,6 +222,8 @@ def _build() -> dict:
                         if j >= 0 else None),
         })
 
+    trajectories = _style_trajectories(players, keys, used_z, label_z)
+
     return {
         "note": "研究预览：全 32 指标 · 稳健标准化 · 欧氏距离 · Ward 聚类；样本增长后星系自动变有意义",
         "n_players": len(players),
@@ -228,7 +231,102 @@ def _build() -> dict:
         "pca": {"var_pc1": round(v1, 3), "var_pc2": round(v2, 3)},
         "cut_ratio": CUT_RATIO, "gate": report.get("gate", {}),
         "points": points,
+        "trajectories": trajectories,
     }
+
+
+def _style_trajectories(players: list[dict], keys: list[str], used_z: list[str],
+                         label_z: dict[str, str]) -> list[dict]:
+    """V3 风格演变：同一选手按时间窗（每 ~5 场一窗）向量漂移轨迹。
+
+    Uses the funlab scan's per-demo entries: for each player with demos
+    spanning multiple dates, split chronologically into windows, compute the
+    metric vector per window, project through the SAME robust scaler + PCA
+    fitted on the full player matrix, and emit polyline points (oldest→newest)
+    plus a change note when the biggest per-window jump exceeds 1.5 z-units.
+    """
+    from cs_analyzer.web.funlab_data import _scan_all
+
+    scan = _scan_all()
+    if not scan or not scan.get("entries"):
+        return []
+    # index: sid -> [(date, demo_hash)] and per-demo player vectors
+    from collections import defaultdict
+
+    per_demo_vectors: dict[str, dict[str, dict]] = {}  # demo_hash -> sid -> metrics
+    for e in scan["entries"]:
+        per_demo_vectors[e["demo_hash"]] = {p["steamid"]: p for p in e["players"]}
+
+    # reuse the fitted scaler: rebuild z from the same rows to get (mu, sd)
+    raw = np.array([[float(p.get(k, 0.0) or 0.0) for k in keys] for p in players])
+    mu = np.median(raw, axis=0)
+    q75, q25 = np.percentile(raw, [75, 25], axis=0)
+    iqr = q75 - q25
+    std = raw.std(axis=0)
+    scale = np.where(iqr > 1e-12, iqr, np.where(std > 1e-12, std, 1.0))
+    # project helper: vector -> PC coords via the SAME SVD basis
+    zfull = (raw - mu) / scale
+    zc = zfull - zfull.mean(axis=0, keepdims=True)
+    _u, s, vt = np.linalg.svd(zc, full_matrices=False)
+
+    # player -> [(date, demo_hash)] sorted by date
+    roster = {p["steamid"]: p for p in players}
+    history: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for e in scan["entries"]:
+        date = e.get("date")
+        if not date:
+            continue
+        for sid in e["player_ids"]:
+            if sid in roster:
+                history[sid].append((date, e["demo_hash"]))
+    # also carry WMPVP demos (no date) at the end in file order
+    for e in scan["entries"]:
+        if e.get("date"):
+            continue
+        for sid in e["player_ids"]:
+            if sid in roster:
+                history[sid].append(("9999", e["demo_hash"]))
+
+    WINDOW = 5
+    out = []
+    for sid, entries in history.items():
+        if sid not in roster:
+            continue
+        entries = sorted(set(entries))
+        if len(entries) < 2:
+            continue  # no evolution without ≥2 windows
+        windows = [entries[i:i + WINDOW] for i in range(0, len(entries), WINDOW)]
+        if len(windows) < 2:
+            continue
+        pts = []
+        prev_z = None
+        max_jump = 0.0
+        for wi, win in enumerate(windows):
+            vecs = []
+            for _date, dh in win:
+                p = per_demo_vectors.get(dh, {}).get(sid)
+                if p:
+                    vecs.append([float(p.get(k, 0.0) or 0.0) for k in keys])
+            if not vecs:
+                continue
+            zv = (np.mean(np.array(vecs), axis=0) - mu) / scale
+            zr_ = (zv - zfull.mean(axis=0, keepdims=True)[0]) @ vt[:2].T
+            pts.append({"window": wi + 1, "n_demos": len(win),
+                        "x": round(float(zr_[0]), 4), "y": round(float(zr_[1]), 4)})
+            if prev_z is not None:
+                max_jump = max(max_jump, float(np.linalg.norm(zv - prev_z)))
+            prev_z = zv
+        if len(pts) < 2:
+            continue
+        # change threshold scales with dimensionality: 1.5σ per dim in a
+        # k-dim z space = 1.5·√k euclidean (8.1 at k=29)
+        changed = max_jump > 1.5 * (len(used_z) ** 0.5)
+        out.append({
+            "steamid": sid, "name": roster[sid].get("name", sid),
+            "points": pts, "max_jump": round(max_jump, 2),
+            "change_note": ("风格明显漂移" if changed else "风格稳定"),
+        })
+    return out
 
 
 # ---- T1 snapshot pair (called by web.snapshots under _lock) ----

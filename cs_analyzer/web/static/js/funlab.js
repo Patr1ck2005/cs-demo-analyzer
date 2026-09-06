@@ -177,6 +177,23 @@
   var FILTERS = { stack: [], dates: [] };  // empty array = no filter
 
   // ---- Phase N: 风格星系（谁和谁打得像）----
+  var GALAXY = { showTraj: true, last: null };  // V3: 演变轨迹开关
+  // script runs at the bottom of <body> — the toggle exists already;
+  // DOMContentLoaded has usually fired, so register immediately + guard
+  function _bindTrajToggle() {
+    var tg = document.getElementById('sm-traj-toggle');
+    if (tg && !tg.dataset.trajBound) {
+      tg.dataset.trajBound = '1';
+      tg.addEventListener('change', function () {
+        GALAXY.showTraj = tg.checked;
+        if (GALAXY.last) drawGalaxy(GALAXY.last);
+      });
+    }
+  }
+  _bindTrajToggle();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _bindTrajToggle);
+  }
   function drawGalaxy(sm) {
     var dom = document.getElementById('sm-galaxy');
     if (!dom || !sm || !sm.points || !sm.points.length) {
@@ -201,6 +218,28 @@
       };
     });
     var chart = echarts.init(dom);
+    var trajSeries = [];
+    if (GALAXY.showTraj && (sm.trajectories || []).length) {
+      sm.trajectories.forEach(function (t, ti) {
+        if (t.points.length < 2) return;
+        trajSeries.push({
+          name: t.name + ' 演变', type: 'lines', coordinateSystem: 'cartesian2d',
+          polyline: true, silent: true, z: 2,
+          lineStyle: { color: 'rgba(196,181,253,.55)', width: 1.6, type: 'dashed' },
+          effect: { show: true, period: 5, trailLength: 0, symbol: 'arrow', symbolSize: 5, color: '#c4b5fd' },
+          data: [{ coords: t.points.map(function (pt) { return [pt.x, pt.y]; }) }],
+          tooltip: { show: false },
+        });
+        // window dots on top of the polyline
+        trajSeries.push({
+          name: t.name + ' 节点', type: 'scatter', silent: true, z: 3,
+          symbolSize: 5, itemStyle: { color: '#c4b5fd', opacity: 0.9 },
+          data: t.points.map(function (pt) { return { value: [pt.x, pt.y],
+            label: { show: ti < 2, position: 'right', fontSize: 9, color: '#9aa0b8',
+                     formatter: 'W' + pt.window } } }),
+        });
+      });
+    }
     chart.setOption({
       grid: { left: 8, right: 24, top: 16, bottom: 8, containLabel: true },
       tooltip: {
@@ -229,7 +268,7 @@
                  formatter: function (q) { return q.data.name.length > 10 ? q.data.name.slice(0, 10) + '…' : q.data.name; } },
         itemStyle: { opacity: 0.9, borderColor: 'rgba(0,0,0,.5)', borderWidth: 1,
                      color: function (q) { return q.data.color; } },
-      }],
+      }].concat(trajSeries),
     });
     var box = document.getElementById('sm-portraits');
     if (box) {
@@ -410,7 +449,7 @@
         redrawChart();
         fetch('/api/style-map.json', { cache: 'no-store' })
           .then(function (r) { return r.json(); })
-          .then(drawGalaxy)
+          .then(function (sm) { GALAXY.last = sm; drawGalaxy(sm); })
           .catch(function () {
             var g = document.getElementById('sm-galaxy');
             if (g) g.innerHTML = '<div class="empty-state" style="padding:40px"><div class="empty-title">风格星系加载失败</div></div>';

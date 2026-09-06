@@ -59,6 +59,10 @@ def invalidate_aggregate() -> None:
     from cs_analyzer.web import style_map
 
     style_map.invalidate_style_map()
+    # V2: the economy-EV table aggregates the same cache set
+    from cs_analyzer.web import ev_data
+
+    ev_data.invalidate_ev()
     # S: per-demo in-memory analysis caches key by demo_hash — a re-parse of
     # the same hash (PARSER_VERSION bump) must not keep serving old modules
     from cs_analyzer.web.app import _analysis_cache, _module_cache
