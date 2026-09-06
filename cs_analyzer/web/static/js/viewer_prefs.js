@@ -33,6 +33,11 @@
     'control.tau': 2.0,     // EMA time constant (game seconds)
     'control.alpha': 0.34,  // territory tint max alpha
     'control.h3d': 0.06,    // 3D column height (× camera distance)
+    'control.v2': 1,        // U3: v2 = density dampening + engagement decay
+    'control.fight_r': 400, // fight zone radius (world units)
+    'control.fight_decay': 0.45, // control multiplier inside a fight zone
+    'control.fight_ttl': 6.0,    // fight zone lifetime (game seconds)
+    'control.density_pow': 0.72, // team-mate density dampening exponent
   };
 
   // ---- panel schema: drives the drawer UI ----
@@ -67,6 +72,13 @@
       { key: 'control.tau', label: '平滑 τ s', min: 0.2, max: 8, step: 0.1 },
       { key: 'control.alpha', label: '染色强度', min: 0.05, max: 1, step: 0.01 },
       { key: 'control.h3d', label: '3D 柱高系数', min: 0.01, max: 0.2, step: 0.005 },
+    ]},
+    { group: '控图 v2（U3）', hint: 'v2=密度去重+交战衰减：抱团不再线性叠加，交战区控制存疑', items: [
+      { key: 'control.v2', label: 'v2 开关', min: 0, max: 1, step: 1 },
+      { key: 'control.fight_r', label: '交战半径', min: 150, max: 800, step: 10 },
+      { key: 'control.fight_decay', label: '交战衰减', min: 0, max: 0.9, step: 0.05 },
+      { key: 'control.fight_ttl', label: '交战存续 s', min: 1, max: 15, step: 0.5 },
+      { key: 'control.density_pow', label: '密度去重', min: 0.4, max: 1, step: 0.02 },
     ]},
   ];
 

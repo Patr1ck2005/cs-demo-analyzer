@@ -12,12 +12,16 @@
 <div class="stat-row">
   <div class="stat-card"><div class="stat-label">K / D</div>
     <div class="stat-value">{{ p.total_kills }} / {{ p.total_deaths }}</div></div>
-  <div class="stat-card"><div class="stat-label">场均 Rating</div>
+  <div class="stat-card"><div class="stat-label">场均 Rating 2.1</div>
+    <div class="stat-value {{ 'pos' if r21 and r21.rating21 >= 1.0 else 'neg' }}">{{ '%.2f'|format(r21.rating21) if r21 else '—' }}</div>
+    {% if r21 %}<div class="sub" style="font-size:11px;margin:0">2.0 口径 {{ '%.2f'|format(r21.rating20) }} · 保枪 {{ r21.save_rounds }} 回合</div>{% endif %}</div>
+  <div class="stat-card"><div class="stat-label">场均 Rating 2.0</div>
     <div class="stat-value {{ 'pos' if p.avg_rating >= 1.0 else 'neg' }}">{{ '%.2f'|format(p.avg_rating) }}</div></div>
   <div class="stat-card"><div class="stat-label">场均 ADR</div><div class="stat-value">{{ '%.1f'|format(p.avg_adr) }}</div></div>
   <div class="stat-card"><div class="stat-label">场均 KPR</div><div class="stat-value">{{ '%.2f'|format(p.avg_kpr) }}</div></div>
   <div class="stat-card"><div class="stat-label">场均 HS%</div><div class="stat-value">{{ '%.1f'|format(p.avg_hs_pct) }}</div></div>
-  <div class="stat-card"><div class="stat-label">场均 KAST%</div><div class="stat-value">{{ '%.0f'|format(p.avg_kast) }}</div></div>
+  <div class="stat-card"><div class="stat-label">KAST% (2.1)</div>
+    <div class="stat-value">{{ '%.0f'|format(r21.kast21) if r21 else '—' }}</div></div>
 </div>
 
 <div class="grid">

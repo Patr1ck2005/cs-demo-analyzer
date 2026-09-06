@@ -23,6 +23,13 @@
   const SAT_PLAYERS = 2.5;     // |control| that reaches full opacity
   const MAX_ALPHA = 0.34;
   const MIN_CELL = 0.15;       // cells below this stay transparent
+  // v2 (Phase U3): engagement decay / density dampening
+  const V2_FIGHT_R = 400;      // fight zone radius (world units) — control near
+                               // a fresh kill is re-normalized (contested, not held)
+  const V2_FIGHT_DECAY = 0.45; // |field| multiplier inside a fight zone
+  const V2_FIGHT_TTL_S = 6.0;  // fight zone influence lifetime (game seconds)
+  const V2_DENSITY_POW = 0.72; // team-mate density dampening exponent: 3 players
+                               // in one cell no longer stack linearly (0.72 → ~2.2×)
   // 3D
   const FOV = 50 * Math.PI / 180;
   const GROUND_DIVS = 16;      // ground texture subdivision (per axis)
@@ -47,9 +54,11 @@
   /**
    * Instantaneous control field: Σ_T w − Σ_CT w per cell.
    * players: [{x, y, sideCode}] (alive only; 0=T 1=CT).
+   * fights: recent kill sites [{x, y, tick}] (v2 engagement decay) or null.
+   * curTick / TICK: current tick + tick rate for fight-zone TTL.
    * Returns Float32Array(cols*rows).
    */
-  function computeInstant(map, players) {
+  function computeInstant(map, players, fights, curTick, TICK) {
     const g = ensureGrid(map);
     const field = new Float32Array(g.cols * g.rows);
     const sigma = pref('control.sigma', SIGMA);
@@ -76,6 +85,44 @@
         }
       }
     }
+    // ---- v2 density dampening: |field| per cell → sign · |v|^pow ----
+    const pow = pref('control.density_pow', V2_DENSITY_POW);
+    if (pow > 0 && pow < 1) {
+      for (let i = 0; i < field.length; i++) {
+        const v = field[i];
+        if (v === 0) continue;
+        field[i] = Math.sign(v) * Math.pow(Math.abs(v), pow);
+      }
+    }
+    // ---- v2 engagement decay: fresh kill sites mark "contested" ground ----
+    if (fights && fights.length && curTick != null) {
+      const ttl = pref('control.fight_ttl', V2_FIGHT_TTL_S) * TICK;
+      const decay = 1 - pref('control.fight_decay', V2_FIGHT_DECAY);
+      const fr = pref('control.fight_r', V2_FIGHT_R);
+      const reachF = Math.ceil(fr / CELL_WORLD);
+      for (const f of fights) {
+        if (curTick - f.tick > ttl) continue;
+        if (!Number.isFinite(f.x) || !Number.isFinite(f.y)) continue;
+        // linear fade from full decay at the kill to zero at TTL expiry
+        const age = (curTick - f.tick) / ttl;
+        const factor = 1 - decay * (1 - age);
+        const fcx = Math.floor((f.x - g.x0) / CELL_WORLD);
+        const fcy = Math.floor((f.y - g.y0) / CELL_WORLD);
+        for (let dy = -reachF; dy <= reachF; dy++) {
+          const ry = fcy + dy;
+          if (ry < 0 || ry >= g.rows) continue;
+          const wy = g.y0 + (ry + 0.5) * CELL_WORLD;
+          for (let dx = -reachF; dx <= reachF; dx++) {
+            const rx = fcx + dx;
+            if (rx < 0 || rx >= g.cols) continue;
+            const wx = g.x0 + (rx + 0.5) * CELL_WORLD;
+            const d = Math.hypot(wx - f.x, wy - f.y);
+            if (d > fr) continue;
+            field[ry * g.cols + rx] *= 1 - (1 - d / fr) * (1 - factor);
+          }
+        }
+      }
+    }
     return field;
   }
 
@@ -93,8 +140,12 @@
   let lastTick = null;
   function reset() { acc = null; lastTick = null; }
 
+  let fightProvider = null; // v2: (tick) => [{x, y, tick}] fresh kill sites
+  function setFightProvider(fn) { fightProvider = fn; }
+
   function update(tick, TICK, playersAt, map) {
     ensureGrid(map); // resolve the grid before any computeInstant call
+    const fights = fightProvider ? fightProvider(tick) : null;
     if (acc === null || lastTick === null || Math.abs(tick - lastTick) > TICK) {
       // seek or cold start: integrate the trailing window coarsely
       const steps = 8;
@@ -102,12 +153,12 @@
       acc = null;
       for (let k = steps; k >= 1; k--) {
         const t = tick - (span * k) / steps;
-        acc = smoothTo(acc, computeInstant(grid, playersAt(t)), span / steps / TICK);
+        acc = smoothTo(acc, computeInstant(grid, playersAt(t), fights, t, TICK), span / steps / TICK);
       }
-      acc = smoothTo(acc, computeInstant(grid, playersAt(tick)), 0.05);
+      acc = smoothTo(acc, computeInstant(grid, playersAt(tick), fights, tick, TICK), 0.05);
     } else {
       const dtS = (tick - lastTick) / TICK;
-      acc = smoothTo(acc, computeInstant(grid, playersAt(tick)), dtS);
+      acc = smoothTo(acc, computeInstant(grid, playersAt(tick), fights, tick, TICK), dtS);
     }
     lastTick = tick;
     return acc;
@@ -360,7 +411,7 @@
   }
 
   window.ViewerControl = {
-    computeInstant: (map, players) => computeInstant(map, players),
+    computeInstant: (map, players, fights, curTick, TICK) => computeInstant(map, players, fights, curTick, TICK),
     smoothTo,
     update,
     renderFlat,
@@ -369,6 +420,7 @@
     reset3d,
     orbit,
     dolly,
+    setFightProvider,
     is3dReady: () => cam3d.ready,
     CELL_WORLD,
     MIN_CELL,

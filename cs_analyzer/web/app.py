@@ -231,12 +231,52 @@ def player_career(request: Request, steamid: str):
         return TEMPLATES.TemplateResponse(
             request, "error.html", {"message": f"未找到选手 {steamid}"}, status_code=404
         )
+    # U1: Rating 2.1 vs 2.0 side-by-side (round-weighted across demos)
+    r21 = _player_rating21(steamid)
     # B4: career radar must normalize with the same server-side ranges as the
     # per-demo radar (the old hardcoded template ranges were wrong).
     return TEMPLATES.TemplateResponse(
         request, "player_career.html",
-        {"p": row, "radar_axes": RADAR_AXES},
+        {"p": row, "radar_axes": RADAR_AXES, "r21": r21},
     )
+
+
+def _player_rating21(steamid: str) -> dict | None:
+    """Round-weighted Rating 2.1 / 2.0 / KAST21 / saves for one player.
+
+    Walks every demo's ratings21 result (thread path only — the card is one
+    page, not a hot path; process overhead would dwarf the gain).
+    """
+    try:
+        from cs_analyzer.analysis.library import cached_demo_hashes, scan_hashes
+        from cs_analyzer.web import runtime
+
+        cache_dir = runtime.cache().cache_dir
+        pairs = scan_hashes(cache_dir, cached_demo_hashes(cache_dir),
+                            lambda d: runtime.analyze_module(d, "ratings21"))
+        num21 = num20 = den = kast = saves = 0
+        for _h, result in pairs:
+            if result is None:
+                continue
+            p = result.by_steamid(steamid)
+            if p is None or result.rounds_total <= 0:
+                continue
+            n = result.rounds_total
+            num21 += p.Rating21 * n
+            num20 += p.Rating * n
+            kast += p.KAST21 * n
+            saves += p.save_rounds
+            den += n
+        if den == 0:
+            return None
+        return {
+            "rating21": round(num21 / den, 2),
+            "rating20": round(num20 / den, 2),
+            "kast21": round(kast / den),
+            "save_rounds": saves,
+        }
+    except Exception:  # noqa: BLE001 — U1 card must never 500 the page
+        return None
 
 
 @app.get("/highlights", response_class=HTMLResponse)
@@ -709,6 +749,64 @@ def weapons_splits_charts(demo_hash: str):
     return JSONResponse(weapon_splits_payload(_analyze_module(demo, "weapon_splits")))
 
 
+@app.get("/api/demo/{demo_hash}/analysis/weapon_timeline.json")
+def weapon_timeline_charts(demo_hash: str):
+    """Per-player weapon hold segments + round equips (U2 武器时间线)."""
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    result = _analyze_module(demo, "weapon_timeline")
+    players = []
+    for p in result.players:
+        players.append({
+            "steamid": p.steamid, "name": p.name, "team": p.team,
+            "holds": [{"weapon": h.weapon, "seconds": round(h.ticks / 64.0, 1),
+                       "segments": h.segments, "kills": h.kills} for h in p.holds],
+            "round_equips": p.round_equips,
+        })
+    return JSONResponse({"players": players, "rounds": result.rounds_total})
+
+
+@app.get("/api/demo/{demo_hash}/analysis/win_probability.json")
+def win_probability_charts(demo_hash: str):
+    """Round win-probability curve (V1 胜势曲线)."""
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    result = _analyze_module(demo, "win_probability")
+    return JSONResponse({
+        "rounds": [[{
+            "round": s.round, "tick": s.tick, "side": s.side,
+            "alive_diff": s.alive_diff, "buy_diff": round(s.buy_diff, 2),
+            "planted": s.planted, "p_win": s.p_win,
+            "p_lo": s.p_lo, "p_hi": s.p_hi, "outcome": s.outcome,
+        } for s in rnd] for rnd in result.rounds],
+        "auc": result.model_auc, "n_train_rounds": result.n_train_rounds,
+        "note": result.sample_note,
+    })
+
+
+@app.get("/api/demo/{demo_hash}/analysis/economy_ev.json")
+def economy_ev_demo(demo_hash: str):
+    """Per-demo decision-EV cells (V2)."""
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    result = _analyze_module(demo, "economy_ev")
+    return JSONResponse({
+        "cells": [c.model_dump() for c in result.cells],
+        "min_samples": result.min_samples, "total_rounds": result.total_rounds,
+    })
+
+
+@app.get("/api/ev/table.json")
+def economy_ev_table():
+    """Cross-library decision-EV query table (V2 决策 EV)."""
+    from cs_analyzer.web.ev_data import ev_table
+
+    return JSONResponse(ev_table())
+
+
 # ---- Phase H: highlights / compare / system payloads ----
 
 @app.get("/api/demo/{demo_hash}/highlights.json")
@@ -736,6 +834,14 @@ def compare_charts():
     from cs_analyzer.web.aggregation import aggregated
 
     return JSONResponse(compare_payload(aggregated()))
+
+
+@app.get("/api/pro-baseline.json")
+def pro_baseline_card():
+    """D3b: pro reference card (bo3.gg stats layer; demo layer needs FACEIT key)."""
+    from cs_analyzer.web.pro_baseline_data import pro_baseline_card as card
+
+    return JSONResponse(card())
 
 
 @app.get("/api/compare/teamplay.json")

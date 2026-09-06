@@ -16,6 +16,10 @@ from cs_analyzer.model.parsed_demo import ParsedDemo
 import cs_analyzer.analysis.basic_stats  # noqa: F401
 import cs_analyzer.analysis.preference  # noqa: F401
 import cs_analyzer.analysis.ratings  # noqa: F401
+import cs_analyzer.analysis.ratings21  # noqa: F401  # Phase U1
+import cs_analyzer.analysis.weapon_timeline  # noqa: F401  # Phase U2
+import cs_analyzer.analysis.win_probability  # noqa: F401  # Phase V1
+import cs_analyzer.analysis.economy_ev  # noqa: F401  # Phase V2
 import cs_analyzer.analysis.duels  # noqa: F401
 import cs_analyzer.analysis.economy  # noqa: F401
 import cs_analyzer.analysis.utility_effect  # noqa: F401

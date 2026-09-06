@@ -249,6 +249,21 @@
     }
     return out;
   }
+  // U3 v2: fresh kill sites for engagement decay (≤ fight_ttl seconds old)
+  ViewerControl.setFightProvider((tick) => {
+    if (!ViewerPrefs || ViewerPrefs.get('control.v2') < 0.5) return null;
+    const ttl = (ViewerPrefs.get('control.fight_ttl') || 6) * D.tick_rate;
+    const out = [];
+    for (const k of D.events.kills || []) {
+      if (tick - k.tick < 0 || tick - k.tick > ttl) continue;
+      // kill site = midpoint of attacker/victim when both known
+      const x = (k.ax != null && k.vx != null) ? (k.ax + k.vx) / 2 : (k.ax != null ? k.ax : k.vx);
+      const y = (k.ay != null && k.vy != null) ? (k.ay + k.vy) / 2 : (k.ay != null ? k.ay : k.vy);
+      if (x == null || y == null) continue;
+      out.push({ x, y, tick: k.tick });
+    }
+    return out;
+  });
   function drawControlLayer(ctx, tick, w, h) {
     const t0 = performance.now();
     const field = ViewerControl.update(tick, D.tick_rate, controlPlayersAt, D.map);

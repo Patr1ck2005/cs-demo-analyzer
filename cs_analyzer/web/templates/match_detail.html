@@ -60,6 +60,12 @@
   </table>
   </div>
 
+  <div class="section-header"><h2>胜势曲线（实验）</h2>
+    <div class="section-actions sub" id="winprob-note" style="margin:0">V1 · T 方视角逐事件胜率</div></div>
+  <div class="card" style="padding:8px">
+    <div id="winprob-chart" style="width:100%;height:340px" class="chart-loading"></div>
+  </div>
+
   <div class="section-header"><h2>属性雷达</h2>
     <div class="section-actions sub" style="margin:0">悬停查看原始值 · 点击图例切换选手</div></div>
   <div class="card" style="padding:8px">
@@ -131,6 +137,15 @@
   <div class="section-header"><h2>各买法胜率</h2>
     <div class="section-actions sub" id="eco-thresholds" style="margin:0">阈值加载中…（队伍均消口径）</div></div>
   <div class="card" style="padding:8px"><div id="winbybuy-chart" style="height:320px" class="chart-loading"></div></div>
+  <div class="section-header"><h2>决策 EV 查询表</h2>
+    <div class="section-actions sub" id="ev-note" style="margin:0">V2 · 全库聚合 · 买法 × 比分差 × 连败状态</div></div>
+  <div class="table-wrap">
+    <table id="ev-table">
+      <thead><tr><th>买法</th><th>方</th><th>比分差</th><th>连败</th>
+        <th class="num">N</th><th class="num">回合胜率</th><th class="num">平均存活</th></tr></thead>
+      <tbody><tr><td colspan="7" class="sub">加载中…</td></tr></tbody>
+    </table>
+  </div>
 </section>
 
 <!-- ============ tab: utility ============ -->
@@ -182,6 +197,11 @@
       <tbody><tr><td colspan="9" class="sub">加载中…</td></tr></tbody>
     </table>
   </div>
+  <div class="section-header"><h2>武器持有时间线</h2>
+    <div class="section-actions sub" style="margin:0">U2 · 每回合开局主武器 + 持有时长/击杀转化</div></div>
+  <div style="width:100%;overflow-x:auto">
+    <div id="weapon-timeline-chart" style="width:100%;min-width:900px;height:420px" class="chart-loading"></div>
+  </div>
 </section>
 {% endblock %}
 {% block scripts %}
@@ -207,6 +227,7 @@
         } else { hideSkeleton('radar-chart'); }
       } catch (e) { hideSkeleton('radar-chart'); }
       loadMatchHighlights();
+      loadWinProbability();
     },
     kills: async () => {
       mountPayloadChart('duels-chart', (p) => p.cells.length ? CSACharts.duelsOption(p) : null);
@@ -230,6 +251,7 @@
           document.getElementById('eco-thresholds').textContent =
             `eco <$${th.eco_max} · 强起 <$${th.force_max} · 长枪 ≥$${th.force_max}（队伍均消）`;
         }
+        loadEvTable();
       } catch (e) { hideSkeleton('economy-chart'); hideSkeleton('winbybuy-chart'); }
     },
     utility: async () => {
@@ -258,7 +280,7 @@
         if (el) el.classList.remove('chart-loading');
       }
     },
-    tactics: async () => { loadAim(); loadWeaponSplits(); },
+    tactics: async () => { loadAim(); loadWeaponSplits(); loadWeaponTimeline(); },
   };
   function renderRoutes(side) {
     if (!routesPayload) return;
@@ -337,6 +359,147 @@
     } catch (e) { tb.innerHTML = '<tr><td colspan="9" class="sub">数据不可用</td></tr>'; }
   }
   // weapon-mix donut + hitgroups stacked bars (both from kill_context/hitgroups)
+  async function loadWeaponTimeline() {
+    const el = document.getElementById('weapon-timeline-chart');
+    try {
+      const p = await fetchJson(`/api/demo/${H}/analysis/weapon_timeline.json`);
+      const players = (p.players || []).filter((x) => x.holds.length);
+      if (!players.length) { hideSkeleton('weapon-timeline-chart'); return; }
+      const WZH = { ak47: 'AK-47', m4a4: 'M4A4', m4a1: 'M4A1', usp: 'USP-S', glock: '格洛克',
+                    deagle: '沙鹰', awp: 'AWP', knife: '刀', c4: 'C4', inferno: '燃烧弹',
+                    smokegrenade: '烟雾弹', flashbang: '闪光弹', hegrenade: '手雷',
+                    mp9: 'MP9', mac10: 'MAC-10', galil: '加利尔', famas: '法玛斯',
+                    aug: 'AUG', sg553: 'SG553', m249: 'M249', negev: '内格夫',
+                    p90: 'P90', ump45: 'UMP-45', p250: 'P250', tec9: 'Tec-9', fiveseven: 'FN57' };
+      const wname = (w) => WZH[w] || w;
+      const playerSel = (name) => encodeURIComponent(name);
+      const weaponColor = (n) => {
+        let hash = 0; for (let i = 0; i < n.length; i++) hash = (hash * 31 + n.charCodeAt(i)) | 0;
+        const hue = Math.abs(hash) % 360;
+        return `hsl(${hue}, 60%, 62%)`;
+      };
+      const option = {
+        tooltip: {
+          formatter: (q) => {
+            const d = q.data;
+            if (d == null || d.weap == null) return q.seriesName;
+            return `${q.seriesName}<br/>${wname(d.weap)} · ${d.secs}s` +
+                   (d.kills ? ` · <b>${d.kills} 杀</b>` : '') + `<br/>回合 ${d.round}`;
+          },
+        },
+        legend: { show: false },
+        grid: { left: 8, right: 16, top: 20, bottom: 30, containLabel: true },
+        xAxis: { type: 'value', name: '回合', min: 0.5, max: (p.rounds || 24) + 0.5,
+                 axisLabel: { color: '#9aa0b8' }, splitLine: { lineStyle: { color: '#222438' } } },
+        yAxis: { type: 'category', inverse: true, data: players.map((x) => x.name),
+                 axisLabel: { color: '#c9cede', fontSize: 11 }, axisTick: { show: false } },
+        series: players.map((pl, pIdx) => ({
+          name: pl.name, type: 'custom', renderItem: renderTimelineItem,
+          encode: { x: [1, 2], y: 0 }, clip: true,
+          data: (function () {
+            const out = [];
+            const roundsTotal = p.rounds || 1;
+            for (let r = 1; r <= roundsTotal; r++) {
+              const w = pl.round_equips[String(r)];
+              if (!w) continue;
+              const h = pl.holds.find((x) => x.weapon === w);
+              out.push({ value: [pIdx, r - 0.4, r + 0.4], weap: w,
+                         secs: h ? h.seconds : 0, kills: h ? h.kills : 0, round: r,
+                         itemStyle: { color: weaponColor(w) } });
+            }
+            return out;
+          })(),
+        })),
+      };
+      function renderTimelineItem(_params, api) {
+        const yIdx = api.value(0);
+        const start = api.coord([api.value(1), yIdx]);
+        const end = api.coord([api.value(2), yIdx]);
+        const h = Math.min(api.size([0, 1])[1] * 0.62, 22);
+        if (!start || !end) return;
+        return {
+          type: 'rect',
+          shape: { x: start[0], y: start[1] - h / 2,
+                   width: Math.max(end[0] - start[0], 2), height: h },
+          style: api.style(),
+        };
+      }
+      CSACharts.mount('weapon-timeline-chart', option);
+    } catch (e) { hideSkeleton('weapon-timeline-chart'); }
+  }
+  const EV_BUY = { eco: 'eco', force: '强起', full: '长枪' };
+  const EV_BIN = { losing: '落后', even: '持平', winning: '领先' };
+  async function loadEvTable() {
+    const tb = document.querySelector('#ev-table tbody');
+    try {
+      const p = await fetchJson(`/api/ev/table.json`);
+      if (note_el = document.getElementById('ev-note')) {
+        note_el.textContent = 'V2 · ' + (p.note || '') + ` · 本表 N=${(p.total_rounds || 0)}`;
+      }
+      const rows = (p.cells || []).filter((c) => c.n > 0);
+      tb.innerHTML = rows.length ? rows.map((c) => {
+        const wr = c.win_rate != null
+          ? `<span class="${c.win_rate >= 0.5 ? 'pos' : ''}">${(c.win_rate * 100).toFixed(0)}%</span>`
+          : `<span class="sub">灰</span>`;
+        const sv = c.survived != null ? c.survived.toFixed(2) : '—';
+        return `<tr><td>${EV_BUY[c.buy] || c.buy}</td>` +
+          `<td><span class="badge ${c.side === 'T' ? 't' : 'ct'}">${c.side}</span></td>` +
+          `<td>${EV_BIN[c.score_bin] || c.score_bin}</td>` +
+          `<td>${c.streak_bin === 'cold' ? '连败≥2' : '无'}</td>` +
+          `<td class="num">${c.n}</td><td class="num">${wr}</td><td class="num">${sv}</td></tr>`;
+      }).join('') : '<tr><td colspan="7" class="sub">暂无数据</td></tr>';
+    } catch (e) { tb.innerHTML = '<tr><td colspan="7" class="sub">数据不可用</td></tr>'; }
+  }
+  async function loadWinProbability() {    const note = document.getElementById('winprob-note');
+    try {
+      const p = await fetchJson(`/api/demo/${H}/analysis/win_probability.json`);
+      if (note && p.note) note.textContent = 'V1 · ' + p.note;
+      const rounds = p.rounds || [];
+      if (!rounds.length) { hideSkeleton('winprob-chart'); return; }
+      const series = [];
+      const markers = [];
+      for (const rnd of rounds) {
+        if (!rnd.length) continue;
+        const r = rnd[0].round;
+        const xs = rnd.map((s) => s.tick);
+        const ys = rnd.map((s) => Math.round(s.p_win * 1000) / 10);
+        const bandLo = rnd.map((s) => Math.round(s.p_lo * 1000) / 10);
+        const bandHi = rnd.map((s) => Math.round(s.p_hi * 1000) / 10);
+        series.push({ name: `R${r}`, type: 'line', showSymbol: false, smooth: true,
+                      data: xs.map((x, i) => [x, ys[i]]),
+                      lineStyle: { width: 2 }, z: 3 });
+        series.push({ name: `R${r}b1`, type: 'line', data: xs.map((x, i) => [x, bandLo[i]]),
+                      lineStyle: { opacity: 0 }, stack: `band${r}`, symbol: 'none', silent: true, z: 1 });
+        series.push({ name: `R${r}b2`, type: 'line', data: xs.map((x, i) => [x, bandHi[i] - bandLo[i]]),
+                      lineStyle: { opacity: 0 }, areaStyle: { color: 'rgba(167,139,250,.10)' },
+                      stack: `band${r}`, symbol: 'none', silent: true, z: 1 });
+        for (let i = 0; i < rnd.length; i++) {
+          const s = rnd[i];
+          if (s.planted && (i === 0 || !rnd[i - 1].planted)) {
+            markers.push({ value: [s.tick, 50], symbol: 'pin', symbolSize: 30,
+                           itemStyle: { color: '#ffb02e' },
+                           label: { show: true, formatter: '包', color: '#000', fontSize: 10 } });
+          } else if (i > 0 && s.alive_diff !== rnd[i - 1].alive_diff) {
+            markers.push({ value: [s.tick, 50], symbol: 'circle', symbolSize: 6,
+                           itemStyle: { color: s.alive_diff > 0 ? '#3ddc97' : '#ff4d5e' } });
+          }
+        }
+      }
+      const ticksAll = rounds.flatMap((r) => r.map((s) => s.tick));
+      const option = {
+        tooltip: { trigger: 'axis' },
+        legend: { show: false },
+        grid: { left: 8, right: 16, top: 16, bottom: 34, containLabel: true },
+        xAxis: { type: 'value', min: Math.min(...ticksAll), max: Math.max(...ticksAll),
+                 axisLabel: { color: '#9aa0b8', formatter: (v) => Math.round(v / 1000) + 'k' },
+                 splitLine: { show: false } },
+        yAxis: { type: 'value', min: 0, max: 100, name: 'T 胜率 %',
+                 axisLabel: { color: '#9aa0b8' }, splitLine: { lineStyle: { color: '#222438' } } },
+        series: [...series, { type: 'scatter', data: markers, silent: true, z: 5 }],
+      };
+      CSACharts.mount('winprob-chart', option);
+    } catch (e) { hideSkeleton('winprob-chart'); }
+  }
   const MIX_ZH = { rifle: '步枪', sniper: '狙击枪', pistol: '手枪', smg: '冲锋枪',
                    heavy: '重火力', knife: '刀', grenade: '投掷物', gear: '装备',
                    bomb: 'C4', world: '环境', inferno: '火焰', unknown: '未知' };
