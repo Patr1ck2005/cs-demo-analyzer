@@ -6,6 +6,9 @@
     <h1>大数据对比</h1>
     <div class="page-meta">个体 vs 全库大样本基线 · 样本量 ≥5 场参与排名与分位 · 勾选选手叠加生涯雷达</div>
   </div>
+  <div class="page-actions">
+    <a class="btn" href="/teams">五排协同 / 阵容 →</a>
+  </div>
 </div>
 <div class="card" style="padding:8px">
   <div id="rank-table" class="chart-loading" style="min-height:120px"></div>
@@ -16,22 +19,6 @@
   <div class="sub" id="radar-empty-hint" style="display:flex;align-items:center;justify-content:center;height:440px;margin:0">勾选上方选手以叠加生涯雷达 — 每人六轴均值 vs 全库基线</div>
   <div id="compare-radar" style="height:460px"></div>
 </div>
-<div class="section-header"><h2>五排协同</h2>
-  <div class="section-actions sub" style="margin:0" id="tp-meta">5E 库协同网络</div></div>
-<div class="grid two-col">
-  <div class="card" style="padding:8px">
-    <div class="sub" style="padding:2px 8px 6px">协同网络 · 助攻+补枪+闪光助攻（双向合计）</div>
-    <div id="tp-heatmap" style="height:400px"></div>
-  </div>
-  <div class="card" style="padding:8px">
-    <div class="sub" style="padding:2px 8px 6px">Top 协同连线</div>
-    <div id="tp-links"></div>
-    <div class="sub" style="padding:8px 8px 4px">五排画像（≥5 场常客）</div>
-    <div id="tp-portraits" style="display:flex;flex-direction:column;gap:6px;padding:0 8px 6px"></div>
-  </div>
-</div>
-<div class="card" style="padding:10px 12px" id="tp-contrast"></div>
-
 <div class="section-header"><h2>职业基准参照</h2>
   <div class="section-actions sub" id="pro-note" style="margin:0">D3 · bo3.gg 统计口径（与本地评分非同一标尺）</div></div>
 <div class="grid" id="pro-cards" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))"></div>
@@ -116,90 +103,7 @@
     redraw();
   });
 
-  // ---- K5: five-stack teamplay (network + contrast + portraits) ----
-  (async function () {
-    let tp;
-    try {
-      const r = await fetch('/api/compare/teamplay.json');
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      tp = await r.json();
-    } catch (e) {
-      document.getElementById('tp-meta').textContent = '五排协同数据加载失败';
-      return;
-    }
-    const sv = tp.stack_vs_mixed;
-    if (!tp.regulars.length) {
-      document.getElementById('tp-meta').textContent =
-        '5E 样本不足（需 ' + tp.library.min_regular_demos + ' 场以上常客）';
-      return;
-    }
-    document.getElementById('tp-meta').textContent =
-      `5E ${tp.library.five_e_demos} 场 · 常客 ${tp.regulars.length} 人 · ` +
-      `五排局 ${sv.stack_matches} / 混野 ${sv.mixed_matches}`;
-
-    // heatmap: symmetric link weights between regulars
-    const hm = echarts.init(document.getElementById('tp-heatmap'), 'csa');
-    const players = tp.matrix.players;
-    const data = [];
-    players.forEach((a, i) => players.forEach((b, j) => {
-      if (i !== j) data.push([j, i, tp.matrix.values[i][j]]);
-    }));
-    const maxW = Math.max(1, ...data.map((d) => d[2]));
-    hm.setOption({
-      tooltip: { formatter: (p) => `${players[p.value[1]]} ↔ ${players[p.value[0]]}: ${p.value[2]}` },
-      grid: { left: 110, right: 20, top: 10, bottom: 60 },
-      xAxis: { type: 'category', data: players, axisLabel: { color: '#9aa0b8', fontSize: 10, rotate: 40 },
-               axisLine: { lineStyle: { color: '#262942' } } },
-      yAxis: { type: 'category', data: players, axisLabel: { color: '#9aa0b8', fontSize: 10 },
-               axisLine: { lineStyle: { color: '#262942' } } },
-      visualMap: { min: 0, max: maxW, calculable: false, orient: 'horizontal',
-                   left: 'center', bottom: 0, itemHeight: 80, itemWidth: 12,
-                   inRange: { color: ['#26294a', '#8b5cf6'] }, textStyle: { color: '#9aa0b8', fontSize: 10 } },
-      series: [{ type: 'heatmap', data,
-                 label: { show: true, color: '#eceaf6', fontSize: 9 },
-                 itemStyle: { borderColor: '#10111d', borderWidth: 1 } }],
-    });
-
-    // top links table
-    const links = tp.links.slice(0, 10).map((l) =>
-      `<tr><td>${CSACommon.esc(l.a_name)} → ${CSACommon.esc(l.b_name)}</td>` +
-      `<td class="num">${l.assists}</td><td class="num">${l.trades}</td>` +
-      `<td class="num">${l.flash_assists}</td><td class="num"><b>${l.weight}</b></td></tr>`).join('');
-    document.getElementById('tp-links').innerHTML =
-      `<table><thead><tr><th>连线（助攻方 → 被助方 / 复仇者 → 被复仇者）</th>` +
-      `<th class="num">助攻</th><th class="num">补枪</th><th class="num">闪助</th><th class="num">权重</th>` +
-      `</tr></thead><tbody>${links}</tbody></table>`;
-
-    // portraits
-    document.getElementById('tp-portraits').innerHTML = tp.portraits.map((p) => {
-      const labels = p.labels.map((x) =>
-        `<span class="badge kb-headshot" title="${CSACommon.esc(x.detail)}">${CSACommon.esc(x.label)}` +
-        (x.low_sample ? ' <span class="badge no" title="样本少于 3 次">少</span>' : '') + '</span>').join(' ');
-      const partner = p.best_partner
-        ? ` · 最佳搭档 <b>${CSACommon.esc(p.best_partner.name)}</b>(${p.best_partner.per_demo ?? '—'}/场 · 共${p.best_partner.weight})` : '';
-      return `<div>${CSACommon.esc(p.name)} <span class="sub">${p.appearances} 场${partner}</span> ${labels}</div>`;
-    }).join('');
-
-    // stack vs mixed contrast tiles
-    const tile = (name, s, m) => {
-      const f = (v, suf = '') => (v == null ? '-' : (v * 100).toFixed(1) + suf);
-      return `<div class="stat-card" style="min-width:200px"><div class="stat-label">${name} 回合胜率</div>` +
-        `<div class="stat-value">${f(s.round_win_rate, '%')}</div>` +
-        `<div class="sub">混野 ${f(m.round_win_rate, '%')} · 胜率差 ` +
-        `${s.round_win_rate != null && m.round_win_rate != null ? ((s.round_win_rate - m.round_win_rate) * 100).toFixed(1) + 'pp' : '-'}</div></div>` +
-        `<div class="stat-card" style="min-width:200px"><div class="stat-label">${name} 场均 Rating</div>` +
-        `<div class="stat-value">${s.avg_rating ?? '-'}</div>` +
-        `<div class="sub">混野 ${m.avg_rating ?? '-'}</div></div>` +
-        `<div class="stat-card" style="min-width:200px"><div class="stat-label">${name} 首杀成功率</div>` +
-        `<div class="stat-value">${f(s.fk_success, '%')}</div>` +
-        `<div class="sub">混野 ${f(m.fk_success, '%')} · ${s.fk_duels} 次对枪</div></div>`;
-    };
-    document.getElementById('tp-contrast').innerHTML =
-      `<div style="display:flex;gap:12px;flex-wrap:wrap">` +
-      tile('车队局（≥' + tp.library.stack_threshold + ' 常客同场）', sv.stack, sv.mixed) + `</div>` +
-      `<div class="sub" style="margin-top:6px">车队局 ${sv.stack_matches} 场；混野为其余 ` +
-      `${sv.mixed_matches} 场 5E（常客不足同场）。Rating 为该组常客样本均值。</div>`;
-  })();
+  // ---- K5: five-stack teamplay moved to /teams (Phase X) — see teams.js ----
 
   // ---- D3b: pro reference baseline (bo3.gg stats layer) ----
   (async function () {

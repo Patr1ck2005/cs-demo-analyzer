@@ -3,7 +3,7 @@
 /* print-friendly report card (L5): the /reports exporter screenshots this
    route; also fine to print from the browser (Ctrl+P) */
 body { background: #fff; color: #16182a; }
-.topbar, .nav-secondary, main > .section-actions { display: none !important; }
+.topbar, main > .section-actions { display: none !important; }
 main { max-width: 860px; margin: 0 auto; padding: 32px 24px; }
 .rp-head { display: flex; justify-content: space-between; align-items: baseline;
            border-bottom: 3px solid #6d28d9; padding-bottom: 12px; margin-bottom: 18px; }
@@ -31,6 +31,20 @@ main { max-width: 860px; margin: 0 auto; padding: 32px 24px; }
 </style>{% endblock %}
 {% block title %}对局报告 · {{ meta.map_name }}{% endblock %}
 {% block content %}
+{# Phase X: no-print toolbar — the page was previously reachable only from
+   /reports' preview link; now linked from match_detail's 打印报告 button and
+   gets back-navigation + one-click export handoff (reports.js reads ?demo=).
+   The PNG/PDF exporter renders with ?print=1: the toolbar must not leak
+   into exports (it is NOT covered by @media print — that only guards
+   Ctrl+P). #}
+{% if request.query_params.get('print') != '1' %}
+<div class="rp-noprint sub" style="display:flex;gap:14px;align-items:center;margin-bottom:10px">
+  <a href="/match/{{ meta.demo_hash }}">← 返回对局详情</a>
+  <a href="/reports?demo={{ meta.demo_hash }}">导出 PNG / PDF →</a>
+  <span style="flex:1"></span>
+  <span style="color:var(--faint)">Ctrl+P 可直接打印本页</span>
+</div>
+{% endif %}
 <div class="rp-head">
   <div>
     <h1>{{ meta.map_name }} 对局报告</h1>

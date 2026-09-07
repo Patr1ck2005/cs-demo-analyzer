@@ -1,0 +1,18 @@
+# de_vertigo radar map coordinate calibration (Phase Y, K4 flow).
+# Image: official CS2 overview radar (de_vertigo_radar_psd.png, 1024x1024 RGBA),
+# sourced from MurkyYT/cs2-map-icons via the GitHub contents API
+# (images/radars/de_vertigo_radar_psd.png).
+# Bounds from the game's official radar_info metadata (data/radar_info/de_vertigo.txt):
+#   pos_x=-3168, pos_y=1762, scale=4.0
+# Standard Source mapping px=(x-pos_x)/scale, py=(pos_y-y)/scale is exactly
+# equivalent to the loader's bounds formula with:
+#   min_x=pos_x, max_x=pos_x+scale*W, max_y=pos_y, min_y=pos_y-scale*H
+
+map_name: de_vertigo
+image_width: 1024
+image_height: 1024
+bounds:
+  min_x: -3168.0
+  max_x: 928.0
+  min_y: -2334.0
+  max_y: 1762.0

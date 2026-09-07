@@ -71,12 +71,11 @@
         var chips = document.getElementById('ul-map-chips');
         var maps = d.maps || [];
         if (!maps.length || !chartDom) return;
-        var active = maps[0];
-        chips.innerHTML = maps.map(function (m) {
-          var n = (d.spots_by_map[m] || []).length;
-          return '<button class="chip' + (m === active ? ' on' : '') + '" data-map="' + esc(m) +
-            '" type="button">' + esc(m) + ' · ' + n + '</button>';
-        }).join('');
+        // Phase X: the section merged into /map-analysis — the page-level
+        // map selector (map_analysis.js) is the single source of truth; hide
+        // the redundant chips row and follow its csa:map-changed events.
+        var chipRow = chips.parentElement;
+        if (chipRow) chipRow.style.display = 'none';
         var chart = null;
         function draw(mapName) {
           chartDom.style.backgroundImage = 'url("/maps/' + encodeURIComponent(mapName) + '.png")';
@@ -89,14 +88,18 @@
           leg.innerHTML = '<span><i style="background:' + COLORS.smoke + '"></i>烟雾落点</span>' +
             '<span><i style="background:' + COLORS.kill + '"></i>烟中击杀</span>';
         }
-        chips.querySelectorAll('[data-map]').forEach(function (b) {
-          b.addEventListener('click', function () {
-            chips.querySelectorAll('[data-map]').forEach(function (x) { x.classList.remove('on'); });
-            b.classList.add('on');
-            draw(b.getAttribute('data-map'));
-          });
+        function drawMap(mapName) {
+          if (maps.indexOf(mapName) < 0) return;
+          draw(mapName);
+        }
+        document.addEventListener('csa:map-changed', function (ev) {
+          drawMap(ev.detail && ev.detail.map);
         });
-        draw(active);
+        // initial frame: follow the page selector's current map if it exists
+        var pageMap = null;
+        var onPage = document.querySelector('#ma-map-chips .chip.on');
+        if (onPage) pageMap = onPage.getAttribute('data-map');
+        draw((pageMap && maps.indexOf(pageMap) >= 0) ? pageMap : maps[0]);
       })
       .catch(function () { /* page stays with empty tables */ });
   }

@@ -1,10 +1,11 @@
-"""Button-level acceptance (Phase W 操作验收): click every high-risk button
-headlessly and assert the observable behavior.
+"""Button-level acceptance (Phase W 操作验收 + Phase X IA 验收): click every
+high-risk button headlessly and assert the observable behavior.
 
 Prereq: the web server is running on http://127.0.0.1:8000 with a warm
 library (same setup as scripts/visual_check.py). Steps cover the audited
-defects F1/F2/F3/F4/F5/F9/F10/F12 at the UI level; server-side contracts
-are covered by tests/test_phase_w.py.
+defects F1/F2/F3/F4/F5/F9/F10/F12 at the UI level plus the Phase X IA
+regressions (nav active state, retired 301s, lab deep-link); server-side
+contracts are covered by tests/test_phase_w.py and tests/test_phase_x.py.
 
 Writes temporary artifacts only under output/.accept/ (fake upload payload);
 cleans up after itself. Exit code 1 = any failure.
@@ -230,9 +231,11 @@ def main() -> int:
         run("F5 weapon timeline tick_rate", step_tick_rate)
 
         # ---- 8. F2: funlab rapid chip clicks keep filters == applied ----
+        # (Phase X: the lab now lives at /players?tab=lab; lazy script mount
+        # means the chips can take a while on a cold tab)
         def step_funlab():
-            page.goto(BASE + "/fun-lab", wait_until="networkidle", timeout=120000)
-            page.wait_for_selector("#fl-stack-chips [data-stack]", timeout=120000)
+            page.goto(BASE + "/players?tab=lab", wait_until="networkidle", timeout=120000)
+            page.wait_for_selector("#fl-stack-chips [data-stack]", timeout=180000)
             chips = page.locator("#fl-stack-chips [data-stack]")
             n = chips.count()
             assert n >= 2, f"need >=2 stack chips, got {n}"
@@ -322,13 +325,18 @@ def main() -> int:
 
         def step_chips():
             page.goto(BASE + "/map-analysis", wait_until="networkidle", timeout=120000)
-            page.wait_for_timeout(2500)
+            page.wait_for_timeout(3000)
             chips = page.locator("#ma-map-chips [data-map]")
             if chips.count() > 1:
                 chips.nth(1).click()
                 page.wait_for_timeout(800)
             page.click("#ma-side-ct")
             page.wait_for_timeout(800)
+            # Phase X: 道具落点热力 follows the page-level map selection
+            page.evaluate(
+                "document.getElementById('utility').scrollIntoView()")
+            page.wait_for_timeout(1200)
+            assert page.locator("#ul-spots").count() == 1, "utility spots missing"
             page.goto(BASE + "/highlights", wait_until="networkidle", timeout=60000)
             page.wait_for_timeout(1500)
             page.click('.chip[data-kind="ace"]')
@@ -340,7 +348,95 @@ def main() -> int:
             page.click("#view-cards")
             expect_no_console_errors("chips + toggles")
 
-        run("map chips / highlight filter / view toggle", step_chips)
+        run("map chips / utility follow / highlight filter / view toggle", step_chips)
+
+        # ---- 13. Phase X IA: nav active state + retired-page redirects ----
+        def step_nav_ia():
+            # report page must highlight 报告 (W-audit P2 finding)
+            page.goto(BASE + f"/report/{H}", wait_until="networkidle", timeout=60000)
+            cls = page.locator('nav a[href="/reports"]').get_attribute("class") or ""
+            assert "active" in cls, f"/report page has no active nav item: {cls!r}"
+            # retired pages 301 to their new homes
+            for url, needle in (("/fun-lab", "fl-quadrant"),
+                                ("/utility-lab", "ul-flash-table")):
+                resp = page.goto(BASE + url, wait_until="load", timeout=90000)
+                assert resp.url != BASE + url, f"{url} did not redirect"
+                assert needle in page.content(), f"{url} target missing {needle}"
+            # the players lab tab deep-link activates the lab panel
+            page.goto(BASE + "/players?tab=lab", wait_until="networkidle", timeout=90000)
+            on = page.locator('.tab-btn[data-tab="lab"]').get_attribute("class") or ""
+            assert "on" in on, "players?tab=lab did not activate the lab tab"
+            expect_no_console_errors("nav IA")
+
+        run("X nav active + retired 301s + lab deep-link", step_nav_ia)
+
+        # ---- 14. W2 F-A: players tab round-trip, echarts injected ONCE ----
+        def step_players_roundtrip():
+            page.goto(BASE + "/players", wait_until="networkidle", timeout=90000)
+            page.wait_for_timeout(2000)  # matrix fetch + mount
+            page.click('.tab-btn[data-tab="lab"]')
+            page.wait_for_selector("#fl-stack-chips [data-stack]", timeout=180000)
+            page.wait_for_timeout(2000)  # funlab fetch + mount
+            page.click('.tab-btn[data-tab="overview"]')
+            # poll instead of sleep — fixed sleeps raced the tab switch
+            page.wait_for_function(
+                "document.querySelector('[data-panel=\"lab\"]').hidden", timeout=10000)
+            page.wait_for_timeout(1500)  # matrix remount/settle
+            st = page.evaluate(
+                """() => {
+                    const inst = (id) => {
+                        const el = document.getElementById(id);
+                        return el ? echarts.getInstanceByDom(el) : null;
+                    };
+                    const q = inst('fl-quadrant'), g = inst('sm-galaxy');
+                    const m = inst('matrix-chart');
+                    return {q: q ? q.getWidth() : 0, g: g ? g.getHeight() : 0,
+                            mw: m ? m.getWidth() : 0,
+                            scripts: document.querySelectorAll('script[src*="echarts.min"]').length};
+                }""")
+            assert st["scripts"] == 1, f"echarts injected {st['scripts']}x (W2 F-A)"
+            assert st["q"] > 300 and st["g"] > 200, f"lab charts 0-size: {st}"
+            assert st["mw"] > 300, f"matrix not mounted after return: {st}"
+            expect_no_console_errors("players round-trip")
+
+        run("W2 players tab round-trip + single echarts", step_players_roundtrip)
+
+        # ---- 15. W2 F-B: /reports?demo= preselect + preview href synced ----
+        def step_reports_preselect():
+            page.goto(BASE + f"/reports?demo={H}", wait_until="networkidle", timeout=90000)
+            page.wait_for_function(
+                "document.querySelectorAll('#rp-demo option').length > 0", timeout=30000)
+            assert page.evaluate("document.getElementById('rp-demo').value") == H, \
+                "?demo= preselect failed"
+            href = page.get_attribute("#rp-preview", "href")
+            assert href and H in href, f"preview href not pre-synced (F-B): {href!r}"
+
+        run("W2 reports ?demo= preselect + preview href", step_reports_preselect)
+
+        # ---- 16. W2: funlab sigma slider label + localStorage + restore ----
+        def step_sigma_slider():
+            page.goto(BASE + "/players?tab=lab", wait_until="networkidle", timeout=90000)
+            page.wait_for_selector("#fl-stack-chips [data-stack]", timeout=180000)
+            page.eval_on_selector(
+                '#sm-traj-sigma',
+                """el => { el.value = '2.5';
+                          el.dispatchEvent(new Event('input', {bubbles: true})); }""")
+            page.wait_for_timeout(500)
+            assert page.inner_text("#sm-traj-sigma-val") == "2.5", "label not updated"
+            assert page.evaluate("localStorage.getItem('csa.trajSigma')") == "2.5", \
+                "localStorage not persisted"
+            page.reload(wait_until="networkidle")
+            page.wait_for_selector("#fl-stack-chips [data-stack]", timeout=180000)
+            assert page.eval_on_selector("#sm-traj-sigma", "el => el.value") == "2.5", \
+                "slider not restored after reload"
+            # restore default
+            page.eval_on_selector(
+                '#sm-traj-sigma',
+                """el => { el.value = '1.5';
+                          el.dispatchEvent(new Event('input', {bubbles: true})); }""")
+            expect_no_console_errors("sigma slider")
+
+        run("W2 funlab sigma slider persist/restore", step_sigma_slider)
 
         browser.close()
 

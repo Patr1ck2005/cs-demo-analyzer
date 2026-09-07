@@ -139,18 +139,20 @@ tbody tr { animation: row-in .35s ease-out both; animation-delay: calc(min(var(-
 .topbar nav a.active, .topbar > a:not(.brand).active { color: var(--text); }
 .topbar nav a.active::after, .topbar > a:not(.brand).active::after { transform: scaleX(1); }
 
-/* L1: secondary topic nav (道具/地图/阵伍/收藏/报告) */
-.nav-secondary { position: sticky; top: 0; z-index: 49;
-                 background: rgba(10, 10, 19, .92); border-bottom: 1px solid var(--line);
-                 backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-.nav-secondary .wrap { max-width: 1200px; margin: 0 auto; padding: 5px 26px;
-                       display: flex; align-items: center; gap: 4px; }
-.nav-sec-label { color: var(--faint); font-size: var(--fs-xs); letter-spacing: .12em;
-                 margin-right: 6px; }
-.nav-secondary a { color: var(--faint); text-decoration: none; font-size: var(--fs-sm);
-                   padding: 3px 10px; border-radius: 7px; transition: color .15s, background .15s; }
-.nav-secondary a:hover { color: var(--text); background: var(--accent-soft); }
-.nav-secondary a.active { color: var(--accent); background: var(--accent-soft); }
+/* Phase X: single-row clustered nav — muted cluster labels + hairline
+   separators inside the topbar nav (replaces the old .nav-secondary row) */
+.topbar nav { flex-wrap: nowrap; }
+.topbar .nav-cluster-label { color: var(--faint); font-size: 10px; letter-spacing: .14em;
+  text-transform: uppercase; align-self: center; margin: 0 2px 0 10px; user-select: none; }
+.topbar .nav-cluster-label:first-child { margin-left: 4px; }
+.topbar .nav-sep { width: 1px; height: 18px; align-self: center; flex: none;
+  background: var(--line-strong); margin: 0 6px; }
+@media (max-width: 980px) {
+  .topbar { overflow-x: auto; scrollbar-width: none; }
+  .topbar::-webkit-scrollbar { display: none; }
+  .topbar .nav-cluster-label { display: none; }
+  .topbar .nav-sep { margin: 0 2px; }
+}
 main { max-width: 1200px; margin: 0 auto; padding: var(--sp-6) var(--sp-6) var(--sp-8); }
 body.wide main { max-width: 1600px; }
 

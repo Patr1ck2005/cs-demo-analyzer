@@ -26,18 +26,19 @@ PAGES = [
     ("tab_routes", f"/match/{H}?tab=routes", 2000),
     ("tab_tactics", f"/match/{H}?tab=tactics", 1500),
     ("players", "/players", 1200),
+    # Phase X: fun-lab merged into /players?tab=lab (lazy-mounted charts)
+    ("players_lab", "/players?tab=lab", 2500),
     ("highlights", "/highlights", 1200),
     ("compare", "/compare", 1200),
     ("system", "/system", 800),
     # Phase L: the five former placeholder pages, now real
     ("favorites", "/favorites", 1200),
-    ("utility_lab", "/utility-lab", 2500),
+    # Phase X: utility-lab merged into /map-analysis (the #utility section)
     ("map_analysis", "/map-analysis", 2500),
+    ("map_utility", "/map-analysis#utility", 2500),
     ("teams", "/teams", 1500),
     ("reports", "/reports", 1500),
     ("report_match", f"/report/{H}", 1200),
-    # Phase M: fun metrics quadrant lab
-    ("fun_lab", "/fun-lab", 2500),
     ("player_career", "/player/76561199829611601", 1200),
     ("overlap", f"/match/{H}/overlap", None),
     ("viewer", f"/match/{H}/viewer", None),
@@ -55,10 +56,21 @@ def main() -> int:
         page.on("pageerror", lambda e: errors.append(str(e)))
         for name, url, settle_ms in PAGES:
             errors.clear()
-            try:
-                page.goto(BASE + url, wait_until="networkidle", timeout=45000)
-            except Exception as e:
-                print(f"[{name}] GOTO FAIL {e}")
+            # W2 F-D: 45s was too tight for the API storm on the 35-demo
+            # library (4 transient GOTO timeouts in one run, all passing on
+            # retry) — raise to 90s and retry each GOTO once before failing.
+            ok_goto = False
+            last_err = ""
+            for attempt in (1, 2):
+                try:
+                    page.goto(BASE + url, wait_until="networkidle", timeout=90000)
+                    ok_goto = True
+                    break
+                except Exception as e:
+                    last_err = str(e)
+                    print(f"[{name}] GOTO attempt {attempt} failed: {last_err[:120]}")
+            if not ok_goto:
+                print(f"[{name}] GOTO FAIL {last_err}")
                 failures.append(name)
                 continue
             if name == "viewer":

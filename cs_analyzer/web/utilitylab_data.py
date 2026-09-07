@@ -1,10 +1,15 @@
 """Memoized cross-demo utility report (Phase L2 道具专题).
 
-Scans every cached demo through the ``utility_effect`` module (memoized
-per-demo in app._module_cache) and merges per-player flash/smoke stats across
-the library; smoke landing spots are normalized to image-space [0..1]² per
-map (same convention as routes_payload) so the page can plot them over the
-radar PNG. Invalidated together with the aggregate.
+Scans every cached demo through the ``utility_effect`` module and merges
+per-player flash/smoke stats across the library; smoke landing spots are
+normalized to image-space [0..1]² per map (same convention as routes_payload)
+so the page can plot them over the radar PNG.
+
+Phase X: per-demo payloads go through the T3 shard cache (same pattern as
+ev_data/aggregate) — a new demo costs one demo's module run + a cheap
+re-merge instead of a full-library rescan. The merged report itself stays
+memoized + snapshotted exactly as before (restore seeds the MERGED memo).
+Invalidated together with the aggregate.
 """
 from __future__ import annotations
 
@@ -15,12 +20,20 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _report: dict | None = None
+_shards: list | None = None  # per-demo payloads (shard-backed scan)
 
 
 def utilitylab_report() -> dict:
-    """Return the memoized report, computing it on first use (single-flight)."""
+    """Return the memoized report, computing it on first use (single-flight).
+
+    The shard memo is warmed BEFORE taking _lock: _build runs under the lock
+    and its _scan_all cold path takes the same non-reentrant lock — inlining
+    the cold scan inside _build deadlocked snapshot.save_all (T1 pair reads
+    the memo under this very lock).
+    """
     global _report
     if _report is None:
+        _scan_all()
         with _lock:
             if _report is None:
                 _report = _build()
@@ -28,9 +41,10 @@ def utilitylab_report() -> dict:
 
 
 def invalidate_utilitylab() -> None:
-    global _report
+    global _report, _shards
     with _lock:
         _report = None
+        _shards = None
 
 
 def _norm_spot(x: float, y: float, map_name: str, res_cache: dict) -> tuple[float, float] | None:
@@ -54,26 +68,63 @@ def _norm_spot(x: float, y: float, map_name: str, res_cache: dict) -> tuple[floa
     return round(px / w, 4), round(py / h, 4)
 
 
+def _demo_payload(demo) -> dict:
+    """Per-demo shard payload: flashers / smoke stats / smoke landing events."""
+    from cs_analyzer.web import runtime
+
+    result = runtime.analyze_module(demo, "utility_effect")
+    if result is None:
+        return {"demo_hash": demo.metadata.demo_hash,
+                "map_name": demo.metadata.map_name,
+                "flashers": [], "smoke": [], "smoke_events": []}
+    return {
+        "demo_hash": demo.metadata.demo_hash,
+        "map_name": demo.metadata.map_name,
+        "flashers": result.flashers,
+        "smoke": result.smoke,
+        "smoke_events": result.smoke_events,
+    }
+
+
+def _scan_all() -> list:
+    """Whole-library scan with the T3 shard cache (memoized).
+
+    Thread path via the per-demo module memo (shares results with other
+    pages); utility_effect is a light module (no per-tick work), so the
+    process pool's spawn overhead would dwarf the gain.
+    """
+    global _shards
+    if _shards is not None:
+        return _shards
+    from cs_analyzer.web import runtime, snapshots
+
+    cache_dir = runtime.cache().cache_dir
+    hashes = snapshots._cached_demo_hashes(cache_dir)
+    sharded, missing = snapshots.load_shards("utilitylab", runtime.out_dir(),
+                                             cache_dir, hashes)
+    if missing:
+        from cs_analyzer.analysis.library import scan_hashes
+
+        pairs = scan_hashes(cache_dir, missing, _demo_payload)
+        for h, payload in pairs:
+            snapshots.save_shard("utilitylab", runtime.out_dir(), cache_dir,
+                                 h, payload)
+            sharded[h] = payload
+    entries = [sharded[h] for h in hashes if h in sharded]
+    with _lock:
+        _shards = entries
+        return _shards
+
+
 def _build() -> dict:
-    from cs_analyzer.analysis.library import scan_demos
+    from pathlib import Path
+
     from cs_analyzer.web import runtime
     from cs_analyzer.web.store import list_demos
-    from pathlib import Path
 
     cache_dir = runtime.cache().cache_dir
     meta = {d["demo_hash"]: d for d in list_demos(cache_dir)}
-
-    def work(demo) -> dict:
-        result = runtime.analyze_module(demo, "utility_effect")
-        return {
-            "demo_hash": demo.metadata.demo_hash,
-            "map_name": demo.metadata.map_name,
-            "flashers": result.flashers,
-            "smoke": result.smoke,
-            "smoke_events": result.smoke_events,
-        }
-
-    per_demo = scan_demos(cache_dir, work)
+    per_demo = _scan_all()
 
     # ---- merge flashers across demos ----
     flashers: dict[str, dict] = {}

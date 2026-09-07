@@ -100,6 +100,8 @@
             b.classList.add('on');
             ACTIVE = b.getAttribute('data-map');
             draw();
+            // Phase X: 道具落点热力跟随上方选中地图联动（utilitylab.js 监听）
+            document.dispatchEvent(new CustomEvent('csa:map-changed', { detail: { map: ACTIVE } }));
           });
         });
         document.getElementById('ma-side-t').addEventListener('click', function () {

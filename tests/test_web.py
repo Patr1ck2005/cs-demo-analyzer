@@ -673,18 +673,18 @@ def test_favorites_player_scope_and_validation(web_client, tmp_path, monkeypatch
 
 
 def test_favorites_page_and_nav(web_client) -> None:
-    """/favorites is a real page; secondary nav renders on all pages."""
+    """/favorites is a real page; the clustered topbar nav renders everywhere
+    (Phase X replaced the old nav-secondary row)."""
     c, _, _ = web_client
     r = c.get("/favorites")
     assert r.status_code == 200
     assert "收藏的对局" in r.text
     assert "fav-matches" in r.text
-    # nav-secondary present everywhere, favorites no longer a placeholder
+    # single-row clustered nav present everywhere; favorites reachable, no
+    # placeholder route left (single-segment fallback renders error)
     r2 = c.get("/")
-    assert "nav-secondary" in r2.text
-    assert "/utility-lab" in r2.text
-    # placeholder route for favorites is gone -> error page convention
-    # (removed from _PLACEHOLDER_PAGES, single-segment fallback renders error)
+    assert "nav-cluster-label" in r2.text
+    assert 'href="/favorites"' in r2.text
     assert "收藏与标注" not in c.get("/not-a-real-page").text or True
 
 

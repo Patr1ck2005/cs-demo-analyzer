@@ -324,6 +324,10 @@ def _style_trajectories(players: list[dict], keys: list[str], used_z: list[str],
         out.append({
             "steamid": sid, "name": roster[sid].get("name", sid),
             "points": pts, "max_jump": round(max_jump, 2),
+            # X4c: client-side drift threshold needs k (z-dimension count) to
+            # evaluate max_jump > σ·√k with the user's σ; server change_note
+            # stays computed at the default 1.5σ for non-JS consumers.
+            "n_features": len(used_z),
             "change_note": ("风格明显漂移" if changed else "风格稳定"),
         })
     return out

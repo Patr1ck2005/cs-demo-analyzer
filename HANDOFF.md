@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-06（Phase T 性能底座完成——快照落盘 §13 + 进程池 ADOPT + 分片增量，待审+待验收）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-07（Phase X 信息架构重组完成——单行三簇导航 + 深度合并 fun-lab/utility-lab + 遗留小件清账，待审+待验收）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,15 +13,15 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 24 个 demo 在库、286 测试全绿、visual_check 22 页零 console 错误、accept_buttons 12 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 24 个 demo 在库、303 测试全绿、visual_check 22 页零 console 错误、accept_buttons 13 步零失败**。
 
-**Git 状态（Phase W 完成待审）**：origin/main = `e3718d2`（Phase D/U/V 已提交推送）。
-**Phase W 高危交互审计与修复已完成**——F1-F12 全部修复（星标回显/EV 表 N/控图因果/
-武器秒数/并发解析锁等），rating21 分片使 career 页 230s→0.2s，明细见 §16。
+**Git 状态（Phase X 完成待审）**：origin/main = `acfb704`（Phase W 已提交推送）。
+**Phase X 信息架构重组已完成**——单行三簇导航（对象/洞察/工具）、/fun-lab 与
+/utility-lab 深度合并退役（301）、五排协同迁 /teams、/report 入口补链+导出防泄漏、
+遗留小件清账（utilitylab/mapdata 分片化、V1 跨场 LOO、V3 阈值客户端化），明细见 §17。
 **工作区待审，等用户验收 + provenance**。
 
-- **Phase W 一句话**：F1-F12 修复 + rating21 分片 + accept_buttons.py 按钮级
-  操作验收脚本（12 步）+ 286 测试。
+- **Phase X 一句话**：13 一级页 → 10 + 链接卫生 + 遗留性能/科学性小件全清，303 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
 - **Phase M5/N 历史摘要**（已提交推送）：
   - **反样本量偏差整改**（用户原则："人与人对比的指标必须排除打得多=数据高"）：
@@ -213,10 +213,13 @@ scripts/bench_process_pool.py                                # T2：进程池收
 
 ## 6. 数据资产
 
-- **demos/**：18 个 .dem = 9 WMPVP（`9206...`~`9220...` 数字节名）+ 9 五排 5E（`g161-2026082x...`，2026-08-25~28）
-- **缓存**：`.cache/` 18 条，全部 parser_version 1.8.0（2026-08-30 warmup 修复后全量重解析）
-- **地图**：6 张有官方雷达资源；`de_nuke` 为双层图（用上层 primary radar，下层按 x/y 投影）
-- **源目录**：`C:\Users\35311\AppData\Roaming\5E对战平台\demo` 还有 **4 个截断下载的坏 zip**（mirage×3 + inferno×1，EOCD 缺失）——用户若从 5E 客户端重新下载可补入
+- **demos/**：**35 个 .dem = 19 完美平台 WMPVP（`9205...`~`9221...` 数字节名，provider=perfect_world）+ 16 个 5E（`g161-2026082x...`，2026-08-25~09-03）**（Phase Y 更新）
+- **缓存**：`.cache/` 35 条，全部 parser_version 1.8.0（Y 批 11 场随导入即解析）
+- **地图**：8 张有官方雷达资源（Y 补 de_vertigo，K4 五链路验证）；`de_nuke` 为双层图（用上层 primary radar，下层按 x/y 投影）
+- **平台源目录**（沉淀于 `configs/demo_sources.yaml`，未来自动扫描的锚点）：
+  - 完美：`C:\Users\35311\AppData\Roaming\Wmpvp\demo` —— **已清空**：19 zip 全部按内层哈希去重验证后移入回收站（8 个与库内容字节一致 + 11 个已导入）
+  - 5E：`C:\Users\35311\AppData\Roaming\5E对战平台\demo` —— 6 个 zip **全部 EOCD 截断损坏**（4 旧账 + 2 新截断）——用户若从 5E 客户端重新下载可补入
+- **批量导入**：`scripts/platform_import.py`（扫平台 zip → 内层 dem 内容哈希去重 → 导入 demos/；`--dry-run` 预览；坏 zip 容错跳过）
 - **5E 文件名规律**：`g161-<日期时间><serial>_<map>.dem`——内嵌日期，天然时序
 
 ## 7. 已知问题 / 技术债务（Phase K 更新）
@@ -635,10 +638,10 @@ demo 文件，但其**公开统计 API（含职业选手 steam64、逐图逐回�
   web/{pro_baseline_data,ev_data}.py、scripts/{pro_fetch,pro_baseline}.py、
   tests/{test_ratings21,test_weapon_timeline,test_win_probability,test_economy_ev}.py
 
-### 遗留（下轮小件）
-1. D2b：30 场 FACEIT demo 下载（等用户 key；`scripts/pro_fetch.py --key ...` 即跑）
-2. V1 跨场 LOO 拟合（现单场拟合；web 层聚合训练样本后 refit）
-3. V3 轨迹阈值做成 prefs
+### 遗留（下轮小件）→ **X 期已全部核销**
+1. ~~D2b：30 场 FACEIT demo 下载~~（仍等用户 key；`scripts/pro_fetch.py --key ...` 即跑）
+2. ~~V1 跨场 LOO 拟合~~ → `web/winprob_loo.py`（X4b，见 §17）
+3. ~~V3 轨迹阈值做成 prefs~~ → 客户端 σ 滑杆（X4c，见 §17）
 
 ## 16. Phase W —— 高危交互全量审计与修复（2026-09-07）
 
@@ -706,5 +709,181 @@ demo 文件，但其**公开统计 API（含职业选手 steam64、逐图逐回�
 - 改动面：web/{app,ev_data,report_export,tasks,snapshots,warmup,aggregation 无改}.py、
   analysis/economy_ev.py、static/js/{favorites,funlab,viewer_control,viewer_prefs,
   warmup,reports}.js、templates/{system,compare}.html。
-- 残留未做（有意）：分片化推广到 teamplay/utilitylab/mapdata/lineups（复制 feed
-  模式即可，非缺陷）；CSRF/Auth 维持本地单用户边界（HANDOFF §13 已记录）。
+- 残留未做（有意）：~~分片化推广到 teamplay/utilitylab/mapdata/lineups~~ → utilitylab/mapdata
+  已在 §17 X4a 落地（teamplay 派生自分片 aggregate、lineups 只读 store，均无需分片）；
+  CSRF/Auth 维持本地单用户边界（HANDOFF §13 已记录）。
+
+## 17. Phase X —— 信息架构重组 + 遗留小件清账（2026-09-07，一次到底）
+
+**背景**：用户要求全面重新梳理项目功能性与网页层级/跳转关系（"避免过多的网页导致
+跳转杂乱不清晰"）。审计确认 10 项问题（P1 概念无家可归 3 项 / P2 层级导航 4 项 /
+P3 入口链接卫生 3 项），用户拍板：**深度合并（C 档）+ 五排协同迁 /teams + 单行三簇
+导航 + /与/matches 保持两页 + IA 与遗留小件一次做完 + system 精简保留**。
+
+### 审计结论（修复前）
+
+| # | 问题 | 证据 |
+|---|------|------|
+| 1 | 五排协同存在于 /compare 与 /teams 两页，两页互指 + utility 也指 compare | compare.html:119-202 / teams.html:10 |
+| 2 | `/report/{hash}` 近乎孤儿页（唯一入口是 reports 页下拉选中后的预览链） | grep 全站 |
+| 3 | /compare 一页 4 个不相干区块，身份混乱 | compare.html |
+| 4 | 双导航分层标准不成立（收藏/报告混在"专题"，系统混在主导航） | base.html:24-43 |
+| 5 | `/` 三个名字（仪表盘/Demo 库/对局库） | batch_jobs/error/index 文案 |
+| 6 | system"专题工具"卡片区与次导航 1:1 重复且漏收藏/趣味 | system.html:40-50 |
+| 7 | `/report/{hash}` 导航无高亮（active 只判 `=='/reports'`） | base.html:41 |
+| 8 | 上传入口单一，matches 空状态却提示上传 | _upload_zone 仅 index |
+| 9 | batch_jobs 站内链接走 legacy `/demo/*`（多一跳 301） | batch_jobs.html:26,50 |
+| 10 | 专题页互链随开发顺序堆叠，无规则 | 各模板 page-actions |
+
+### 目标 IA（13 一级页 → 10）
+
+单行三簇导航：**品牌(→/) ｜ 对象：对局·选手·队伍 ｜ 洞察：高光·对比·地图 ｜ 工具：收藏·报告·系统**
+（`/report/*` 现在正确高亮"报告"）。退役页全部 301（query 透传，`_redirect` 修了
+"目标已带 query"的 `?`→`&` 拼接）：
+
+- `/fun-lab` → `/players?tab=lab`（趣味实验室成为选手库第二个 tab，echarts+funlab.js
+  **tab 首次激活才注入**——表格页不再付 1MB vendor；matrix 图同样只在总览 tab 可见时 mount）
+- `/utility-lab` → `/map-analysis#utility`（道具专题整页并入地图分析；页级地图 chips 是
+  唯一选择器，`csa:map-changed` 事件联动落点热力；两个 API 均保留，页面层组合）
+- `/demo/*`、`/aggregate` 301 保留；batch_jobs/error 文案统一"首页"；batch 链接改 canonical `/match/`
+
+### 跳转补链
+
+- match_detail page-actions 新增 **"📄 打印报告"** → `/report/{hash}`；report 页新增
+  no-print 工具栏（返回对局 / 导出 PNG-PDF → `/reports?demo={hash}`；reports.js 读
+  `?demo=` 预选）；**导出器走 `?print=1`，模板按参数隐藏工具栏**（截图导出不泄漏工具栏，
+  实测导出 PNG 干净）。
+- compare 瘦身后 page-actions 加"五排协同 / 阵容 → /teams"；teams 删原指向 compare 的按钮。
+- system"专题工具"4 卡 → **站点索引**（10 页全覆盖，含此前漏掉的收藏）。
+
+### 五排协同迁家（X2）
+
+HTML 区块 + 内联 IIFE 从 compare.html **整体迁入** teams.html + teams.js（esc 本地化）。
+API：`/api/teams/teamplay.json` 为 canonical，`/api/compare/teamplay.json` 保留别名
+（同 payload）。实现时核实：teamplay_data 派生自分片 aggregate → **无需再做分片**。
+
+### 遗留小件清账（X4）
+
+1. **X4a 分片化**：`utilitylab_data.py`、`mapdata.py` 重写为 ev_data 同款 T3 分片模式
+   （memo 族 `utilitylab`/`mapdata`，per-demo 载荷，缺片才扫，GC 自动覆盖新 memo 目录）；
+   T1 整页快照对保留（restore 播种合并 memo）。**lineups 不分片**（只读 store，
+   T1 快照已覆盖冷启动）。
+2. **X4b V1 跨场 LOO**：新 `web/winprob_loo.py`——留一场、其余场训练同款 numpy 逻辑回归、
+   留出场算 rank-AUC（兑现 win_probability.py 文档里承诺多年的"LOO at web layer"）。
+   per-demo 快照特征走分片（memo 族 `winloo`），LOO 拟合每次从分片重算（24 个小拟合 ≪1s）。
+   **对局页用 `loo_peek` 只读暖 memo**（U1 教训：冷首访绝不同步扫全库），wave2 新增
+   `winloo` 步骤后台物化；`/api/demo/{h}/analysis/win_probability.json` 响应加 `loo_auc` 键。
+3. **X4c V3 阈值客户端化**：`style_map.py` 轨迹载荷加 `n_features`；funlab.js 星系区头
+   σ 滑杆（1.0–3.0，localStorage `csa.trajSigma`），客户端按 `max_jump > σ·√k` 重着色
+   （漂移=橙实线，稳定=紫虚线）；服务端 change_note 保持默认 1.5σ 不动 → **零快照失效**。
+
+### X 期坑（新增）
+
+1. **非重入锁死锁**：report 级 memo 的 `*_report()` 在持有 `_lock` 时调 `_build()`，
+   `_build` 内 `_scan_all()` 冷路径再抢同一把 `threading.Lock` → 自死锁（表现为
+   test_snapshots 挂死 5 分钟+）。修法：**先 `_scan_all()` 暖分片 memo，再进锁构建**
+   （utilitylab/mapdata/winloo 三处同修）。fast path 不加锁所以暖后无竞争。
+2. **`_redirect` 目标已带 query**（`/players?tab=lab`）时拼接出 `?…?…`——
+   `_redirect` 改为按 `?` 有无选 `&`/`?`。
+3. **导出截图 ≠ 打印**：`.rp-noprint` 的 `@media print` 只护 Ctrl+P，playwright
+   `page.screenshot` 是 screen media——no-print 工具栏必须由**服务端 query 参数**隐藏。
+4. pytest 收尾时 wave2 后台线程报 "cannot schedule new futures after interpreter
+   shutdown"——预热线程与解释器关闭竞速的良性噪音（rating21 步同款），非失败。
+
+### 验收（全绿）
+
+- **pytest 303**（286→303：test_phase_x.py 17 项：301×2+query 透传、teamplay 别名、
+  lab/utility/system 标记、utilitylab/mapdata/winloo 分片往返、LOO 合成可分数据 AUC>0.5、
+  loo_peek 不触发计算、win_probability 响应形状、轨迹 n_features、batch canonical 链接；
+  另修 test_web 导航断言与 test_funlab 页面断言到新 IA）。
+- **死锁回归**：修复后 test_snapshots 0.86s（挂死→秒过）。
+- **visual_check 22 页 0 失败**（fun_lab→players_lab、utility_lab→map_utility 换靶，
+  补 report_match）；关键页 read_image 人工复核：仪表盘（三簇导航）、teams（五排协同
+  整区渲染）、map_utility（道具区完整+落点热力随图）、players_lab（双 tab+星系 σ 滑杆
+  +轨迹双色）、compare（瘦身）、report_match（工具栏）。
+- **accept_buttons 13 步零失败**（新增第 13 步：/report 导航高亮 + 退役页 301 落点 +
+  players?tab=lab 深链激活）。
+- **实盘导出回归**：真库 PNG 导出成功且无工具栏泄漏（print=1 生效实证）。
+
+### X 里程碑状态
+
+- 测试 286→**303**；visual_check 22 页；accept_buttons 12→**13** 步。
+- 新文件：`cs_analyzer/web/winprob_loo.py`、`tests/test_phase_x.py`。
+- 退役模板：`fun_lab.html`、`utility_lab.html`（git 删除；URL 由 301 兜底）。
+- 改动面：web/{app,snapshots,aggregation,warmup,mapdata,utilitylab_data,style_map,
+  report_export}.py、static/js/{teams,funlab,utilitylab,map_analysis,reports}.js、
+  static/style.css、templates/{base,index,matches,match_detail,compare,teams,
+  map_analysis,players,system,report_match,batch_jobs,error}.html、
+  scripts/{visual_check,accept_buttons}.py、tests/{test_web,test_funlab}.py。
+- 待用户输入：D2b（FACEIT key，`scripts/pro_fetch.py --key ...` 即跑）。
+
+### 17a. Phase Y —— 完美平台全量导入 + 去重清源（2026-09-07，随 X 同批待审）
+
+**任务**：`C:\Users\35311\AppData\Roaming\Wmpvp\demo` 的 19 个 zip 按 5E 先例全部导入；
+确认无损后删除重复；平台路径沉淀为配置。
+
+**执行记录**：
+
+1. **Y1 内层哈希去重（关键方法）**：zip 容器哈希 ≠ 内层 dem 哈希（压缩层，8/8 实证
+   不同）——重合判定必须对 **zip 内层 .dem 流式 SHA256** vs demos/ 同名文件。8 个
+   重合 zip 内层哈希 **8/8 与库内 .dem 字节一致** → 确认纯冗余副本（解析必然缓存命中）。
+2. **Y2 导入**：新 `configs/demo_sources.yaml`（完美 + 5E 两平台源路径与注记）+
+   新 `scripts/platform_import.py`（可复用批量导入器：扫 zip → 内层哈希去重 → 导入；
+   坏 zip 容错跳过；`--dry-run`）。dry-run 精确（11 新 / 8 已存在 / 6 坏），正式导入 11 个
+   新 .dem（~940MB），`/system/import` 一键入库 **11/11 解析 done**。
+3. **Y3 验证**：库 24→**35**（perfect_world 8→**19**）；19 场 sanity 探针全 OK
+   （10 玩家 / 16-24 回合 / tick 64 / match_id 正确）；新图 **de_vertigo** 按 K4 流程补
+   雷达 PNG+yaml（MurkyYT contents API base64 下载），**五链路验证**：bbox 796380/796380
+   入图、bomb_planted 实测落点（u≈0.23/v≈0.22 与 0.67-0.70/v≈0.57-0.60）与 radar_info
+   包点图标（B 0.222/0.223、A 0.705/0.585）吻合、/maps 路由 200、回放器底图真实渲染
+   （read_image 亲验）、零 console 错误；预热重建后 /system 未入库清零；仪表盘实证
+   35 demo / 8 地图 / 756 回合 / 239 选手。
+4. **Y4 删除**：19 个源 zip 全部 **移入回收站**（SendToRecycleBin，可恢复，非永久删除）；
+   5E 目录 6 个截断坏 zip 按用户既有裁决保留；demos/ 解析文件一律未动。
+
+**Y 期坑（新增）**：
+
+1. **zip↔dem 哈希陷阱**：zip 容器（压缩+EOCD）与内层 dem 字节恒不同——任何"平台 zip
+   是否已在库"的判断都必须解流内层文件再哈希，不能比容器。
+2. demoparser2 的 `bomb_planted` 列名是 `user_X/user_Y`（plant 者位置），不是 `x/y`。
+3. MurkyYT/cs2-map-icons 的 PNG 不在 raw  guesses 路径，走 `api.github.com contents
+   images/radars/<m>_radar_psd.png` base64（K4 已记录，vertigo 复用同路）。
+
+**状态**：库 35 场（19 完美 + 16 5E 名/valve 头）；新增 `scripts/platform_import.py`、
+`configs/demo_sources.yaml`、`maps/data/de_vertigo.{png,yaml}`。未来小件：system 页
+"扫描平台目录"按钮（复用 platform_import，配置锚点已就位）。
+
+### 17b. Phase W2 —— X/Y 之后全量交互复审（2026-09-07，随 X/Y 同批待审）
+
+**审计方法**：X/Y 改了导航壳/双 tab 懒加载/合并页/35 场库之后，重跑全部实盘验收
++ 新交互面专项探针（5 条此前无脚本覆盖的路径）+ 静态复查（17 模板 + 13 JS 的全部
+事件绑定、legacy 残链 grep）。
+
+**发现与修复**：
+
+| # | 级别 | 发现 | 修复 |
+|---|------|------|------|
+| F-A | P1 | **players 页 echarts 重复注入**（探针实证 `script[src*=echarts.min]==2`）：`ensureLab`（lab tab）与 `mountMatrix`（总览 tab）各自独立注入 vendored echarts——lab→总览往返即双份，window.echarts 被初始化两次，先挂 chart 实例在新副本注册表查不到 → `activate()` 的 0×0 resize 静默失效，每路径多付 1MB | players.html `loadScript` 改 **promise 缓存版**（`loadScriptCache`），两路径共享，全页生命周期恰注入一次；accept 第 14 步锁死 `scripts===1` |
+| F-B | P2 | `/reports` 预览链 href 平时 `#`，只在左键 click 瞬间赋值——**中键/Ctrl+点（新标签）拿到 #** 开空白页 | reports.js 新 `syncPreview()`：demos.json 到位与 change 时即同步 href；click handler 降级为兜底（无 hash 才 preventDefault） |
+| F-C | P3 | `ensureLab` 脚本加载失败时标志已置位 → lab tab 会话内永久假死 | 失败分支回滚 `labLoaded=false`，下次激活自动重试；文案提示"切回再进可重试" |
+| F-D | 验收基建 | visual_check 45s GOTO 超时对 35 场库偏紧（首跑 4 页瞬态超时，重试/整轮均过） | goto 90s + **每页自动重试一次**再判 FAIL |
+
+**验收**：pytest 303→**305**（+2：players 共享加载器静态锁、reports.js syncPreview
+静态锁）；探针 5/5 过（P1 往返单注入 + 三图非零尺寸、P2 预选+href、P3 σ 滑杆
+persist/restore、P4 35 行表格/排序/卡片、P5 地图联动道具图）；visual_check **22 页
+0 失败**；accept_buttons **16 步零失败**（新增 14-16：往返单注入/预选 href/σ 滑杆）。
+
+**W2 期坑（新增）**：
+
+1. **验收脚本 race**：click 切 tab 后 `sleep(2s)` 断言 DOM 状态会偶发竞态（P1 曾
+   假报"panel did not hide"，MutationObserver stakeout 证明行为正确）——交互断言
+   一律 `wait_for_function` 轮询，禁止固定 sleep 后断言。
+2. **波次重建撞车**：Y 导入 11 场 + X 代码变更使分片 src-digest 变更 → wave2 需要
+   重算 30 个 rating21 + 35 个 winloo 分片（in-process CPU）；此时首个 career 页请求
+   同步等 `_rating21_shards` 冷路径 → 单次 241s（非回归：重建完成后 0.02-0.03s）。
+   与 W 期 U1 地雷同类，但触发条件是"代码变更/导入后未等 wave2 结束"——重演概率低，
+   已在 §17 记录；后续可考虑 rating21 冷路径也走 kick-only（本期不动，避免范围膨胀）。
+
+**W2 里程碑状态**：测试 303→305；accept_buttons 13→16 步；visual_check 22 页。
+改动面：templates/players.html、static/js/reports.js、scripts/{visual_check,
+accept_buttons}.py、tests/test_phase_x.py。

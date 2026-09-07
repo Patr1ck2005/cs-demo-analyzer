@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>批量解析中…</h1>
-    <div class="page-meta">共 {{ rows|length }} 个文件。完成后本页实时刷新状态，<a href="/">返回 Demo 库</a>。</div>
+    <div class="page-meta">共 {{ rows|length }} 个文件。完成后本页实时刷新状态，<a href="/">返回首页</a>。</div>
   </div>
 </div>
 
@@ -23,7 +23,7 @@
           {% else %}<span class="badge ct">解析中…</span>{% endif %}
         </td>
         <td class="bf-result sub">
-          {% if r.state == 'duplicate' %}<a href="/demo/{{ r.demo_hash }}">查看分析 →</a>
+          {% if r.state == 'duplicate' %}<a href="/match/{{ r.demo_hash }}">查看分析 →</a>
           {% elif r.state == 'error' %}{{ r.error }}{% endif %}
         </td>
       </tr>
@@ -47,7 +47,7 @@
     const resultEl = tr.querySelector('.bf-result');
     if (st.status === 'done') {
       stateEl.innerHTML = '<span class="badge ok">完成</span>';
-      resultEl.innerHTML = '<a href="/demo/' + st.result + '">查看分析 →</a>';
+      resultEl.innerHTML = '<a href="/match/' + st.result + '">查看分析 →</a>';
     } else if (st.status === 'error') {
       stateEl.innerHTML = '<span class="badge t0">失败</span>';
       resultEl.textContent = st.error || '未知错误';

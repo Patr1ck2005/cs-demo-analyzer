@@ -10,6 +10,11 @@
 
   var currentHash = '';
 
+  function syncPreview() {
+    var link = document.getElementById('rp-preview');
+    if (link && currentHash) link.href = '/report/' + currentHash;
+  }
+
   function loadHistory() {
     fetch('/api/report/exports.json', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
@@ -59,14 +64,26 @@
         sel.innerHTML = (d.demos || []).map(function (m) {
           return '<option value="' + esc(m.demo_hash) + '">' + esc(m.map_name) + ' · ' + esc(m.filename) + '</option>';
         }).join('');
+        // Phase X: /report/{hash} 的「导出 PNG / PDF →」跳到这里带 ?demo=hash，
+        // 让导出器直接选中来源对局（无参数或 hash 不在库中则保持默认第一项）。
+        var wanted = new URLSearchParams(location.search).get('demo');
+        if (wanted && sel.querySelector('option[value="' + wanted + '"]')) sel.value = wanted;
         currentHash = sel.value || '';
-        sel.addEventListener('change', function () { currentHash = sel.value; });
+        // W2 F-B: keep the preview link always resolvable — middle-click /
+        // ctrl-click (new tab) never fires the click handler, so a click-time
+        // href assignment handed them "#".
+        syncPreview();
+        sel.addEventListener('change', function () {
+          currentHash = sel.value;
+          syncPreview();
+        });
         document.getElementById('rp-png').addEventListener('click', function () { doExport('png'); });
         document.getElementById('rp-pdf').addEventListener('click', function () { doExport('pdf'); });
       });
     document.getElementById('rp-preview').addEventListener('click', function (ev) {
-      if (currentHash) ev.target.href = '/report/' + currentHash;
-      else { ev.preventDefault(); return false; }
+      // fallback only: without a hash the link stays inert
+      if (!currentHash) { ev.preventDefault(); return false; }
+      ev.target.href = '/report/' + currentHash;
     });
     loadHistory();
   }

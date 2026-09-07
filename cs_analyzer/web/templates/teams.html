@@ -4,10 +4,7 @@
 <div class="page-head">
   <div>
     <h1>队伍视图</h1>
-    <div class="page-meta">匹配匹 demo 无战队名（Team 2/3 占位）——按首发阵容指纹分组：车队局 vs 单排局</div>
-  </div>
-  <div class="page-actions">
-    <a class="btn" href="/compare">五排协同 →</a>
+    <div class="page-meta">匹配匹 demo 无战队名（Team 2/3 占位）——按首发阵容指纹分组：车队局 vs 单排局 · 含五排协同网络</div>
   </div>
 </div>
 
@@ -32,7 +29,26 @@
 <div class="section-header"><h2>逐场阵容</h2>
   <div class="section-actions sub" style="margin:0">己方胜率 = 多数常客所在一侧的回合胜率（换边安全）</div></div>
 <div id="tm-matches"></div>
+
+<!-- ============ Phase X: 五排协同 (moved from /compare) ============ -->
+<div class="section-header"><h2>五排协同</h2>
+  <div class="section-actions sub" style="margin:0" id="tp-meta">5E 库协同网络</div></div>
+<div class="grid two-col">
+  <div class="card" style="padding:8px">
+    <div class="sub" style="padding:2px 8px 6px">协同网络 · 助攻+补枪+闪光助攻（双向合计）</div>
+    <div id="tp-heatmap" style="height:400px"></div>
+  </div>
+  <div class="card" style="padding:8px">
+    <div class="sub" style="padding:2px 8px 6px">Top 协同连线</div>
+    <div id="tp-links"></div>
+    <div class="sub" style="padding:8px 8px 4px">五排画像（≥5 场常客）</div>
+    <div id="tp-portraits" style="display:flex;flex-direction:column;gap:6px;padding:0 8px 6px"></div>
+  </div>
+</div>
+<div class="card" style="padding:10px 12px" id="tp-contrast"></div>
 {% endblock %}
 {% block scripts %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
 <script src="/static/js/teams.js?v={{ static_v }}"></script>
 {% endblock %}

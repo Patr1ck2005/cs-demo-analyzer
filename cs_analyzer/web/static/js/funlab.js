@@ -178,6 +178,20 @@
 
   // ---- Phase N: 风格星系（谁和谁打得像）----
   var GALAXY = { showTraj: true, last: null };  // V3: 演变轨迹开关
+  // X4c: drift threshold is a CLIENT judgment — the server keeps emitting
+  // max_jump per trajectory (its change_note stays at the default 1.5σ for
+  // snapshots), the slider re-labels live without touching any snapshot.
+  var TRAJ_SIGMA_KEY = 'csa.trajSigma';
+  function trajSigma() {
+    var v = parseFloat(localStorage.getItem(TRAJ_SIGMA_KEY));
+    return (v >= 1 && v <= 3) ? v : 1.5;
+  }
+  function styleTrajectory(t, sigma) {
+    // threshold scales with dimensionality: σ per dim in a k-dim z space
+    // = σ·√k euclidean (same shape as the server's default judgment)
+    var k = (t.n_features || 1) * 1.0;
+    return t.max_jump > sigma * Math.sqrt(k);
+  }
   // script runs at the bottom of <body> — the toggle exists already;
   // DOMContentLoaded has usually fired, so register immediately + guard
   function _bindTrajToggle() {
@@ -186,6 +200,18 @@
       tg.dataset.trajBound = '1';
       tg.addEventListener('change', function () {
         GALAXY.showTraj = tg.checked;
+        if (GALAXY.last) drawGalaxy(GALAXY.last);
+      });
+    }
+    var sl = document.getElementById('sm-traj-sigma');
+    if (sl && !sl.dataset.sigmaBound) {
+      sl.dataset.sigmaBound = '1';
+      sl.value = trajSigma();
+      var val = document.getElementById('sm-traj-sigma-val');
+      if (val) val.textContent = trajSigma().toFixed(1);
+      sl.addEventListener('input', function () {
+        localStorage.setItem(TRAJ_SIGMA_KEY, sl.value);
+        if (val) val.textContent = parseFloat(sl.value).toFixed(1);
         if (GALAXY.last) drawGalaxy(GALAXY.last);
       });
     }
@@ -220,13 +246,18 @@
     var chart = echarts.init(dom);
     var trajSeries = [];
     if (GALAXY.showTraj && (sm.trajectories || []).length) {
+      var sigma = trajSigma();
       sm.trajectories.forEach(function (t, ti) {
         if (t.points.length < 2) return;
+        var drifted = styleTrajectory(t, sigma);
         trajSeries.push({
           name: t.name + ' 演变', type: 'lines', coordinateSystem: 'cartesian2d',
           polyline: true, silent: true, z: 2,
-          lineStyle: { color: 'rgba(196,181,253,.55)', width: 1.6, type: 'dashed' },
-          effect: { show: true, period: 5, trailLength: 0, symbol: 'arrow', symbolSize: 5, color: '#c4b5fd' },
+          lineStyle: drifted
+            ? { color: '#ffb02e', width: 2.2, type: 'solid', opacity: 0.9 }
+            : { color: 'rgba(196,181,253,.55)', width: 1.6, type: 'dashed' },
+          effect: { show: true, period: 5, trailLength: 0, symbol: 'arrow', symbolSize: 5,
+                    color: drifted ? '#ffb02e' : '#c4b5fd' },
           data: [{ coords: t.points.map(function (pt) { return [pt.x, pt.y]; }) }],
           tooltip: { show: false },
         });

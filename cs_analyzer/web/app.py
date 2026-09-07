@@ -175,7 +175,11 @@ def _top_highlights(limit: int) -> list[dict]:
 
 def _redirect(request: Request, target: str) -> RedirectResponse:
     qs = str(request.url.query)
-    return RedirectResponse(target + ("?" + qs if qs else ""), status_code=301)
+    if not qs:
+        return RedirectResponse(target, status_code=301)
+    # target may already carry a query (e.g. /players?tab=lab) — join with &
+    sep = "&" if "?" in target else "?"
+    return RedirectResponse(target + sep + qs, status_code=301)
 
 
 @app.get("/demo/{demo_hash}", response_class=HTMLResponse)
@@ -320,11 +324,18 @@ def favorites_page(request: Request):
     return TEMPLATES.TemplateResponse(request, "favorites.html", {})
 
 
-# ---- Phase L2: utility lab (道具专题) — must register BEFORE /{placeholder} ----
+# ---- Phase X: fun-lab merged into /players?tab=lab; utility-lab merged into
+# /map-analysis (both 301, query strings pass through) — must register BEFORE
+# /{placeholder} ----
+
+@app.get("/fun-lab", response_class=HTMLResponse)
+def fun_lab_redirect(request: Request):
+    return _redirect(request, "/players?tab=lab")
+
 
 @app.get("/utility-lab", response_class=HTMLResponse)
-def utility_lab_page(request: Request):
-    return TEMPLATES.TemplateResponse(request, "utility_lab.html", {})
+def utility_lab_redirect(request: Request):
+    return _redirect(request, "/map-analysis#utility")
 
 
 # ---- Phase L3: map analysis (地图分析) — must register BEFORE /{placeholder} ----
@@ -346,13 +357,6 @@ def teams_page(request: Request):
 @app.get("/reports", response_class=HTMLResponse)
 def reports_page(request: Request):
     return TEMPLATES.TemplateResponse(request, "reports.html", {})
-
-
-# ---- Phase M: fun-lab (趣味数据实验室) — must register BEFORE /{placeholder} ----
-
-@app.get("/fun-lab", response_class=HTMLResponse)
-def fun_lab_page(request: Request):
-    return TEMPLATES.TemplateResponse(request, "fun_lab.html", {})
 
 
 @app.get("/api/funlab.json")
@@ -830,11 +834,18 @@ def weapon_timeline_charts(demo_hash: str):
 
 @app.get("/api/demo/{demo_hash}/analysis/win_probability.json")
 def win_probability_charts(demo_hash: str):
-    """Round win-probability curve (V1 胜势曲线)."""
+    """Round win-probability curve (V1 胜势曲线) + cross-demo LOO AUC."""
     demo = _load(demo_hash)
     if demo is None:
         return JSONResponse({"error": "demo 未找到"}, status_code=404)
     result = _analyze_module(demo, "win_probability")
+    # V1 X4: honest generalization number — train on every OTHER demo, score
+    # this one (LOO across matches). loo_peek reads the WARM memo only: a
+    # cold first visit must not pay the whole-library scan synchronously
+    # (U1 lesson); warmup wave2 materializes it in the background.
+    from cs_analyzer.web.winprob_loo import loo_peek
+
+    loo = loo_peek(demo_hash)
     return JSONResponse({
         "rounds": [[{
             "round": s.round, "tick": s.tick, "side": s.side,
@@ -843,6 +854,7 @@ def win_probability_charts(demo_hash: str):
             "p_lo": s.p_lo, "p_hi": s.p_hi, "outcome": s.outcome,
         } for s in rnd] for rnd in result.rounds],
         "auc": result.model_auc, "n_train_rounds": result.n_train_rounds,
+        "loo_auc": loo["auc"] if loo else None,
         "note": result.sample_note,
     })
 
@@ -906,7 +918,15 @@ def pro_baseline_card():
 
 
 @app.get("/api/compare/teamplay.json")
-def compare_teamplay():
+def compare_teamplay_legacy():
+    """Phase X alias: the section moved to /teams; keep old bookmarks working."""
+    from cs_analyzer.web.teamplay_data import teamplay_report
+
+    return JSONResponse(teamplay_report())
+
+
+@app.get("/api/teams/teamplay.json")
+def teams_teamplay():
     """K5: five-stack link network + stack-vs-mixed + portraits (5E set)."""
     from cs_analyzer.web.teamplay_data import teamplay_report
 

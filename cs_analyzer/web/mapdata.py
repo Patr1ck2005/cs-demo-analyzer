@@ -3,8 +3,11 @@
 Groups the library by map: play counts / round win rates (T and CT),
 merged opening routes (per side, share-weighted across demos), bomb-plant
 site distribution, and each map's strongest players (from the aggregate).
-All heavy per-demo work (routes/postplant modules) reuses the per-demo
-module memo; whole-library iteration uses the L0 thread-pool scan.
+
+Phase X: per-demo payloads (routes/postplant/round outcomes) go through the
+T3 shard cache (same pattern as ev_data/aggregate) — a new demo costs one
+demo's module run + a cheap re-merge instead of a full-library rescan. The
+merged report stays memoized + snapshotted exactly as before.
 """
 from __future__ import annotations
 
@@ -13,12 +16,17 @@ from collections import defaultdict
 
 _lock = threading.Lock()
 _report: dict | None = None
+_shards: list | None = None  # per-demo payloads (shard-backed scan)
 
 
 def map_report() -> dict:
-    """Return the memoized report, computing it on first use (single-flight)."""
+    """Return the memoized report, computing it on first use (single-flight).
+
+    Shard memo warmed before the lock — see utilitylab_report (the cold
+    _scan_all path takes the same non-reentrant lock _build holds)."""
     global _report
     if _report is None:
+        _scan_all()
         with _lock:
             if _report is None:
                 _report = _build()
@@ -26,9 +34,10 @@ def map_report() -> dict:
 
 
 def invalidate_map_report() -> None:
-    global _report
+    global _report, _shards
     with _lock:
         _report = None
+        _shards = None
 
 
 def _merge_routes(acc: dict, routes: list[dict], weight: float) -> None:
@@ -73,52 +82,79 @@ def best_players_for_map(cells: dict[str, dict], min_rounds: int = 10,
     return sorted(rows, key=lambda x: -x["rating"])[:k]
 
 
-def _build() -> dict:
-    from cs_analyzer.analysis.library import scan_demos
-    from cs_analyzer.web.aggregation import aggregated
+def _demo_payload(demo) -> dict:
+    """Per-demo shard payload: round outcomes + normalized routes + plants."""
     from cs_analyzer.web import runtime
-    from cs_analyzer.web.store import list_demos
     from cs_analyzer.web.utilitylab_data import _norm_spot
 
+    routes = runtime.analyze_module(demo, "routes")
+    try:
+        postplant = runtime.analyze_module(demo, "postplant")
+    except Exception:  # noqa: BLE001 — postplant optional per demo
+        postplant = None
+    reg = demo.regular_rounds
+    t_wins = sum(1 for r in reg if r.winner_side == "T")
+    res_cache: dict = {}
+
+    def norm_routes(rs):
+        out = []
+        for r in rs:
+            pts = [_norm_spot(x, y, demo.metadata.map_name, res_cache)
+                   for x, y in r.get("route", [])]
+            pts = [p for p in pts if p is not None]
+            if len(pts) >= 2:
+                out.append({"route": [[u, v] for u, v in pts],
+                            "share": r.get("share", 0.0),
+                            "rounds": r.get("rounds", [])})
+        return out
+
+    return {
+        "map_name": demo.metadata.map_name,
+        "rounds": len(reg),
+        "t_wins": t_wins,
+        "ct_wins": len(reg) - t_wins,
+        "t_routes": norm_routes(routes.routes),
+        "ct_routes": norm_routes(routes.ct_routes),
+        "plants": [r for r in (postplant.rounds if postplant else []) if r.get("site")],
+    }
+
+
+def _scan_all() -> list:
+    """Whole-library scan with the T3 shard cache (memoized).
+
+    Thread path via the per-demo module memo (shares results with other
+    pages); routes/postplant are light modules, so the process pool's spawn
+    overhead would dwarf the gain.
+    """
+    global _shards
+    if _shards is not None:
+        return _shards
+    from cs_analyzer.web import runtime, snapshots
+
     cache_dir = runtime.cache().cache_dir
-    meta = {d["demo_hash"]: d for d in list_demos(cache_dir)}
+    hashes = snapshots._cached_demo_hashes(cache_dir)
+    sharded, missing = snapshots.load_shards("map", runtime.out_dir(),
+                                             cache_dir, hashes)
+    if missing:
+        from cs_analyzer.analysis.library import scan_hashes
+
+        pairs = scan_hashes(cache_dir, missing, _demo_payload)
+        for h, payload in pairs:
+            snapshots.save_shard("map", runtime.out_dir(), cache_dir,
+                                 h, payload)
+            sharded[h] = payload
+    entries = [sharded[h] for h in hashes if h in sharded]
+    with _lock:
+        _shards = entries
+        return _shards
+
+
+def _build() -> dict:
+    from cs_analyzer.web.aggregation import aggregated
+
     agg = aggregated()
     per_player_map = _pool_map_players(agg.players)
-
-    def work(demo) -> dict:
-        routes = runtime.analyze_module(demo, "routes")
-        try:
-            postplant = runtime.analyze_module(demo, "postplant")
-        except Exception:  # noqa: BLE001 — postplant optional per demo
-            postplant = None
-        reg = demo.regular_rounds
-        t_wins = sum(1 for r in reg if r.winner_side == "T")
-        res_cache: dict = {}
-
-        def norm_routes(rs):
-            out = []
-            for r in rs:
-                pts = [_norm_spot(x, y, demo.metadata.map_name, res_cache)
-                       for x, y in r.get("route", [])]
-                pts = [p for p in pts if p is not None]
-                if len(pts) >= 2:
-                    out.append({"route": [[u, v] for u, v in pts],
-                                "share": r.get("share", 0.0),
-                                "rounds": r.get("rounds", [])})
-            return out
-
-        return {
-            "demo_hash": demo.metadata.demo_hash,
-            "map_name": demo.metadata.map_name,
-            "rounds": len(reg),
-            "t_wins": t_wins,
-            "ct_wins": len(reg) - t_wins,
-            "t_routes": norm_routes(routes.routes),
-            "ct_routes": norm_routes(routes.ct_routes),
-            "plants": [r for r in (postplant.rounds if postplant else []) if r.get("site")],
-        }
-
-    per_demo = scan_demos(cache_dir, work)
+    per_demo = _scan_all()
 
     maps: dict[str, dict] = {}
     for entry in per_demo:

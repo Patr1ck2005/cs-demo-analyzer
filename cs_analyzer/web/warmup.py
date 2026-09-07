@@ -180,6 +180,10 @@ def _run() -> None:
             # the visitor pays it synchronously). A 60s request timeout has
             # already eaten this page once; warm it in the background here.
             ("rating21", _step_rating21),
+            # X: win-probability LOO shards — the match page reads the warm
+            # memo only (loo_peek), so without this the cross-demo AUC would
+            # never materialize until something else warms it.
+            ("winloo", _step_winloo),
         ):
             with _lock:
                 _state["phase"] = f"wave2:{step_name}"
@@ -259,3 +263,10 @@ def _step_rating21() -> None:
     from cs_analyzer.web.app import _rating21_shards
 
     _rating21_shards()
+
+
+def _step_winloo() -> None:
+    """Prewarm per-demo win-probability LOO shards (V1 cross-demo AUC)."""
+    from cs_analyzer.web.winprob_loo import loo_report
+
+    loo_report()

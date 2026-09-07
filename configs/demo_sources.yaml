@@ -1,0 +1,24 @@
+# Platform demo source directories (Phase Y 2026-09-07).
+#
+# Each entry is a platform's default download directory. The import script
+# (scripts/platform_import.py) scans these for *.zip packages, extracts the
+# inner .dem, dedupes by content hash against demos/, and copies new demos
+# in. Future work: a /system "扫描平台目录" button reusing the same module.
+#
+# Notes:
+# - 5E zips in this install were observed truncated (EOCD missing) — the
+#   importer skips unreadable zips and reports them instead of failing.
+# - Zip containers never hash-equal their inner demo (compression); dedupe
+#   must hash the INNER .dem stream (Y1 lesson).
+
+perfect_world:
+  path: "C:\\Users\\35311\\AppData\\Roaming\\Wmpvp\\demo"
+  pattern: "*.zip"
+  enabled: true
+  note: "完美世界对战平台客户端下载目录；zip 名 = <matchid>_0.zip"
+
+five_eplay:
+  path: "C:\\Users\\35311\\AppData\\Roaming\\5E对战平台\\demo"
+  pattern: "*.zip"
+  enabled: true
+  note: "5E 对战平台下载目录；g161-*.zip；当前 6 个 zip 均 EOCD 截断（用户裁决保留不删）"

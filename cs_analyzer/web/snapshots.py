@@ -86,6 +86,7 @@ _SNAPSHOT_SOURCES = (
     "web/funlab_data.py",
     "web/style_map.py",
     "web/ev_data.py",
+    "web/winprob_loo.py",
     "web/snapshots.py",
 )
 

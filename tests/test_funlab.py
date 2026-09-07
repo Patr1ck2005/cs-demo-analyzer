@@ -86,11 +86,15 @@ def test_funlab_nan_steamid_is_not_a_player() -> None:
 
 
 def test_funlab_web_contract(web_client) -> None:
-    """/fun-lab is a real page; the API enforces the >=3 demos gate."""
+    """The lab lives at /players?tab=lab (Phase X merge); /fun-lab 301s there
+    and the API enforces the >=3 demos gate."""
     c, h, _ = web_client
-    page = c.get("/fun-lab")
-    assert page.status_code == 200
-    assert "趣味数据实验室" in page.text
+    page = c.get("/fun-lab", follow_redirects=False)
+    assert page.status_code == 301
+    assert page.headers["location"] == "/players?tab=lab"
+    lab = c.get("/players?tab=lab")
+    assert lab.status_code == 200
+    assert "fl-quadrant" in lab.text  # the lazy-mounted lab containers ship SSR
     d = c.get("/api/funlab.json").json()
     assert d["gate"]["min_demos"] == 3
     # synthetic library has 1 demo -> everything gated, empty chart data

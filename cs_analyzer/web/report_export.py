@@ -41,7 +41,7 @@ def export_match_report(base_url: str, demo_hash: str, fmt: str, out_dir: Path) 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"{safe}.{fmt}"
-    url = f"{base_url.rstrip('/')}/report/{demo_hash}"
+    url = f"{base_url.rstrip('/')}/report/{demo_hash}?print=1"
 
     try:
         from playwright.sync_api import sync_playwright
