@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import threading
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -65,8 +66,10 @@ import time as _time
 TEMPLATES.env.globals["static_v"] = str(int(_time.time()))
 
 _analysis_cache: dict[str, dict] = {}
-#: L0: per-demo module results, LRU-capped so a large library can't grow
-#: this unbounded (HANDOFF §9.5). 512 slots ≈ 25+ demos × all modules.
+#: L0: per-demo module results, FIFO-capped so a large library can't grow
+#: this unbounded (HANDOFF §9.5). Eviction is insertion-order (oldest demo
+#: first) — access-order LRU was never implemented; 512 slots ≈ 25+ demos ×
+#: all modules.
 _MODULE_CACHE_CAP = 512
 _module_cache: OrderedDict[str, dict] = OrderedDict()
 
@@ -241,31 +244,56 @@ def player_career(request: Request, steamid: str):
     )
 
 
+def _rating21_shard_payload(demo: ParsedDemo) -> dict:
+    """Per-demo ratings21 shard payload (T3 pattern): round count + a small
+    per-player metrics dict, enough for round-weighted career aggregation."""
+    from cs_analyzer.web import runtime
+
+    result = runtime.analyze_module(demo, "ratings21")
+    if result is None:
+        return {"rounds": 0, "players": {}}
+    return {
+        "rounds": result.rounds_total,
+        "players": {
+            p.steamid: {"r21": p.Rating21, "r20": p.Rating,
+                        "kast": p.KAST21, "saves": p.save_rounds}
+            for p in result.players
+        },
+    }
+
+
+def _rating21_shards() -> list[tuple[str, dict]]:
+    """All demo rating21 payloads via the T3 shard cache: per-demo JSON
+    shards mean a career-page visit reads 24 tiny files instead of loading
+    24 parquet demos (~15s per visit before; <1s after)."""
+    from cs_analyzer.analysis.library import cached_demo_hashes, scan_hashes
+    from cs_analyzer.web import runtime, snapshots
+
+    cache_dir = runtime.cache().cache_dir
+    hashes = snapshots._cached_demo_hashes(cache_dir)
+    sharded, missing = snapshots.load_shards("rating21", runtime.out_dir(),
+                                             cache_dir, hashes)
+    if missing:
+        pairs = scan_hashes(cache_dir, missing, _rating21_shard_payload)
+        for h, payload in pairs:
+            snapshots.save_shard("rating21", runtime.out_dir(), cache_dir, h, payload)
+            sharded[h] = payload
+    return [(h, sharded[h]) for h in hashes if h in sharded]
+
+
 def _player_rating21(steamid: str) -> dict | None:
-    """Round-weighted Rating 2.1 / 2.0 / KAST21 / saves for one player.
-
-    Walks every demo's ratings21 result (thread path only — the card is one
-    page, not a hot path; process overhead would dwarf the gain).
-    """
+    """Round-weighted Rating 2.1 / 2.0 / KAST21 / saves for one player."""
     try:
-        from cs_analyzer.analysis.library import cached_demo_hashes, scan_hashes
-        from cs_analyzer.web import runtime
-
-        cache_dir = runtime.cache().cache_dir
-        pairs = scan_hashes(cache_dir, cached_demo_hashes(cache_dir),
-                            lambda d: runtime.analyze_module(d, "ratings21"))
         num21 = num20 = den = kast = saves = 0
-        for _h, result in pairs:
-            if result is None:
+        for _h, payload in _rating21_shards():
+            p = payload["players"].get(steamid)
+            n = payload["rounds"]
+            if p is None or n <= 0:
                 continue
-            p = result.by_steamid(steamid)
-            if p is None or result.rounds_total <= 0:
-                continue
-            n = result.rounds_total
-            num21 += p.Rating21 * n
-            num20 += p.Rating * n
-            kast += p.KAST21 * n
-            saves += p.save_rounds
+            num21 += p["r21"] * n
+            num20 += p["r20"] * n
+            kast += p["kast"] * n
+            saves += p["saves"]
             den += n
         if den == 0:
             return None
@@ -441,11 +469,15 @@ def _save_upload(file: UploadFile) -> Path:
     """Persist an uploaded .dem into demos/, resolving filename collisions.
 
     Same-name-same-size is treated as the same file (overwrite in place);
-    otherwise a numeric suffix is appended.
+    otherwise a numeric suffix is appended. Non-.dem names are rejected by
+    the route (server-side check — the dropzone's accept filter is advisory
+    only and a crafted POST skips it).
     """
     demos_dir = _demos_dir()
     demos_dir.mkdir(exist_ok=True)
     name = Path(file.filename or "upload.dem").name or "upload.dem"
+    if not name.lower().endswith(".dem"):
+        raise ValueError(f"只支持 .dem 文件：{name}")
     dest = demos_dir / name
     if dest.exists():
         # compare sizes without loading either into memory; never close the
@@ -477,8 +509,9 @@ def upload(request: Request, files: list[UploadFile] = File(...)):
     for f in files:
         try:
             dest = _save_upload(f)
-        except OSError as exc:
-            logger.exception("failed to save upload %s", f.filename)
+        except (OSError, ValueError) as exc:
+            # ValueError = non-.dem name rejected before anything hit disk
+            logger.info("upload rejected: %s (%s)", f.filename, exc)
             saved.append((f.filename or "?", exc))
             continue
         saved.append((Path(f.filename or dest.name).name, dest))
@@ -486,7 +519,8 @@ def upload(request: Request, files: list[UploadFile] = File(...)):
     rows = []  # batch_jobs.html rows: {label, job_id|None, state}
     cache = _cache()
     for label, dest in saved:
-        if isinstance(dest, OSError):
+        if isinstance(dest, BaseException):
+            # OSError = save failure; ValueError = non-.dem name rejected
             rows.append({"label": label, "job_id": None, "state": "error",
                          "error": str(dest), "demo_hash": None})
             continue
@@ -511,15 +545,40 @@ def upload(request: Request, files: list[UploadFile] = File(...)):
     )
 
 
+# F7: per-demo-hash parse locks. Two jobs for the same demo (double-clicked
+# 一键入库, upload + import racing, two tabs) must not parse concurrently —
+# both would miss the cache and then write the same <hash>/ dir (model.json
+# + parquet are plain writes, a torn interleaving corrupts the entry).
+_parse_locks: dict[str, threading.Lock] = {}
+_parse_locks_guard = threading.Lock()
+
+
+def _parse_lock(demo_hash: str) -> threading.Lock:
+    with _parse_locks_guard:
+        lock = _parse_locks.get(demo_hash)
+        if lock is None:
+            lock = threading.Lock()
+            _parse_locks[demo_hash] = lock
+        return lock
+
+
 def _parse_job(path: str) -> str:
     from cs_analyzer.web.aggregation import invalidate_aggregate
 
     try:
         from cs_analyzer.parser.manager import ParseManager
 
-        manager = ParseManager(cache=_cache())
-        demo = manager.parse(path, use_cache=True)
-        return demo.metadata.demo_hash
+        demo_hash = DemoCache.hash_demo(Path(path))
+        with _parse_lock(demo_hash):
+            cache = _cache()
+            if cache.exists(demo_hash):
+                # another job for the same content finished while we waited
+                demo = cache.load(demo_hash)
+                if demo is not None:
+                    return demo.metadata.demo_hash
+            manager = ParseManager(cache=cache)
+            demo = manager.parse(path, use_cache=True)
+            return demo.metadata.demo_hash
     finally:
         # success or failure: the cache set may have changed (a failed parse
         # can still leave a partial cache dir) — drop the aggregate memo
@@ -756,15 +815,17 @@ def weapon_timeline_charts(demo_hash: str):
     if demo is None:
         return JSONResponse({"error": "demo 未找到"}, status_code=404)
     result = _analyze_module(demo, "weapon_timeline")
+    tick_rate = demo.metadata.tick_rate or 64
     players = []
     for p in result.players:
         players.append({
             "steamid": p.steamid, "name": p.name, "team": p.team,
-            "holds": [{"weapon": h.weapon, "seconds": round(h.ticks / 64.0, 1),
+            "holds": [{"weapon": h.weapon, "seconds": round(h.ticks / tick_rate, 1),
                        "segments": h.segments, "kills": h.kills} for h in p.holds],
             "round_equips": p.round_equips,
         })
-    return JSONResponse({"players": players, "rounds": result.rounds_total})
+    return JSONResponse({"players": players, "rounds": result.rounds_total,
+                         "tick_rate": tick_rate})
 
 
 @app.get("/api/demo/{demo_hash}/analysis/win_probability.json")

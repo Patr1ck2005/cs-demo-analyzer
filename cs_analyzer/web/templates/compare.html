@@ -220,10 +220,10 @@
     box.innerHTML = pro.players.map((p) => {
       const maps = (p.top_maps || []).map((m) =>
         `<div class="sub" style="display:flex;justify-content:space-between;font-size:11px">` +
-        `<span>${m.map.replace('de_', '')}</span>` +
+        `<span>${CSACommon.esc(String(m.map).replace('de_', ''))}</span>` +
         `<span>${m.maps_count} 场 · ADR ${m.avg_damage != null ? m.avg_damage.toFixed(1) : '-'}</span></div>`).join('');
       return `<div class="card" style="margin-bottom:0;padding:10px 12px">` +
-        `<div style="font-size:15px;font-weight:600">${p.nickname}</div>` +
+        `<div style="font-size:15px;font-weight:600">${CSACommon.esc(p.nickname)}</div>` +
         `<div class="sub" style="font-size:11px">${p.games ?? '-'} 场 · ${p.rounds ?? '-'} 回合` +
         `${p.kd != null ? ' · K/D ' + p.kd : ''}</div>` +
         `<div style="margin:6px 0 2px;font-size:12px;color:#c4b5fd">近期图池</div>${maps}</div>`;

@@ -33,7 +33,7 @@ class EVCell(BaseModel):
     n: int
     wins: int
     win_rate: float | None = None
-    survived: float | None = None  # avg survivors on the losing side
+    survived: float | None = None  # 回合末存活率均值：该方存活人数/该方人数 的回合均值
 
 
 class EconomyEVResult(AnalysisResult):

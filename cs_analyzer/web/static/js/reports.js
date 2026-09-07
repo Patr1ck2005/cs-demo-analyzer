@@ -24,14 +24,22 @@
 
   function doExport(fmt) {
     if (!currentHash) return;
+    var png = document.getElementById('rp-png');
+    var pdf = document.getElementById('rp-pdf');
+    // F9: one export at a time — a second click while chromium is rendering
+    // would spawn a second browser AND collide on the same-second filename.
+    if (!png || !pdf || png.disabled || pdf.disabled) return;
+    png.disabled = pdf.disabled = true;
     var st = document.getElementById('rp-status');
     st.textContent = '正在渲染（约 5-15 秒）…';
+    function release() { png.disabled = pdf.disabled = false; }
     fetch('/api/report/' + currentHash + '/export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ format: fmt }),
     }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
       .then(function (res) {
+        release();
         if (res.ok && res.d.ok) {
           st.innerHTML = '完成：<a href="' + esc(res.d.url) + '" target="_blank">' + esc(res.d.file) + '</a>';
           loadHistory();
@@ -39,7 +47,7 @@
           st.textContent = res.d && res.d.error ? res.d.error : '导出失败';
         }
       })
-      .catch(function () { st.textContent = '导出失败（网络/服务端错误）'; });
+      .catch(function () { release(); st.textContent = '导出失败（网络/服务端错误）'; });
   }
 
   function init() {

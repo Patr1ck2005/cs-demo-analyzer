@@ -285,14 +285,47 @@
     }
   }
 
+  // F2: fetch race guard — responses from superseded requests are dropped
+  // (last click wins), and a failed fetch reverts to the LAST successfully
+  // applied filter set so the chips never claim a filter that isn't shown.
+  var fetchSeq = 0;
+  var applied = { stack: [], dates: [] };
+  function syncChips() {
+    document.querySelectorAll('#fl-stack-chips [data-stack]').forEach(function (b) {
+      b.classList.toggle('on', FILTERS.stack.indexOf(b.getAttribute('data-stack')) >= 0);
+    });
+    document.querySelectorAll('#fl-date-chips [data-date]').forEach(function (b) {
+      b.classList.toggle('on', FILTERS.dates.indexOf(b.getAttribute('data-date')) >= 0);
+    });
+  }
   function fetchAndDraw(after) {
     var qs = [];
     if (FILTERS.stack.length) qs.push('stack=' + FILTERS.stack.join(','));
     if (FILTERS.dates.length) qs.push('dates=' + FILTERS.dates.join(','));
+    var seq = ++fetchSeq;
     fetch('/api/funlab.json' + (qs.length ? '?' + qs.join('&') : ''), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (d) { loadDefs(d); DATA = d; drawBoards(); redrawChart(); if (after) after(); });
+      .then(function (d) {
+        if (seq !== fetchSeq) return;  // a newer click superseded us
+        applied = { stack: FILTERS.stack.slice(), dates: FILTERS.dates.slice() };
+        loadDefs(d); DATA = d; drawBoards(); redrawChart(); if (after) after();
+      })
+      .catch(function () {
+        if (seq !== fetchSeq) return;
+        FILTERS.stack = applied.stack.slice();
+        FILTERS.dates = applied.dates.slice();
+        syncChips();
+      });
   }
+  // acceptance hook (scripts/accept_buttons.py): filter state introspection
+  window.__funlabDebug = {
+    state: function () {
+      return {
+        FILTERS: { stack: FILTERS.stack.slice(), dates: FILTERS.dates.slice() },
+        applied: { stack: applied.stack.slice(), dates: applied.dates.slice() },
+      };
+    },
+  };
 
   var redrawChart = function () {};
 

@@ -104,8 +104,10 @@
       if (!jobs.length) { jobsEl.textContent = '暂无任务。'; return; }
       jobsEl.innerHTML = jobs.slice(0, 12).map((j) => {
         const cls = j.status === 'done' ? 'ok' : j.status === 'error' ? 't0' : 'ct';
+        // F8: label = the original demo FILENAME (external, user-influenced)
+        // and error = str(exception) — both must be escaped before innerHTML.
         return `<div style="padding:3px 0"><span class="badge ${cls}">${j.status}</span> ` +
-          `${j.label || j.id} ${j.error ? '· <span style="color:var(--err)">' + j.error + '</span>' : ''}</div>`;
+          `${CSACommon.esc(j.label || j.id)} ${j.error ? '· <span style="color:var(--err)">' + CSACommon.esc(j.error) + '</span>' : ''}</div>`;
       }).join('');
     } catch (e) {
       pollFailures += 1;

@@ -31,7 +31,7 @@ def export_match_report(base_url: str, demo_hash: str, fmt: str, out_dir: Path) 
     if demo is None:
         raise LookupError(f"unknown demo {demo_hash[:12]}")
     meta = demo.metadata
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stamp = _export_stamp()
     from cs_analyzer.web.store import match_key as _mk
 
     mk = _mk({"match_id": getattr(meta, "match_id", None),
@@ -75,18 +75,35 @@ def export_match_report(base_url: str, demo_hash: str, fmt: str, out_dir: Path) 
     return target
 
 
+def _export_stamp() -> str:
+    """Second+microsecond stamp: two exports of the same demo within one
+    second must not collide into one filename (F9)."""
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+
+
 def list_exports(out_dir: Path) -> list[dict]:
-    """Existing exports, newest first."""
+    """Existing exports, newest first.
+
+    stat() failures are skipped, not fatal: a file deleted (or locked by an
+    external viewer) between iterdir() and stat() must not 500 the history
+    panel.
+    """
     out_dir = Path(out_dir)
     if not out_dir.is_dir():
         return []
-    items = []
-    for f in sorted(out_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-        if f.suffix.lower() in (".png", ".pdf") and f.is_file():
-            items.append({
-                "file": f.name,
-                "url": f"/report-exports/{f.name}",
-                "size_kb": round(f.stat().st_size / 1024, 1),
-                "mtime": datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds"),
-            })
-    return items
+    rows: list[tuple[float, dict]] = []
+    for f in out_dir.iterdir():
+        if f.suffix.lower() not in (".png", ".pdf") or not f.is_file():
+            continue
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        rows.append((st.st_mtime, {
+            "file": f.name,
+            "url": f"/report-exports/{f.name}",
+            "size_kb": round(st.st_size / 1024, 1),
+            "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds"),
+        }))
+    rows.sort(key=lambda x: x[0], reverse=True)
+    return [entry for _mtime, entry in rows]

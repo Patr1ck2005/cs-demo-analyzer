@@ -63,7 +63,13 @@
   // cache the doc for delegated renders
   var _doc = null;
   function doc() {
-    if (_doc === null) { _doc = {}; get().then(function (d) { _doc = d; mountAll(); }); }
+    if (_doc === null) {
+      _doc = {};
+      // F1: when the doc arrives AFTER first paint, mounted nodes were
+      // rendered from the empty placeholder — refresh their star states
+      // instead of leaving them stuck on ☆.
+      get().then(function (d) { _doc = d; mountAll(); applyStars(); });
+    }
     return _doc;
   }
 
@@ -71,6 +77,50 @@
     var d = doc();
     return d && d[scope === 'match' ? 'matches' : 'players'] &&
       d[scope === 'match' ? 'matches' : 'players'][id];
+  }
+
+  function setStar(btn, on, note) {
+    btn.classList.toggle('on', on);
+    btn.setAttribute('title', on ? '取消收藏' : '收藏');
+    btn.innerHTML = (on ? '★' : '☆') + (note ? '<span class="fav-note-dot"></span>' : '');
+  }
+
+  // F1: re-apply persisted star state to every ALREADY-mounted node
+  // (idempotent — updates class/innerHTML, never inserts a second star).
+  function applyStars() {
+    document.querySelectorAll('[data-fav-mounted]').forEach(function (el) {
+      var scope = el.hasAttribute('data-player-star') ? 'player' : 'match';
+      var id = el.getAttribute(scope === 'player' ? 'data-player-star' : 'data-match-card');
+      if (!id) return;
+      var e = entryFor(scope, id) || {};
+      if (el.hasAttribute('data-fav-standalone')) {
+        el.innerHTML = starHtml(scope, id, e) + editBtnHtml(scope, id);
+        return;
+      }
+      var btn = el.querySelector('.fav-star');
+      if (btn) setStar(btn, !!e.starred, !!e.note);
+    });
+  }
+
+  // F1: keep the local doc in sync after a successful POST, so a refresh
+  // before the next get() (and applyStars re-runs) shows the new state.
+  function applyLocal(scope, id, patch, meta) {
+    if (_doc === null) return;
+    var bookKey = scope === 'match' ? 'matches' : 'players';
+    var book = _doc[bookKey] || (_doc[bookKey] = {});
+    var e = book[id] || (book[id] = { starred: false, tags: [], note: '', saved_at: '', meta: {} });
+    if ('starred' in patch) e.starred = !!patch.starred;
+    if ('note' in patch) e.note = String(patch.note || '');
+    if ('tags' in patch) {
+      e.tags = String(patch.tags || '').split(',').map(function (t) { return t.trim(); })
+        .filter(Boolean).slice(0, 20);
+    }
+    if (meta) {
+      var clean = {};
+      for (var k in meta) if (meta[k]) clean[k] = String(meta[k]).slice(0, 200);
+      e.meta = Object.assign(e.meta || {}, clean);
+    }
+    return e;
   }
 
   function mountAll() {
@@ -129,18 +179,19 @@
       ov.addEventListener('click', function (ev) { if (ev.target === ov) close(); });
       ov.querySelector('.fav-editor-save').addEventListener('click', function () {
         var msg = ov.querySelector('.fav-editor-msg');
+        var patch = { note: ta.value, tags: tagsIn.value };
         post({
           scope: scope, id: id,
-          patch: { note: ta.value, tags: tagsIn.value },
+          patch: patch,
           meta: collectMeta(scope, id),
         }).then(function (res) {
           if (res && res.ok) {
+            applyLocal(scope, id, patch, collectMeta(scope, id));
             close();
             // refresh dot markers on any star button for this item
             document.querySelectorAll('.fav-star[data-fav-scope="' + scope + '"][data-fav-id="' + id + '"]')
               .forEach(function (btn) {
-                var on = btn.classList.contains('on');
-                btn.innerHTML = (on ? '★' : '☆') + (ta.value.trim() ? '<span class="fav-note-dot"></span>' : '');
+                setStar(btn, btn.classList.contains('on'), !!ta.value.trim());
               });
           } else {
             msg.textContent = '保存失败，请重试';
@@ -181,15 +232,21 @@
     var scope = btn.getAttribute('data-fav-scope');
     var id = btn.getAttribute('data-fav-id');
     var nowOn = !btn.classList.contains('on');
-    btn.classList.toggle('on', nowOn);
-    btn.innerHTML = (nowOn ? '★' : '☆');
+    setStar(btn, nowOn, false);
     // denormalize display meta from the DOM so /favorites shows names
     var meta = collectMeta(scope, id);
     var body = { scope: scope, id: id, patch: { starred: nowOn } };
     if (meta) body.meta = meta;
+    function rollback() {
+      var e = entryFor(scope, id) || {};
+      setStar(btn, !nowOn, !!e.note);
+    }
     post(body).then(function (res) {
-      if (!res || !res.ok) { btn.classList.toggle('on', !nowOn); btn.innerHTML = nowOn ? '☆' : '★'; }
-    });
+      if (!res || !res.ok) { rollback(); return; }
+      applyLocal(scope, id, body.patch, meta);
+      var e = entryFor(scope, id) || {};
+      setStar(btn, nowOn, !!e.note);
+    }).catch(rollback);
   });  // ---- /favorites page ----
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {

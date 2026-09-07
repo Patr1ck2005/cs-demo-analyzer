@@ -39,6 +39,12 @@ class Job:
 
 
 class TaskManager:
+    #: Registry cap (F11): finished jobs are evicted oldest-first so a
+    #  long-running server can't grow _jobs unbounded. Pending/running jobs
+    #  are never evicted (they must stay pollable); if the queue itself is
+    #  larger than the cap, eviction simply finds nothing to drop this round.
+    _MAX_JOBS = 200
+
     def __init__(self, max_workers: int = 2) -> None:
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="csa-task")
         self._jobs: dict[str, Job] = {}
@@ -49,6 +55,13 @@ class TaskManager:
         job = Job(id=job_id, label=label)
         with self._lock:
             self._jobs[job_id] = job
+            if len(self._jobs) > self._MAX_JOBS:
+                finished = sorted(
+                    (j for j in self._jobs.values() if j.status in ("done", "error")),
+                    key=lambda j: j.finished,
+                )
+                for old in finished[: len(self._jobs) - self._MAX_JOBS]:
+                    self._jobs.pop(old.id, None)
 
         def _run() -> None:
             job.status = "running"

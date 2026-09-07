@@ -114,6 +114,9 @@
     values = { ...DEFAULTS };
     localStorage.setItem(LS_KEY, JSON.stringify(values));
     if (window.ViewerControl) { try { window.ViewerControl.reset(); } catch (e) { /* */ } }
+    // F12: a browser without localStorage adopts the server copy wholesale —
+    // leaving the old values on the server would resurrect them there.
+    save().catch(() => { /* offline — server stays stale until next 保存 */ });
     syncPanel();
   }
 

@@ -17,9 +17,23 @@
       if (s && (s.ready || s.phase === 'error')) {
         stop();
         fetch('/api/warmup/dashboard.json', { cache: 'no-store' })
-          .then(function (r) { return r.json(); })
-          .then(function (d) { apply(d); })
-          .catch(function () { location.reload(); });
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function (d) {
+            sessionStorage.removeItem('csa.warmupFails');
+            apply(d);
+          })
+          .catch(function () {
+            // F6: a persistently failing hydration endpoint (e.g. the
+            // aggregate scan errors out) must not loop reload forever —
+            // retry once, then stop and surface the failure.
+            var fails = (parseInt(sessionStorage.getItem('csa.warmupFails') || '0', 10) || 0) + 1;
+            sessionStorage.setItem('csa.warmupFails', String(fails));
+            if (fails < 2) { location.reload(); return; }
+            var sk = document.getElementById('dash-highlights-skeleton');
+            if (sk) sk.innerHTML =
+              '<div class="empty-title">数据加载失败</div>' +
+              '<div>预热/聚合持续出错 — 请到 /system 查看服务端日志后手动刷新。</div>';
+          });
       }
     }).catch(stop);
   }

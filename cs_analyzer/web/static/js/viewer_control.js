@@ -101,11 +101,16 @@
       const fr = pref('control.fight_r', V2_FIGHT_R);
       const reachF = Math.ceil(fr / CELL_WORLD);
       for (const f of fights) {
-        if (curTick - f.tick > ttl) continue;
+        // F4 causal guard: during seek rebuilds the fight list is filtered
+        // for the CURRENT tick, but this step evaluates history ticks t.
+        // A kill that happens AFTER t (tick - f.tick < 0) must not apply —
+        // a negative age would push the multiplier BELOW the full-decay
+        // floor and amplify control at the kill site instead of damping it.
+        const ageRaw = (curTick - f.tick) / ttl;
+        if (ageRaw < 0 || ageRaw > 1) continue;
         if (!Number.isFinite(f.x) || !Number.isFinite(f.y)) continue;
         // linear fade from full decay at the kill to zero at TTL expiry
-        const age = (curTick - f.tick) / ttl;
-        const factor = 1 - decay * (1 - age);
+        const factor = 1 - decay * (1 - ageRaw);
         const fcx = Math.floor((f.x - g.x0) / CELL_WORLD);
         const fcy = Math.floor((f.y - g.y0) / CELL_WORLD);
         for (let dy = -reachF; dy <= reachF; dy++) {

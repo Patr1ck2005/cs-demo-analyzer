@@ -13,12 +13,15 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 24 个 demo 在库、261 测试全绿、visual_check 22 页零 console 错误**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 24 个 demo 在库、286 测试全绿、visual_check 22 页零 console 错误、accept_buttons 12 步零失败**。
 
-**Git 状态（Phase T 完成待审）**：origin/main = `c7f42ed`（Phase S 稳定化已提交推送）。
-**Phase T 性能底座已完成**（长周期路线图用户批准：T 性能底座 → U 分析强化 → V 竞技 AI；发布线继续冻结）——
-快照落盘/进程池/分片增量三件全部落地，明细见 §13。**工作区待审，等用户验收 + provenance**。
+**Git 状态（Phase W 完成待审）**：origin/main = `e3718d2`（Phase D/U/V 已提交推送）。
+**Phase W 高危交互审计与修复已完成**——F1-F12 全部修复（星标回显/EV 表 N/控图因果/
+武器秒数/并发解析锁等），rating21 分片使 career 页 230s→0.2s，明细见 §16。
+**工作区待审，等用户验收 + provenance**。
 
+- **Phase W 一句话**：F1-F12 修复 + rating21 分片 + accept_buttons.py 按钮级
+  操作验收脚本（12 步）+ 286 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
 - **Phase M5/N 历史摘要**（已提交推送）：
   - **反样本量偏差整改**（用户原则："人与人对比的指标必须排除打得多=数据高"）：
@@ -636,3 +639,72 @@ demo 文件，但其**公开统计 API（含职业选手 steam64、逐图逐回�
 1. D2b：30 场 FACEIT demo 下载（等用户 key；`scripts/pro_fetch.py --key ...` 即跑）
 2. V1 跨场 LOO 拟合（现单场拟合；web 层聚合训练样本后 refit）
 3. V3 轨迹阈值做成 prefs
+
+## 16. Phase W —— 高危交互全量审计与修复（2026-09-07）
+
+**审计方法**：通读全部 68 条路由 + 15 个 JS 模块 + 8 类写盘路径，逐按钮
+"前端 → API → 落盘/重算"链路核对；服务端合同整体健康（原子写/白名单/去重/GC
+守卫均已有），缺陷集中在**前端状态机与少数后端口径**。
+
+### 修复清单（F1-F12，全部带测试或验收断言）
+
+| # | 缺陷 | 修复 |
+|---|------|------|
+| F1 P0 | `favorites.js` mountAll 在 doc fetch 返回前以空 doc 渲染并打 `data-fav-mounted=1`，**星标永不回显**（点按生效但刷新前全显 ☆） | mounted 标记只防重复插入；新增 `applyStars()` 在 doc 到达后刷新已挂载节点状态；POST 成功后 `applyLocal()` 同步内存 doc；失败 `.catch` 回滚乐观 UI |
+| F2 P0 | funlab 筛选 chips 快速连点：并发 fetch 后发先至覆盖新数据，失败时 chip 与数据不一致 | fetchSeq 竞态守卫（旧响应丢弃）+ 失败回滚到 `applied`（最近成功筛选集）+ `__funlabDebug.state()` 验收钩子 |
+| F3 P0 | `ev_data.py` `demo_rounds` 硬编码 0 → EV 表"本表 N=0"恒假 | per-demo 分片载荷携带 `rounds`，ev_table 按 SUM 聚合（实库 524）；surv=0 是合法存活率不再塌缩成 None；**顺手接入 ev_cells T3 分片**；docstring 失实描述修正 |
+| F4 P0 | viewer_control seek 重建用当前 tick 的 fights 积分历史步骤，**未来击杀 age<0 反向放大控制场** | computeInstant 因果守卫 `ageRaw<0||>1 → skip`（正常播放路径不变） |
+| F5 P0 | weapon_timeline API 秒数硬编码 /64（128-tick demo 虚大一倍） | 用 `demo.metadata.tick_rate`，响应附 `tick_rate` |
+| F6 P1 | warmup.js hydration 失败无限 `location.reload()` 循环 | sessionStorage 计数，≥2 次失败停在骨架并显示指引 |
+| F7 P1 | 同一 demo 并发解析无锁（双击一键入库/上传+导入竞态）→ 并发写同一 `<hash>/` 缓存目录 | app.py per-hash `threading.Lock` 注册表 + 临界区内二次 `cache.exists` 短路；测试证明 FakeManager.parse 恰跑 1 次 |
+| F8 P1 | system.html 任务列表 `j.label`/`j.error`、compare.html pro 卡片未转义（外部文件名 XSS） | 统一 `CSACommon.esc` |
+| F9 P1 | 报告导出无 in-flight 防抖（双击=双 chromium）+ 秒级时间戳同秒覆盖 | reports.js 按钮禁用；`_export_stamp()` 加 %f 毫秒（实盘证据：导出历史出现同秒 139514/567709 双文件共存）；list_exports stat() TOCTOU 包容 |
+| F10 P1 | 上传仅前端拦非 .dem，craft POST 直接落盘 | `_save_upload` 服务端 `.dem` 校验（ValueError → 行内"只支持 .dem"错误，不落盘）；混合批次好文件不受阻 |
+| F11 P2 | TaskManager._jobs 无限增长 | 超 200 淘汰最旧 done/error（running 不动） |
+| F12 P2 | prefs"恢复默认"只改 localStorage，服务器残留旧值复活 | resetAll 后自动 `save()` 同步服务器 |
+
+### 计划外命中（审计运行时发现）
+
+- **player_career 卡 230s 冷访问**（U1 卡片首访全库 ratings21 同步扫描 + 3 个并发
+  弃请求磁盘争用，45s 网关超时必炸）→ 双修复：① warmup wave2 增加 `rating21`
+  步骤；② `_player_rating21` 改走 **rating21 T3 分片**（每 demo 一个小 JSON，
+  24 分片读取 <1s）。实测 230s → **0.2s 首访 / 0s 复访**。
+- `snapshots._SNAPSHOT_SOURCES` 补录 `web/ev_data.py`（载荷形状变更分片自动失效）。
+- `_module_cache` 注释如实化（FIFO 非 LRU——避免后人误信）。
+- EVCell.survived 注释与实现对齐（回合末存活率均值，非"败方存活"）。
+
+### 验收（全绿）
+
+- **pytest 286**（276→286：tests/test_phase_w.py 10 项：F3 分片往返/F5 tick_rate/
+  F7 并发序列化/F9 时间戳/F10 双测/F11 淘汰/rating21 分片稳定性）。
+- **visual_check 22 页 0 失败**；关键页 read_image 人工复核：match_detail（胜势
+  曲线+雷达）、tab_economy（**本表 N=524** 实证 F3）、player_career（2.1 卡片）、
+  fun_lab（星系+轨迹+榜单）、viewer（实时回放）、favorites、system（8/8 快照
+  有效+预热 0.2s）、reports（F9 毫秒时间戳双导出共存实证）。
+- **scripts/accept_buttons.py（新增）12 步全绿**：dashboard hydration、F1 星标
+  跨刷新持久、备注往返、F12 保存/重置服务器同步、F4 因果守卫（未来击杀 0 影响+
+  过去击杀有效）、F3 页面断言、F5 tick_rate、F2 连点筛选=applied、F9 单飞+
+  恰 +1 导出、一键入库反馈、F10 上传门+任务生命周期、tabs/chips/视图切换。
+  注意：脚本对"真实服务器+真库"运行（同 visual_check 前置），假 .dem 会走
+  parse-error 路径，属预期断言。
+- 全部 JS `node --check` 通过。
+
+### W 期坑（新增）
+
+1. **pwsh 直接调 `python -m uvicorn -RedirectStandardOutput` 会把参数透传给
+   uvicorn**（"No such option '-R'"）——重定向是 Start-Process 的参数，必须
+   `Start-Process -RedirectStandardOutput/-RedirectStandardError`（§4 规则的
+   变体：uvicorn 必须 Start-Process 落盘日志）。
+2. **acceptance 断言要区分"功能正确"与"计数守恒"**：导出 +1 断言首跑失败是
+   因为上轮遗留导出已存在（before 计数漂移），不是 F9 失效；修脚本不修功能。
+3. **doc() 空对象渲染竞态**是 Phase L1 以来的隐性 bug——乐观 UI 会掩盖"回显
+   失效"类缺陷，验收必须含"刷新后状态仍在"步骤（F1 断言设计）。
+
+### W 里程碑状态
+- 286 测试全绿；22 页 visual_check 零失败；accept_buttons 12 步零失败。
+- 新文件：`scripts/accept_buttons.py`、`tests/test_phase_w.py`。
+- 改动面：web/{app,ev_data,report_export,tasks,snapshots,warmup,aggregation 无改}.py、
+  analysis/economy_ev.py、static/js/{favorites,funlab,viewer_control,viewer_prefs,
+  warmup,reports}.js、templates/{system,compare}.html。
+- 残留未做（有意）：分片化推广到 teamplay/utilitylab/mapdata/lineups（复制 feed
+  模式即可，非缺陷）；CSRF/Auth 维持本地单用户边界（HANDOFF §13 已记录）。

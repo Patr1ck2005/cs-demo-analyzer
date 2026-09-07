@@ -175,6 +175,11 @@ def _run() -> None:
             ("map", _step_map),
             ("lineups", _step_lineups),
             ("stylemap", _step_stylemap),
+            # W: rating21 prewarm — the U1 career card scans every demo's
+            # ratings21 result on first visit (~230s cold on 24 demos, and
+            # the visitor pays it synchronously). A 60s request timeout has
+            # already eaten this page once; warm it in the background here.
+            ("rating21", _step_rating21),
         ):
             with _lock:
                 _state["phase"] = f"wave2:{step_name}"
@@ -247,3 +252,10 @@ def _step_stylemap() -> None:
     from cs_analyzer.web import style_map
 
     style_map.style_map_report()
+
+
+def _step_rating21() -> None:
+    """Prewarm per-demo rating21 shards (U1 card cold-visit landmine)."""
+    from cs_analyzer.web.app import _rating21_shards
+
+    _rating21_shards()
