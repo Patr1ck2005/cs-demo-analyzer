@@ -12,7 +12,7 @@ from cs_analyzer.model.io import (
     save_parsed_demo,
 )
 from cs_analyzer.model.parsed_demo import ParsedDemo
-from cs_analyzer.model.types import DemoData, Player, ProviderKind, Round, Team
+from cs_analyzer.model.types import DemoData, ProviderKind
 
 from .conftest import S_ALICE, build_demo_data
 

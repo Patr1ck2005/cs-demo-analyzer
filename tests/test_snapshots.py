@@ -60,6 +60,26 @@ def test_fingerprint_ignores_empty_subdirs_and_files(tmp_path):
     assert library_fingerprint(tmp_path) == fp1
 
 
+def test_snapshot_sources_cover_merge_layer_math():
+    """S2-A1: conf values (Wilson z / EB k) are computed by analysis/stats.py
+    at MERGE layer and land inside T1 snapshot payloads (lineups/map/
+    utilitylab) — a stats change MUST invalidate those snapshots or stale
+    intervals survive a fingerprint-identical rebuild."""
+    import cs_analyzer.web.snapshots as snaps
+
+    for need in (
+        "analysis/stats.py",
+        "web/aim_data.py",
+        "web/loss_data.py",
+        "analysis/aim_science.py",
+        "analysis/loss_attribution.py",
+    ):
+        assert need in snaps._SNAPSHOT_SOURCES, (
+            f"{need} missing from _SNAPSHOT_SOURCES — its numbers would "
+            "survive a code change inside a fingerprint-identical snapshot"
+        )
+
+
 # -------------------------------------------------------------- load / save
 
 

@@ -142,7 +142,7 @@ def build_teamplay_report(
     """
     from cs_analyzer.cache import DemoCache
     from cs_analyzer.config import AnalysisConfig
-    from cs_analyzer.analysis.library import demo_filenames, scan_demos
+    from cs_analyzer.analysis.library import demo_filenames
 
     cache = DemoCache(Path(cache_dir))
     # metadata-only pre-read: only the 5E subset (g161- filename prefix)

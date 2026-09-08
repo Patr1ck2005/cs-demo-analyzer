@@ -182,7 +182,6 @@ def test_postplant_hold_retake_defuse() -> None:
         events={"bomb_planted": plants, "bomb_defused": defused,
                 "bomb_begindefuse": begins},
     )
-    from tests.conftest import build_demo_data  # noqa: PLC0415 — keep local
     demo.data.rounds = rounds
     res = _run(PostPlantModule(), demo)
     assert len(res.rounds) == 2

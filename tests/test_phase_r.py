@@ -6,7 +6,6 @@ import pandas as pd
 import pytest
 
 from cs_analyzer.analysis.aim_science import compute_aim_science
-from cs_analyzer.analysis.loss_attribution import LossAttributionModule
 from cs_analyzer.analysis.runner import AnalysisRunner
 from cs_analyzer.model.parsed_demo import ParsedDemo
 from cs_analyzer.model.types import DemoData, MatchMetadata, ProviderKind, Team

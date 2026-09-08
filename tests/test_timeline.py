@@ -7,7 +7,7 @@ import pandas as pd
 from cs_analyzer.replay.sides import side_for_round
 from cs_analyzer.replay.timeline import build_timeline
 
-from .conftest import S_ALICE, S_BOB, S_CAROL, S_DAVE, build_demo_data, build_parsed_demo
+from .conftest import S_ALICE, S_BOB, build_parsed_demo
 
 
 def _demo_with_ticks_and_events():

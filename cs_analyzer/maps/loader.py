@@ -95,7 +95,6 @@ def derive_bounds_from_ticks(ticks) -> MapBounds:
     handful of outlier coordinates (glitches, teleports) don't blow out the map.
     """
     import numpy as np
-    import pandas as pd
 
     if ticks is None or ticks.empty or "X" not in ticks.columns:
         return MapBounds(min_x=-2000.0, max_x=2000.0, min_y=-2000.0, max_y=2000.0)

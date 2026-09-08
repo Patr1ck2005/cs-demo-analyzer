@@ -64,7 +64,8 @@ def main() -> None:
     loaded = [load_one(h) for h in hashes]
     t_load = time.perf_counter() - t0
     t0 = time.perf_counter()
-    results = [analyze_one(d) for d in loaded]
+    for d in loaded:
+        analyze_one(d)
     t_analyze = time.perf_counter() - t0
     out["serial"] = {"load_s": round(t_load, 2), "analyze_s": round(t_analyze, 2),
                      "total_s": round(t_load + t_analyze, 2)}
@@ -76,7 +77,7 @@ def main() -> None:
     t_load_t = time.perf_counter() - t0
     t0 = time.perf_counter()
     with ThreadPoolExecutor(max_workers=4) as ex:
-        results_t = list(ex.map(analyze_one, loaded_t))
+        list(ex.map(analyze_one, loaded_t))
     t_analyze_t = time.perf_counter() - t0
     out["thread4"] = {"load_s": round(t_load_t, 2), "analyze_s": round(t_analyze_t, 2),
                       "total_s": round(t_load_t + t_analyze_t, 2)}

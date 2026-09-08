@@ -270,7 +270,7 @@ def _rating21_shards() -> list[tuple[str, dict]]:
     """All demo rating21 payloads via the T3 shard cache: per-demo JSON
     shards mean a career-page visit reads 24 tiny files instead of loading
     24 parquet demos (~15s per visit before; <1s after)."""
-    from cs_analyzer.analysis.library import cached_demo_hashes, scan_hashes
+    from cs_analyzer.analysis.library import scan_hashes
     from cs_analyzer.web import runtime, snapshots
 
     cache_dir = runtime.cache().cache_dir
@@ -475,7 +475,6 @@ async def favorites_set(request: Request):
     """Merge one entry patch: {scope: "match"|"player", id, patch, meta?}."""
     from cs_analyzer.web.favorites_store import (
         apply_patch,
-        empty_doc,
         load_favorites,
         save_favorites,
     )
@@ -1079,7 +1078,6 @@ def warmup_status(request: Request):
 def warmup_dashboard_payload():
     """Dashboard hydration payload (L0): player count + server-rendered
     highlight-card fragment (single source of truth: _highlight_card.html)."""
-    from cs_analyzer.web import feed_data
 
     highlights = _top_highlights(6)
     highlights_html = ""
@@ -1230,7 +1228,7 @@ def _warmup_status_public() -> dict:
 
 
 def _snapshots_status() -> dict:
-    from cs_analyzer.web import snapshots, warmup
+    from cs_analyzer.web import snapshots
 
     return snapshots.status(OUT_DIR, _cache().cache_dir)
 
@@ -1275,6 +1273,83 @@ def system_import():
 
         invalidate_aggregate()
     return RedirectResponse("/system", status_code=303)
+
+
+@app.get("/api/system/scan-sources.json")
+def system_scan_sources():
+    """S2-A5: dry-run scan of the platform source dirs (configs/demo_sources.yaml).
+
+    Reuses the Phase Y import semantics (zip inner-.dem CONTENT hash vs
+    demos/) but NEVER writes: this endpoint only reports what a real import
+    would do (new / duplicate / corrupt per platform). Imports stay on the
+    existing one-click path (POST /system/import after a manual copy) or the
+    CLI script with its explicit --dry-run flag.
+    """
+    import hashlib
+    import zipfile
+
+    def _sha_stream(fh) -> str:
+        h = hashlib.sha256()
+        for part in iter(lambda: fh.read(1 << 20), b""):
+            h.update(part)
+        return h.hexdigest()
+
+    demos_dir = _demos_dir()
+    known: set[str] = set()
+    if demos_dir.is_dir():
+        for dem in demos_dir.glob("*.dem"):
+            try:
+                known.add(_sha_stream(dem.open("rb")))
+            except OSError:
+                continue
+
+    import yaml
+
+    cfg_path = Path("configs/demo_sources.yaml")
+    if not cfg_path.exists():
+        raise HTTPException(status_code=404, detail="configs/demo_sources.yaml 不存在")
+    raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+
+    sources = []
+    total_new = 0
+    for name, cfg in raw.items():
+        if not isinstance(cfg, dict) or not cfg.get("enabled"):
+            continue
+        src_path = Path(cfg.get("path", ""))
+        pattern = cfg.get("pattern", "*.zip")
+        entry = {"name": name, "path": str(src_path), "exists": src_path.is_dir(),
+                 "zips": 0, "new": 0, "duplicates": 0, "corrupt": 0,
+                 "new_files": []}
+        if src_path.is_dir():
+            for zp in sorted(src_path.glob(pattern)):
+                entry["zips"] += 1
+                try:
+                    with zipfile.ZipFile(zp) as zf:
+                        inners = [n for n in zf.namelist()
+                                  if n.lower().endswith(".dem")]
+                except Exception:  # noqa: BLE001 — truncated EOCD etc.
+                    entry["corrupt"] += 1
+                    continue
+                for inner in inners:
+                    try:
+                        with zipfile.ZipFile(zp) as zf, zf.open(inner) as fh:
+                            digest = _sha_stream(fh)
+                    except Exception:  # noqa: BLE001
+                        entry["corrupt"] += 1
+                        continue
+                    if digest in known or (demos_dir / Path(inner).name).exists():
+                        entry["duplicates"] += 1
+                    else:
+                        entry["new"] += 1
+                        entry["new_files"].append(Path(inner).name)
+        total_new += entry["new"]
+        sources.append(entry)
+
+    return JSONResponse({
+        "sources": sources, "total_new": total_new,
+        "known_demos": len(known),
+        "note": "dry-run 只报告，不导入；导入请将新 demo 复制到 demos/ 后用一键入库",
+    })
 
 
 # ---- 2D map replay viewer (B2) ----

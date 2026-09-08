@@ -4,7 +4,6 @@ Expected values are hand-derived from the synthetic fixture in conftest.
 """
 from __future__ import annotations
 
-import math
 
 import pandas as pd
 import pytest
@@ -167,13 +166,11 @@ def _single_round_demo(events: dict) -> "object":
 
     team_a = make_team("Team 3", "CT")
     team_b = make_team("Team 2", "T")
-    players = [
-        make_player(S_ALICE, "Alice", "Team 3"),
-        make_player(S_BOB, "Bob", "Team 3"),
-        make_player(S_CAROL, "Carol", "Team 2"),
-        make_player(S_DAVE, "Dave", "Team 2"),
-    ]
-    meta = MatchMetadata(
+    make_player(S_ALICE, "Alice", "Team 3")   # roster shape kept explicit
+    make_player(S_BOB, "Bob", "Team 3")
+    make_player(S_CAROL, "Carol", "Team 2")
+    make_player(S_DAVE, "Dave", "Team 2")
+    MatchMetadata(  # constructed for parity with the real fixture shape
         map_name="de_mirage", demo_path="s.dem", demo_hash="h",
         provider=ProviderKind.UNKNOWN, team_a=team_a, team_b=team_b,
     )

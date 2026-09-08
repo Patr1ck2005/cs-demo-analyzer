@@ -5,7 +5,7 @@ event lists ready for the replay renderer (and reusable by other renderers).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd

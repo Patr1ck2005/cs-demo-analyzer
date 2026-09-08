@@ -180,8 +180,7 @@ _CONF_SPECS: dict[str, tuple[str, str, float]] = {
     "team_dmg_rpr": ("mean", "rounds", K_PER_ROUND),
 }
 
-# METRIC_DEFS 增补字段（conf 类型 + n 说明），随 API 下发
-_CONF_DEFS_NOTE: dict[str, dict[str, str]] = {}
+# METRIC_DEFS 增补字段由 _conf_decorate 返回值提供（conf 类型 + n 说明）。
 
 
 def _conf_n_of(m: dict, expr: str) -> float:

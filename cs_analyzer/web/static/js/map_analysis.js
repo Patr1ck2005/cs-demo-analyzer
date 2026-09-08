@@ -35,10 +35,17 @@
     var m = DATA.maps.find(function (x) { return x.map_name === ACTIVE; });
     if (!m) return;
     var pct = function (v) { return (v * 100).toFixed(1) + '%'; };
+    // S2-A2: T 胜率区间徽章（R1 t_win_conf，n=该图回合数）
+    var twc = m.t_win_conf || {};
+    var twConf = twc.lo != null
+      ? ' <span class="csa-conf' + (twc.gated ? ' csa-conf-gated' : '') +
+        '" title="n=' + twc.n + ' 回合，95% 区间">[' + (twc.lo * 100).toFixed(0) + '%–' +
+        (twc.hi * 100).toFixed(0) + '%]</span>'
+      : '';
     document.getElementById('ma-tiles').innerHTML =
       '<div class="stat-card"><div class="stat-label">对局</div><div class="stat-value">' + m.demos + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">回合</div><div class="stat-value">' + m.rounds + '</div></div>' +
-      '<div class="stat-card"><div class="stat-label">T 胜率</div><div class="stat-value v-t">' + pct(m.t_win_rate) + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">T 胜率</div><div class="stat-value v-t">' + pct(m.t_win_rate) + twConf + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">CT 胜率</div><div class="stat-value v-ct">' + pct(m.ct_win_rate) + '</div></div>';
 
     var dom = document.getElementById('ma-routes');
@@ -75,9 +82,22 @@
 
     var tb = document.querySelector('#ma-best tbody');
     tb.innerHTML = (m.best_players || []).map(function (bp) {
+      // S2-A2: rating_shrunk (EB, n=rounds) + conf badge from the R1 payload
+      var conf = bp.conf || {};
+      var confHtml = conf.lo != null
+        ? ' <span class="csa-conf' + (conf.gated ? ' csa-conf-gated' : '') +
+          '" title="n=' + conf.n + ' 回合，95% 区间">[' + bp.rating.toFixed(2) + '–' +
+          (+conf.hi).toFixed(2) + ']</span>'
+        : '';
+      var shrunkHtml = (typeof bp.rating_shrunk === 'number' &&
+                        Math.abs(bp.rating_shrunk - bp.rating) > 0.005)
+        ? ' <span class="sub" title="经验贝叶斯收缩值（向全库池均值收缩，小样本回拉）">收缩 ' +
+          bp.rating_shrunk.toFixed(2) + '</span>'
+        : '';
       return '<tr><td><a href="/player/' + esc(bp.steamid) + '">' + esc(bp.name) + '</a></td>' +
         '<td class="num">' + bp.rounds + '</td>' +
-        '<td class="num ' + (bp.rating >= 1 ? 'pos' : 'neg') + '">' + bp.rating.toFixed(2) + '</td>' +
+        '<td class="num ' + (bp.rating >= 1 ? 'pos' : 'neg') + '">' + bp.rating.toFixed(2) +
+        confHtml + shrunkHtml + '</td>' +
         '<td class="num">' + bp.demos + '</td></tr>';
     }).join('') || '<tr><td colspan="4" class="sub">样本不足</td></tr>';
   }

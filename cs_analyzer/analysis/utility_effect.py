@@ -10,12 +10,11 @@ from __future__ import annotations
 import logging
 import math
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
 from cs_analyzer.analysis.util import clean_sid, round_player_sides
 from cs_analyzer.model.parsed_demo import ParsedDemo
-from cs_analyzer.replay.timeline import round_freeze_ends
 
 logger = logging.getLogger(__name__)
 
@@ -320,7 +319,6 @@ class UtilityEffectModule(AnalysisModule):
         if not rounds:
             return [], []
         start = rounds[0].start_tick
-        winner = {r.number: r.winner_side for r in rounds}
 
         hurt = events.get("player_hurt")
         # execute anchor per round

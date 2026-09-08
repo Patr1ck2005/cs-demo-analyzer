@@ -9,7 +9,6 @@ P2 analysis module producing per-player tendency metrics:
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -256,11 +255,7 @@ class PreferenceModule(AnalysisModule):
         team = next((p.team for p in demo.players if p.steamid == steamid), None)
         if team is None:
             return None
-        if team == meta.team_a.name:
-            starts = meta.team_a.starting_side
-        elif team == meta.team_b.name:
-            starts = meta.team_b.starting_side
-        else:
+        if team not in (meta.team_a.name, meta.team_b.name):
             return None
 
         xs: list[float] = []

@@ -38,7 +38,7 @@ def _swap_demo() -> "object":
         for sid in t_sides:
             rows.append({"tick": start + 10, "steamid": sid, "team_num": 2.0})
     ticks = pd.DataFrame(rows)
-    meta = MatchMetadata(
+    MatchMetadata(  # constructed for parity; the fixture data already carries it
         map_name="de_mirage", demo_path="s.dem", demo_hash="h",
         provider=ProviderKind.UNKNOWN,
         team_a=data.metadata.team_a, team_b=data.metadata.team_b,

@@ -32,9 +32,12 @@
 </div>
 
 <div class="section-header"><h2>未入库文件</h2>
-  <div class="section-actions"><button class="btn btn-sm" id="sys-import" type="button">一键入库</button></div></div>
+  <div class="section-actions">
+    <button class="btn btn-sm" id="sys-scan-sources" type="button">扫描平台目录</button>
+    <button class="btn btn-sm" id="sys-import" type="button">一键入库</button></div></div>
 <div class="card">
   <div id="sys-unparsed" class="sub">加载中…</div>
+  <div id="sys-scan-result" class="sub" style="margin-top:8px;display:none"></div>
 </div>
 
 <div class="section-header"><h2>站点索引</h2>
@@ -151,6 +154,35 @@
       await fetch('/system/import', { method: 'POST' });
       setTimeout(() => { pollUnparsed(); pollJobs(); btn.disabled = false; }, 800);
     } catch (e) { btn.disabled = false; }
+  });
+
+  // S2-A5: platform source dirs dry-run scan (reports only, never imports)
+  const scanBtn = document.getElementById('sys-scan-sources');
+  const scanBox = document.getElementById('sys-scan-result');
+  scanBtn.addEventListener('click', async () => {
+    scanBtn.disabled = true;
+    scanBox.style.display = 'block';
+    scanBox.innerHTML = '<span class="warm-dots">扫描平台源目录中（逐 zip 校验内层内容哈希，可能需要几十秒）…</span>';
+    try {
+      const r = await fetch('/api/system/scan-sources.json');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const rows = d.sources.map((s) => {
+        if (!s.exists) return `<div style="padding:3px 0">❓ <b>${CSACommon.esc(s.name)}</b> — 目录不存在：${CSACommon.esc(s.path)}</div>`;
+        const parts = [`${s.zips} 包`];
+        if (s.new) parts.push(`<span style="color:var(--ok)">${s.new} 新</span>`);
+        if (s.duplicates) parts.push(`${s.duplicates} 重复`);
+        if (s.corrupt) parts.push(`<span style="color:var(--err)">${s.corrupt} 损坏</span>`);
+        return `<div style="padding:3px 0">📦 <b>${CSACommon.esc(s.name)}</b> — ${parts.join(' · ')}` +
+          (s.new_files.length ? `（${CSACommon.esc(s.new_files.slice(0, 4).join('、'))}${s.new_files.length > 4 ? ' …' : ''}）` : '') + `</div>`;
+      }).join('');
+      scanBox.innerHTML = `<div style="margin-bottom:4px">平台源扫描（dry-run，未导入）：共 <b>${d.total_new}</b> 个新 demo · demos/ 现有 ${d.known_demos} 个。</div>${rows}` +
+        `<div class="sub" style="margin-top:6px">新 demo 需复制到 demos/ 后用"一键入库"解析。</div>`;
+    } catch (e) {
+      scanBox.innerHTML = '扫描失败（配置缺失或网络错误）。';
+    } finally {
+      scanBtn.disabled = false;
+    }
   });
 })();
 </script>

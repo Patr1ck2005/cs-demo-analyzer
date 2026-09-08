@@ -19,7 +19,6 @@ parses, no playwright):
 """
 from __future__ import annotations
 
-import numpy as np
 
 from cs_analyzer.web import app as web_app
 
@@ -156,7 +155,6 @@ def test_utilitylab_shards_roundtrip(web_client, monkeypatch, tmp_path) -> None:
     from cs_analyzer.web import utilitylab_data
 
     _c, h, _demo = web_client
-    cache_dir = web_app._cache().cache_dir
     monkeypatch.setattr(web_app, "OUT_DIR", tmp_path / "web")
     utilitylab_data.invalidate_utilitylab()
 

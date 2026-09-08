@@ -60,7 +60,6 @@ def test_position_points_normalized() -> None:
          "is_alive": [True, True], "team_num": [3.0, 3.0]}
     )
     demo = build_parsed_demo(ticks=ticks)
-    pref = None  # position payload needs a PlayerPreference; build minimal
     from cs_analyzer.analysis.preference import PlayerPreference, PreferenceResult
 
     pp = PlayerPreference(steamid=S_ALICE, name="Alice", team="Team 3",

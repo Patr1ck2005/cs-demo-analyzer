@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
-from cs_analyzer.analysis.win_probability import (_auc, _fit_logistic, _predict,
-                                                  WinProbabilityModule)
+from cs_analyzer.analysis.win_probability import (_auc, _fit_logistic, _predict)
 
 
 def test_logistic_separable_data_auc():

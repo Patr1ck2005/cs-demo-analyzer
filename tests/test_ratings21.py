@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import pandas as pd
 
-from cs_analyzer.analysis.ratings21 import (Ratings21Module, Ratings21Module as RM21,
+from cs_analyzer.analysis.ratings21 import (Ratings21Module as RM21,
                                             _RATING_21_RECALIBRATION)
 
 
 def _demo_with_lost_save_round():
     """A 3-round demo where round 2 is LOST by the CT side and one CT
     (Alice) survives it with no kill/assist — the exact 'Jame save' case."""
-    from tests.conftest import build_parsed_demo, make_round, S_ALICE, S_BOB, S_CAROL, S_DAVE
+    from tests.conftest import build_parsed_demo, S_ALICE, S_BOB, S_CAROL, S_DAVE
 
     events = {
         "player_death": pd.DataFrame({
@@ -41,7 +41,6 @@ def test_lost_round_save_punished():
     under 2.1 she earns no KAST there and the round counts as a save."""
     from cs_analyzer.analysis.ratings21 import Ratings21Module as M
     demo = _demo_with_lost_save_round()
-    from cs_analyzer.analysis.ratings21 import Ratings21Module as _M
     deaths = demo.events.get("player_death")
     rounds = demo.regular_rounds
     # force round winners: r1 T (Team 3 side T?) — use winner_side directly

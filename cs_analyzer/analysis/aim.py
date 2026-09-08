@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
 from cs_analyzer.analysis.util import clean_sid

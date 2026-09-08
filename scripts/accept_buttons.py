@@ -26,6 +26,8 @@ BASE = "http://127.0.0.1:8000"
 H = "769f7be048a28713ba1e09e8bce0b5f6d4d46f5a146bb8663256ea142aa65217"
 ACCEPT_DIR = Path("output/.accept")
 DEMO_FILE = Path("demos") / "accept-fake.dem"
+# S2 step 20: the repo demos/ dir (dry-run must not add anything here)
+DEMOS_GLOB_DIR = Path("demos")
 
 failures: list[str] = []
 
@@ -437,6 +439,90 @@ def main() -> int:
             expect_no_console_errors("sigma slider")
 
         run("W2 funlab sigma slider persist/restore", step_sigma_slider)
+
+        # ---- 17. R5: loss-attribution chip deep-links the viewer round ----
+        def step_loss_chips():
+            page.goto(BASE + f"/match/{H}", wait_until="networkidle", timeout=90000)
+            chip = page.locator("#lossattr-panel a.loss-tag").first
+            chip.wait_for(timeout=60000)
+            href = chip.get_attribute("href")
+            assert href and "/viewer?round=" in href, f"chip href broken: {href!r}"
+            expected_round = href.split("round=")[1].split("&")[0]
+            chip.click()
+            page.wait_for_function(
+                "location.pathname.endsWith('/viewer') && location.search.includes('round=')",
+                timeout=20000)
+            assert f"round={expected_round}" in page.url, \
+                f"deep link landed on wrong round: {page.url}"
+            page.go_back(wait_until="networkidle")
+            expect_no_console_errors("loss chips deep link")
+
+        run("R5 loss chip deep-links viewer round", step_loss_chips)
+
+        # ---- 18. R1/R3: career conf rows fill + aim table stopped column ----
+        def step_career_conf_rows():
+            page.goto(BASE + "/player/76561198845044722",
+                      wait_until="networkidle", timeout=90000)
+            # conf rows must fill from the career-conf API (poll, never sleep)
+            page.wait_for_function(
+                """() => {
+                    const el = document.getElementById('conf-rating');
+                    return el && el.textContent !== '…' && el.textContent.includes('区间');
+                }""", timeout=30000)
+            assert "n=" in page.locator("#conf-rating").text_content()
+            # aim-science table: stopped-fire column rendered with a value
+            page.wait_for_function(
+                """() => {
+                    const rows = document.querySelectorAll('#aimsci-tbody tr');
+                    return rows.length > 1 && rows[0].cells[5] &&
+                        rows[0].cells[5].textContent.trim() !== '—' &&
+                        rows[0].cells[5].textContent.includes('%');
+                }""", timeout=30000)
+            expect_no_console_errors("career conf + aim table")
+
+        run("R career conf rows + aim table filled", step_career_conf_rows)
+
+        # ---- 19. R4: smoke-bucket table follows the page map selection ----
+        def step_smoke_buckets_follow_map():
+            page.goto(BASE + "/map-analysis", wait_until="networkidle", timeout=120000)
+            page.wait_for_function(
+                """() => {
+                    const b = document.getElementById('ul-smoke-buckets');
+                    return b && b.querySelector('td') &&
+                        !b.textContent.includes('加载中');
+                }""", timeout=60000)
+            before = page.locator("#ul-smoke-buckets tr").all_inner_texts()
+            chips = page.locator("#ma-map-chips [data-map]")
+            if chips.count() > 1:
+                chips.nth(1).click()
+                page.wait_for_timeout(1200)
+                after = page.locator("#ul-smoke-buckets tr").all_inner_texts()
+                assert before != after, "smoke buckets did not follow map change"
+            expect_no_console_errors("smoke buckets follow map")
+
+        run("R4 smoke buckets follow map selection", step_smoke_buckets_follow_map)
+
+        # ---- 20. S2-A5: scan-sources button (dry-run: demos/ untouched) ----
+        def step_scan_sources():
+            page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
+            demos_before = sorted(p.name for p in DEMOS_GLOB_DIR.glob("*.dem")) \
+                if DEMOS_GLOB_DIR.is_dir() else []
+            page.click("#sys-scan-sources")
+            page.wait_for_function(
+                """() => {
+                    const el = document.getElementById('sys-scan-result');
+                    return el && el.style.display !== 'none' &&
+                        !el.textContent.includes('扫描平台源目录中');
+                }""", timeout=120000)
+            body = page.locator("#sys-scan-result").inner_text()
+            assert "dry-run" in body, f"scan result missing dry-run note: {body!r}"
+            demos_after = sorted(p.name for p in DEMOS_GLOB_DIR.glob("*.dem")) \
+                if DEMOS_GLOB_DIR.is_dir() else []
+            assert demos_before == demos_after, \
+                f"dry-run must not import: {set(demos_after) - set(demos_before)}"
+            expect_no_console_errors("scan sources")
+
+        run("S2 scan-sources dry-run button", step_scan_sources)
 
         browser.close()
 

@@ -1,7 +1,6 @@
 """Tests for the weapon metadata system (Phase F M3)."""
 from __future__ import annotations
 
-import json
 
 import pytest
 
@@ -10,7 +9,6 @@ from cs_analyzer.web.weapons import (
     ICONS_DIR,
     canonical,
     category,
-    has_icon,
     icon_url,
     is_gun,
     label_zh,

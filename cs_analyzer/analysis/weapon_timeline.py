@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-import pandas as pd
 from pydantic import BaseModel, Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
@@ -108,7 +107,6 @@ class WeaponTimelineModule(AnalysisModule):
             cur_weapon = None
             seg_start = 0
             last_tick = 0
-            last_alive = True
             for row in g.itertuples(index=False):
                 w = row.active_weapon_name
                 if not isinstance(w, str) or not w:
@@ -125,7 +123,6 @@ class WeaponTimelineModule(AnalysisModule):
                         h.segments += 1
                     cur_weapon = None
                     last_tick = tick
-                    last_alive = False
                     continue
                 if cur_weapon is None or w != cur_weapon:
                     if cur_weapon is not None and tick - seg_start >= MIN_SEGMENT_TICKS:
@@ -137,7 +134,6 @@ class WeaponTimelineModule(AnalysisModule):
                         h.segments += 1
                     cur_weapon, seg_start = w, tick
                 last_tick = tick
-                last_alive = True
                 rnum = round_of(tick)
                 if rnum not in seen_rounds:
                     seen_rounds.add(rnum)

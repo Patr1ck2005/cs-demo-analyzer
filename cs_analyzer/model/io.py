@@ -7,7 +7,6 @@ Layout under {cache_dir}/{demo_hash}/:
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pandas as pd

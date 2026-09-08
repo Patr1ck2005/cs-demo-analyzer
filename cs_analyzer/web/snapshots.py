@@ -79,6 +79,11 @@ _SNAPSHOT_SOURCES = (
     "analysis/library.py",
     "analysis/aim_science.py",
     "analysis/loss_attribution.py",
+    # S2-A1: R1 conf values (Wilson z / EB k) are computed at MERGE layer and
+    # land inside the T1 snapshot payloads of lineups/map/utilitylab — a
+    # stats.py change must invalidate those numbers or stale intervals
+    # survive a fingerprint-identical rebuild.
+    "analysis/stats.py",
     "web/aggregation.py",
     "web/feed_data.py",
     "web/teamplay_data.py",

@@ -5,7 +5,7 @@ import pandas as pd
 
 from cs_analyzer.analysis import AnalysisRunner
 from cs_analyzer.config import AnalysisConfig
-from tests.conftest import S_ALICE, S_BOB, S_CAROL, S_DAVE, build_demo_data, build_parsed_demo
+from tests.conftest import S_ALICE, S_BOB, S_CAROL, S_DAVE, build_parsed_demo
 
 
 def _events() -> dict[str, pd.DataFrame]:
@@ -115,7 +115,7 @@ def test_funlab_merge_across_demos(web_client) -> None:
         demo.data.metadata.demo_path = f"fun{i}.dem"
         demo.data.metadata.provider = ProviderKind.UNKNOWN
         cache.save(f"fun{i}", demo)
-    from cs_analyzer.web import aggregation, funlab_data
+    from cs_analyzer.web import aggregation
 
     aggregation.invalidate_aggregate()
     d = c_get_json(web_app)

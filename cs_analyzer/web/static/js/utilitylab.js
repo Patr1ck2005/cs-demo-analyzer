@@ -144,7 +144,17 @@
         if (onPage) pageMap = onPage.getAttribute('data-map');
         draw((pageMap && maps.indexOf(pageMap) >= 0) ? pageMap : maps[0]);
       })
-      .catch(function () { /* page stays with empty tables */ });
+      .catch(function () {
+        // S2-V4: failure must settle the placeholders, not leave "加载中…"
+        var fb = document.querySelector('#ul-flash-table tbody');
+        if (fb) fb.innerHTML = '<tr><td colspan="7" class="sub">数据不可用（服务端错误）</td></tr>';
+        var sb2 = document.querySelector('#ul-smoke-table tbody');
+        if (sb2) sb2.innerHTML = '<tr><td colspan="5" class="sub">数据不可用（服务端错误）</td></tr>';
+        var eb2 = document.querySelector('#ul-exec-table tbody');
+        if (eb2) eb2.innerHTML = '<tr><td colspan="7" class="sub">数据不可用（服务端错误）</td></tr>';
+        var bk = document.getElementById('ul-smoke-buckets');
+        if (bk) bk.innerHTML = '<tr><td colspan="5" class="sub">数据不可用（服务端错误）</td></tr>';
+      });
   }
 
   if (document.readyState === 'loading') {

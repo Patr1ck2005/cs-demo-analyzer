@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
 from cs_analyzer.model.parsed_demo import ParsedDemo
@@ -163,5 +163,4 @@ class OpeningRouteModule(AnalysisModule):
             })
         res.routes.sort(key=lambda x: -x["share"])
         res.k = k
-        b = demo.metadata.map_name  # bounds resolved client-side via map payload
         return res

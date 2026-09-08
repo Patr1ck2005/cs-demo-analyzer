@@ -4,7 +4,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from cs_analyzer.config import AnalysisConfig
 from cs_analyzer.model.parsed_demo import ParsedDemo

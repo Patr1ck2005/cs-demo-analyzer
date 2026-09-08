@@ -137,7 +137,13 @@
     put('conf-adr', '区间 ' + line(cf.adr, f1) + ' · 收缩 ' + f1(cf.adr.shrunk));
     put('conf-kpr', '区间 ' + line(cf.kpr, f2) + ' · 收缩 ' + f2(cf.kpr.shrunk));
     put('conf-hs', '区间 ' + line(cf.hs, f1));
-  } catch (e) { /* 区间行保持占位 */ }
+  } catch (e) {
+    // S2-V4: failure must settle the placeholders, not leave "…"
+    ['conf-rating', 'conf-adr', 'conf-kpr', 'conf-hs'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && el.textContent === '…') el.textContent = '区间不可用';
+    });
+  }
   // radar: server-injected ranges (RADAR_AXES) — must match the per-demo
   // radar normalization exactly (B4: old hardcoded ranges were wrong)
   const AXES = JSON.parse(document.getElementById('radar-ranges').textContent);

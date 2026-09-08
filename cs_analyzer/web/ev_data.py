@@ -87,7 +87,7 @@ def _scan_all() -> list:
     global _cells
     if _cells is not None:
         return _cells
-    from cs_analyzer.analysis.library import cached_demo_hashes, scan_hashes
+    from cs_analyzer.analysis.library import scan_hashes
     from cs_analyzer.web import runtime, snapshots
 
     cache_dir = runtime.cache().cache_dir

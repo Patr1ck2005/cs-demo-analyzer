@@ -26,11 +26,10 @@ from pathlib import Path
 import numpy as np
 
 from cs_analyzer.model.parsed_demo import ParsedDemo
-from cs_analyzer.replay.timeline import TICK_RATE, round_freeze_ends
+from cs_analyzer.replay.timeline import TICK_RATE, round_freeze_ends  # noqa: F401 (re-exported for viewer JS payload math)
 
 logger = logging.getLogger(__name__)
 
-TICK_RATE = 64
 SNAPSHOT_STRIDE = 8  # ticks between snapshots (8 Hz; 64/8 exact)
 ROUND_CLOCK_SECONDS = 115.0
 # v4: round segments rebuilt from warmup-free rounds (PARSER_VERSION 1.8.0)

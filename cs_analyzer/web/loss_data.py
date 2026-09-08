@@ -97,7 +97,6 @@ def _merge(per_demo: list) -> dict:
     teams: dict[str, dict] = {}
     players: dict[str, dict] = {}
     for entry in per_demo:
-        roster = entry.get("roster", {})
         for t in entry["teams"]:
             a = teams.setdefault(t["team"], {"team": t["team"], "lost_rounds": 0,
                                              "tags": defaultdict(int)})

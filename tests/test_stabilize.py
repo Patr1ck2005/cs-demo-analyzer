@@ -109,7 +109,7 @@ def test_vulture_requires_same_life_soften():
     """
     import pandas as pd
 
-    from tests.conftest import S_ALICE, S_BOB, S_CAROL, build_parsed_demo
+    from tests.conftest import S_ALICE, S_BOB, S_CAROL
 
     deaths = pd.DataFrame({
         "tick": [600, 700, 1600, 1700],

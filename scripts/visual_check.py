@@ -39,9 +39,23 @@ PAGES = [
     ("teams", "/teams", 1500),
     ("reports", "/reports", 1500),
     ("report_match", f"/report/{H}", 1200),
-    ("player_career", "/player/76561199829611601", 1200),
+    # S2-V2: Jake = the 34-demo regular; the old sid played 1 demo so the
+    # R3 aim-science panel rendered mostly "—" (poor visual coverage)
+    ("player_career", "/player/76561198845044722", 1200),
     ("overlap", f"/match/{H}/overlap", None),
     ("viewer", f"/match/{H}/viewer", None),
+]
+
+# S2-V3: narrow-viewport pass over the pages R/S2 most recently touched
+# (7-column aim table, conf badges, loss chips, scan button). GOTO + zero
+# console errors + screenshot archive; art review is manual via read_image.
+NARROW_PAGES = [
+    ("narrow_matches", "/matches"),
+    ("narrow_players_lab", "/players?tab=lab"),
+    ("narrow_map_utility", "/map-analysis#utility"),
+    ("narrow_player_career", "/player/76561198845044722"),
+    ("narrow_match_detail", f"/match/{H}"),
+    ("narrow_system", "/system"),
 ]
 
 
@@ -87,6 +101,35 @@ def main() -> int:
                 page.wait_for_timeout(500)
             path = OUT / f"{name}.png"
             page.screenshot(path=str(path), full_page=(name != "viewer"))
+            errs = [e[:200] for e in errors]
+            status = "OK" if not errs else f"CONSOLE ERRORS ({len(errs)})"
+            print(f"[{name}] shot -> {path}  {status}")
+            for e in errs:
+                print(f"    ! {e}")
+            if errs:
+                failures.append(name)
+
+        # ---- S2-V3: narrow-viewport second pass (900px) ----
+        page.set_viewport_size({"width": 900, "height": 900})
+        for name, url in NARROW_PAGES:
+            errors.clear()
+            ok_goto = False
+            last_err = ""
+            for attempt in (1, 2):
+                try:
+                    page.goto(BASE + url, wait_until="networkidle", timeout=90000)
+                    ok_goto = True
+                    break
+                except Exception as e:
+                    last_err = str(e)
+                    print(f"[{name}] GOTO attempt {attempt} failed: {last_err[:120]}")
+            if not ok_goto:
+                print(f"[{name}] GOTO FAIL {last_err}")
+                failures.append(name)
+                continue
+            page.wait_for_timeout(2500)
+            path = OUT / f"{name}.png"
+            page.screenshot(path=str(path), full_page=True)
             errs = [e[:200] for e in errors]
             status = "OK" if not errs else f"CONSOLE ERRORS ({len(errs)})"
             print(f"[{name}] shot -> {path}  {status}")

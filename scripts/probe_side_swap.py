@@ -20,7 +20,7 @@ import numpy as np
 from cs_analyzer.config import load_settings
 from cs_analyzer.replay.timeline import build_timeline
 from cs_analyzer.maps.loader import load_map_or_fallback
-from cs_analyzer.web.store import list_demos, load_demo
+from cs_analyzer.web.store import list_demos
 
 # Official CS2 radar_info spawn fractions (px/W, px/H) for cross-checking.
 OFFICIAL_SPAWNS = {

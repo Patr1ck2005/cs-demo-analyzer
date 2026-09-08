@@ -43,16 +43,24 @@
   const box = document.getElementById('rank-table');
   box.classList.remove('chart-loading');
   const METRICS = [
-    ['rating', 'Rating', (v) => v.toFixed(2)],
-    ['kpr', 'KPR', (v) => v.toFixed(2)],
-    ['adr', 'ADR', (v) => v.toFixed(1)],
-    ['hs', 'HS%', (v) => v.toFixed(1)],
+    ['rating', 'Rating', (v) => v.toFixed(2), false],
+    ['kpr', 'KPR', (v) => v.toFixed(2), false],
+    ['adr', 'ADR', (v) => v.toFixed(1), false],
+    ['hs', 'HS%', (v) => v.toFixed(1), true],
   ];
   const rows = payload.players.map((p, i) => {
-    const cells = METRICS.map(([key, , fmt]) => {
+    const cells = METRICS.map(([key, , fmt, isPct]) => {
       const m = p.ratings[key];
       const pct = m ? Math.round(m.pct * 100) : 0;
-      return `<td class="num"><div>${m ? fmt(m.value) : '-'}</div>` +
+      // S2-A2: conf badge (95% interval + n) from the R1 retrofit payload;
+      // hs conf is stored in percent points, others in raw units.
+      let confHtml = '';
+      if (m && m.conf) {
+        const c = isPct ? { ...m.conf } : m.conf;
+        confHtml = CSACommon.fmtConf(c, { pct: isPct,
+          fmt: isPct ? undefined : (x) => (+x).toFixed(2) });
+      }
+      return `<td class="num"><div>${m ? fmt(m.value) : '-'}${confHtml}</div>` +
         `<div class="pct-bar" title="超越全库 ${pct}% 选手"><i style="width:${pct}%"></i></div></td>`;
     }).join('');
     const chk = p.eligible

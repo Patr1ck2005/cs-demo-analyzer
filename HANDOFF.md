@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-08（Phase R 研究型深挖完成——统计严谨基建全站 retrofit + 枪法科学 + 道具执行科学 + 失利归因，工作区待审+待验收）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-08（Phase S2 全面审计整改 + 稳定化收尾完成——A1 conf 失效链补口/展示补全/扫描平台目录/验收 20 步 + 窄视口轮，342 绿，待审+待验收）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -1030,3 +1030,70 @@ retrofit=全站；D2b 继续延后（零 FACEIT 依赖）；全部完成后单�
   templates/{map_analysis,match_detail,player_career}.html、
   docs/funlab-metrics.md、tests/test_metric_audit.py。
 - 待用户输入：D2b（FACEIT key，`scripts/pro_fetch.py --key ...` 即跑）。
+
+## 19. Phase S2 —— 全面审计整改 + 稳定化收尾（2026-09-08，阶段性收口）
+
+**任务**：R 之后的全面复审——视觉检验（含按钮行为）+ 架构深检 + 收尾计划。
+审计在 333 绿基线上完成：74 路由逐一核对、8 memo 失效链、快照源清单、事件
+消费面、JS 模板 sinks 转义扫描、ruff F 级、22 模板 + 13 JS + 6 页 API 载荷抽查、
+TODO/FIXME 归零检查。
+
+### 审计结论
+
+**健康面（实证）**：路由通配在 index 24，其后全为多段路径（FastAPI 段匹配
+无遮蔽，铁律 5 维持）；8 memo 全部接入 invalidate_aggregate；ruff F821=0；
+TODO/FIXME=0；快照 8/8 有效；/system 契约对齐；pro-baseline/reports/lineups
+实库正常（lineups `{rate, conf}` 新形状前端已适配）；JS 模板 sinks 转义 0 风险。
+
+**发现与整改**：
+
+| # | 级别 | 发现 | 整改 |
+|---|------|------|------|
+| A1 | P1 | **conf 失效链缺口**：R1 的 conf/shrunk 在 merge 层算进 lineups/map/utilitylab 的 T1 快照载荷，但 `analysis/stats.py` 不在 `_SNAPSHOT_SOURCES`——改 Wilson z / 收缩 k 时旧区间"指纹不变而数值过期"复活 | stats.py 入清单（附注释说明原因）+ `test_snapshot_sources_cover_merge_layer_math` 锁死 stats/aim/loss 全部成员 |
+| A2 | P2 | conf 展示"最后一公里"不齐：compare 表格与 map-analysis 本图最强表/图级 T 胜率（payload 有 conf/shrunk，UI 未渲染） | compare.html 四指标数值旁加 fmtConf 徽章；map_analysis.js 加 conf 徽章 + 收缩小字 + T 胜率区间徽章；模板静态锁进 test_phase_s2 |
+| A3 | P3 | `funlab_data._CONF_DEFS_NOTE` 死代码 | 删除 + 静态锁断言 |
+| A4 | P3 | ruff F401 ~55 处（含 R 期新引入）+ F841 13 处 | `ruff --select F401 --fix` 全清；F841 逐处手工清（funlab `v`、preference `starts` 分支化简、routes `b`、utility_effect `winner`、weapon_timeline `last_alive`、loss_data `roster`、bench 脚本、5 个测试）；**viewer_data.TICK_RATE 保留 import 并加 noqa**（re-export 语义）——**F401/F821/F811/F841 全部归零** |
+| A5 | P2 | system 页"扫描平台目录"（Y 期记录的唯一功能欠账，configs/demo_sources.yaml 锚点早已就位） | 新 `GET /api/system/scan-sources.json`（**dry-run 语义**：逐 zip 内层内容哈希 vs demos/，只报告新/重复/损坏，永不写入）；system.html 加按钮 + 分平台结果渲染；测试用 tmp zip 源（好/重复/截断坏）三态断言 + demos/ 不动断言 + 缺配置 404 |
+| V1 | P1 | R 期新交互无按钮级验收 | accept_buttons 16→**20 步**（17 失利 chips 深链 viewer round 断言 / 18 生涯区间行填充+急停列非"—" / 19 烟阻桶随图联动 / 20 scan-sources dry-run demos/ 不动） |
+| V2 | P2 | visual_check 生涯页 sid 只打 1 场，R3 表大多"—" | 换 Jake（34 场常客） |
+| V3 | P2 | 900px 窄视口巡检未入固定验收 | visual_check 新增窄视口轮（6 页：matches/lab/map-util/career/match/system，GOTO+零 console+截图存档） |
+| V4 | P3 | utilitylab/生涯区间行 fetch 失败后占位永久停留"加载中…"/"…" | catch 重置为"数据不可用（服务端错误）"/"区间不可用" + 静态锁 |
+
+**明确不动的债务（收尾裁决）**：app.py 1465 行不再拆（S 期已下沉两模块，
+再拆风险>收益）；match_detail inline JS 444 行（先例维持）；ruff 风格类基线
+（I001/N806/B905 等，非正确性）；coverage.html（CLI 侧在用，非死代码）；
+D2b（等 FACEIT key）；gh-pages/内容生产线（冻结维持）。
+
+### S2 期坑（新增）
+
+1. **验收脚本自触发负载**：F10 上传失效/一键入库步骤会 `invalidate_aggregate →
+   warmup.kick`，**背靠背连跑 accept_buttons 会让下一轮撞进 wave2 重建窗口**
+   （本轮三连跑劣化为 16/13/3 失败，全部为 goto 超时/连接拒接，复跑即过）。
+   **契约：accept_buttons 必须在"新热服务器"上单独跑**——重启→等 phase=done→
+   一次跑完；失败先怀疑负载时序再怀疑代码。
+2. pytest 全量与 accept_buttons/visual_check 并行跑同台机器 = 互相争抢超时
+   （本轮再次实证）；全套验收必须串行。
+3. Select-String 管道吃掉 playwright 子进程 stdout 时要落盘文件再读（§4 规则
+   再次生效；`-u` 无缓冲 + Out-File 也可能只留结论行——以退出码 + FAILURES 行为准）。
+
+### S2 验收（全绿）
+
+- **pytest 333→342**（+9：test_phase_s2.py 8 项 + test_snapshots 覆盖面断言 1 项）。
+- **visual_check 22 页 + 窄视口 6 页 = 28 截图 0 失败**（tab_economy 一次瞬态
+  超时复跑过，W2 F-D 既有模式）。
+- **accept_buttons 20 步 0 失败**（fresh-server 单跑契约；两轮独立验证一致）。
+- ruff `--select F401,F821,F811,F841` = **0**。
+- 快照：stats.py 进源清单 → 指纹失效 → T1 快照全量重建一次（预期），winloo/
+  aimsci/lossattr 各 35 分片重物化，/system 显示 8/8 有效。
+
+### S2 里程碑状态
+
+- 测试 333→**342**；新增 `tests/test_phase_s2.py`。
+- 改动面：web/{app,snapshots,funlab_data,loss_data,viewer_data}.py、
+  analysis/{funlab,preference,routes,utility_effect,weapon_timeline,aim_science,
+  loss_attribution}.py（import/死变量清扫）、scripts/{visual_check,
+  accept_buttons,bench_process_pool}.py、static/js/{utilitylab,map_analysis}.js、
+  templates/{system,compare,player_career}.html、tests/{test_snapshots,
+  test_analysis,test_analysis_util,test_chart_data,test_phase_x}.py。
+- 阶段性收口：功能面无欠账（除等 key 的 D2b 与冻结线），文档口径齐，
+  验收工具覆盖全部交互面。

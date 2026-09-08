@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from cs_analyzer.analysis.base import AnalysisContext, AnalysisModule, AnalysisResult, register_module
 from cs_analyzer.analysis.economy import ECO_MAX, FORCE_MAX, build_purchase_log
@@ -223,7 +223,7 @@ class FunLabModule(AnalysisModule):
             t = int(row.get("tick", 0) or 0)
             vic = _s(row.get("user_steamid"))
             att = _s(row.get("attacker_steamid"))
-            v = P(vic, _s(row.get("user_name")))
+            P(vic, _s(row.get("user_name")))
             if att and att != vic:
                 a = P(att, _s(row.get("attacker_name")))
                 a["kills"] += 1
