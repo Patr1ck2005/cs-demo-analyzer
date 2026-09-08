@@ -125,6 +125,76 @@ def test_funlab_merge_across_demos(web_client) -> None:
     assert bob["kills"] >= 3
 
 
+def _g161_parsed(demo_hash: str) -> "object":
+    """A synthetic demo whose FILENAME carries the g161- 5E marker."""
+    demo = build_parsed_demo(events=_events())
+    demo.data.metadata.demo_hash = demo_hash
+    demo.data.metadata.demo_path = f"g161-2026090{demo_hash[-1]}2200000000000000_de_mirage.dem"
+    return demo
+
+
+def test_funlab_platform_filter(web_client) -> None:
+    """Y2: platform= divides the library (filename-derived); the unfiltered
+    report reports the per-platform counts."""
+    from cs_analyzer.cache import DemoCache
+    from cs_analyzer.web import aggregation, app as web_app
+
+    cache: DemoCache = web_app._cache()
+    # base fixture demo = numeric-named path "synthetic.dem" -> perfect_world
+    for i in range(3):
+        demo = _g161_parsed(f"p{i}")
+        demo.data.metadata.demo_hash = f"p{i}"
+        cache.save(f"p{i}", demo)
+    from cs_analyzer.web import funlab_data
+
+    aggregation.invalidate_aggregate()
+    funlab_data.invalidate_funlab()
+    c = web_client[0]
+    all_r = c.get("/api/funlab.json").json()
+    assert all_r["platform_counts"] == {"five_e": 3, "perfect_world": 1}
+    fe = c.get("/api/funlab.json?platform=five_e").json()
+    assert fe["selected_demos"] == 3
+    pw = c.get("/api/funlab.json?platform=perfect_world").json()
+    assert pw["selected_demos"] == 1
+    # an unknown platform value falls back to all (route contract)
+    junk = c.get("/api/funlab.json?platform=nonsense").json()
+    assert junk["selected_demos"] == 4
+    funlab_data.invalidate_funlab()
+
+
+def test_donor_board_is_per_demo(web_client, monkeypatch) -> None:
+    """Y2 用户裁决：donor 榜按 Σ发枪价值÷场次 排序（每场均值），绝对值进行内括号。"""
+    from cs_analyzer.web import funlab_data
+
+    fake_players = [
+        {"steamid": "s1", "name": "A", "kills": 20, "demos": 2,
+         "drops_value": 8000, "own_spend": 10000},
+        {"steamid": "s2", "name": "B", "kills": 20, "demos": 8,
+         "drops_value": 9000, "own_spend": 10000},
+    ]
+
+    def fake_scan():
+        return {"entries": [], "regulars": set(), "dates": []}
+
+    monkeypatch.setattr(funlab_data, "_scan_all", fake_scan)
+    monkeypatch.setattr(funlab_data, "_merge",
+                        lambda scan, stack, dates, platform: {
+                            "players": fake_players,
+                            "boards": {"donor": sorted(
+                                fake_players,
+                                key=lambda x: -(x["drops_value"] / x["demos"]))},
+                        })
+    funlab_data.invalidate_funlab()
+    d = funlab_data.funlab_report()
+    funlab_data.invalidate_funlab()
+    board = d["boards"]["donor"]
+    # B has more total value (9000 > 8000) but a lower per-demo mean
+    # (1125 vs 4000) — per-demo ordering puts A first
+    assert board[0]["steamid"] == "s1"
+    defs = funlab_data.BOARD_DEFS["donor"]
+    assert "每场" in defs["title"] and "÷ 场次" in defs["formula"]
+
+
 def c_get_json(web_app):
     from fastapi.testclient import TestClient
 

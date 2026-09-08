@@ -887,3 +887,37 @@ persist/restore、P4 35 行表格/排序/卡片、P5 地图联动道具图）；
 **W2 里程碑状态**：测试 303→305；accept_buttons 13→16 步；visual_check 22 页。
 改动面：templates/players.html、static/js/reports.js、scripts/{visual_check,
 accept_buttons}.py、tests/test_phase_x.py。
+
+### 17c. Phase Y2 —— 平台维度 + donor 榜每场化（2026-09-07，随批次待审）
+
+**用户两问**：① "刚传了完美平台数据怎么日期还是旧的？"——19 个完美场根本不在
+日期体系里（CS2 demo 头无日期字段（实证 12 键）、WMPVP 文件名是纯序号、mtime=下载
+时间不可用作比赛日期；日期筛选只认 5E 文件名内嵌日期）；且 5E match_id 内嵌日期前缀
+（2.0e22）恒大于完美纯序号（9.2e18），排序上完美场永远沉底，加重"旧日期"错觉。
+② donor 榜绝对值违反总原则。**用户裁决**：实验室+对局库加平台维度（徽章+标注，
+不做假日期）；donor 改每场均值。
+
+**落地**：
+
+1. **平台一等维度**：`store.platform_of(filename)`（g161- → five_e / 数字名 →
+   perfect_world；provider 元数据不可靠——5E demo 头是标准 SourceTV="valve"）；
+   list_demos 每行加 `platform`；funlab `funlab_report(stack, dates, platform)`
+   过滤 + `platform_counts` 下发 + API `?platform=` 白名单参数；前端 lab 平台 chips
+   （全部·35/完美·19/5E·16）进 F2 竞态守卫集。
+2. **互斥语义**：选平台=完美时**禁用**排型/日期 chips（排型基于 5E 常客、日期仅 5E，
+   组合会产生误导性空态），自动清空对应筛选。
+3. **徽章**：`_match_card.html`（仪表盘+对局库卡片）与 matches 表格"平台"列
+   （原样显示 provider "valve"——误导，已换徽章）渲染 5E/完美 徽章（.badge.fe/.pw，
+   中性色）；对局库 page-meta 注明"完美平台场无日期信息，按平台序号时序排列"。
+4. **donor 每场化（v7）**：`drops_value_per_demo = Σ发枪价值 ÷ 场次` 排序，绝对值
+   进行内括号"（共 X$）"（舔包王先例）；BOARD_DEFS 更新；docs/funlab-metrics.md
+   升 v7（含日期边界的数据事实记录）。
+
+**验收**：pytest 305→**307**（+2：平台过滤三态/未知值回退、donor per-demo 排序
+语义 B 总额 9000>A 8000 但均值 1125<4000 → A 先）；accept_buttons 16 步零失败；
+Y2 探针 3/3（chips 过滤+互斥禁用+计数徽章 / donor 每场+括号 / 徽章 16+19 实证）；
+截图人工复核（donor 榜与筛选行）。快照零失效（platform 过滤在 merge 层，scan 层未动）。
+
+**Y2 里程碑状态**：测试 305→307。改动面：web/{store,app,funlab_data}.py、
+static/js/funlab.js、static/style.css、templates/{players,_match_card,matches}.html、
+docs/funlab-metrics.md、tests/test_funlab.py。

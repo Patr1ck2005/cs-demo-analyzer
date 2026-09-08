@@ -364,7 +364,9 @@ def funlab_api(request: Request):
     """Fun metrics report; optional filters:
 
     stack=1,2,4 — keep only matches with that many library-regulars (排型)
-    dates=20260902,20260903 — keep only matches played on those dates
+    dates=20260902,20260903 — keep only matches played on those dates (5E only:
+        perfect-world demos carry no date in the demo or the filename)
+    platform=five_e|perfect_world — platform filter (Y2, filename-derived)
     """
     from cs_analyzer.web.funlab_data import funlab_report
 
@@ -374,9 +376,11 @@ def funlab_api(request: Request):
 
     stack_param = request.query_params.get("stack", "").strip()
     dates_param = request.query_params.get("dates", "").strip()
+    platform_param = request.query_params.get("platform", "").strip()
     stack = _ints(stack_param) if stack_param else None
     dates = tuple(v for v in dates_param.split(",") if v.strip()) or None
-    return JSONResponse(funlab_report(stack=stack, dates=dates))
+    platform = platform_param if platform_param in ("five_e", "perfect_world") else None
+    return JSONResponse(funlab_report(stack=stack, dates=dates, platform=platform))
 
 
 @app.get("/api/style-map.json")

@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>对局库</h1>
-    <div class="page-meta">共 {{ demos|length }} 场对局 · {{ maps|length }} 张地图</div>
+    <div class="page-meta">共 {{ demos|length }} 场对局 · {{ maps|length }} 张地图 · 完美平台场无日期信息，按平台序号时序排列</div>
   </div>
   <div class="page-actions">
     <a class="chip" href="/favorites">收藏与标注</a>
@@ -48,7 +48,7 @@
         <tr class="row-link" data-map="{{ d.map_name }}" data-href="/match/{{ d.demo_hash }}">
           <td><a href="/match/{{ d.demo_hash }}">{{ d.filename }}</a></td>
           <td>{{ d.map_name }}</td>
-          <td>{{ d.provider }}</td>
+          <td><span class="badge {{ 'fe' if d.platform == 'five_e' else 'pw' if d.platform == 'perfect_world' else 't0' }}">{{ {'five_e': '5E', 'perfect_world': '完美'}.get(d.platform, d.platform) }}</span></td>
           <td class="num">{{ d.num_rounds }}</td>
           <td class="num">{{ d.players|length }}</td>
           <td>

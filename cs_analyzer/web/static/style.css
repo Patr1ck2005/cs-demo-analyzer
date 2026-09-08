@@ -156,6 +156,10 @@ tbody tr { animation: row-in .35s ease-out both; animation-delay: calc(min(var(-
 main { max-width: 1200px; margin: 0 auto; padding: var(--sp-6) var(--sp-6) var(--sp-8); }
 body.wide main { max-width: 1600px; }
 
+/* Y2 platform badges: neutral distinct hues (never T/CT semantics) */
+.badge.fe { background: rgba(61, 155, 255, .16); color: #7db8ff; }
+.badge.pw { background: rgba(255, 176, 46, .14); color: #ffc861; }
+
 /* ============================= page head ============================= */
 .page-head { display: flex; align-items: flex-end; justify-content: space-between;
              gap: var(--sp-4); margin-bottom: var(--sp-5); flex-wrap: wrap; }

@@ -145,6 +145,10 @@
       if (valueKey === 'free_pickup_pr') {
         txt += ' <span class="sub">(' + (p.free_pickups || 0) + '次)</span>';
       }
+      // v7 用户裁决：donor 榜按每场均值排序，绝对值降为括号注记
+      if (valueKey === 'drops_value_per_demo') {
+        txt += ' <span class="sub">(共 ' + (p.drops_value || 0) + '$)</span>';
+      }
       html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">' +
         '<span><i style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:' + playerColor(p.name) + '"></i>' +
         (i + 1) + '. <a href="/player/' + esc(p.steamid) + '">' + esc(p.name) + '</a></span>' +
@@ -156,7 +160,7 @@
   function drawBoards() {
     var b = DATA.boards || {};
     document.getElementById('fl-boards').innerHTML =
-      board('donor', '💸 发枪金主（价值）', b.donor || [], 'drops_value', '$') +
+      board('donor', '💸 发枪金主（每场）', b.donor || [], 'drops_value_per_demo', '$') +
       board('vulture', '🧟 吸血鬼（被供枪占比）', b.vulture || [], 'vulture_rate', 'pct') +
       board('generous', '💝 慷慨率', b.generous || [], 'drop_generosity', 'pct') +
       board('poor_hero', '🌧️ 雪中送炭', b.poor_hero || [], 'drop_poor_share', 'pct') +
@@ -174,7 +178,7 @@
       board('pure_eco', '🥬 纯eco铁公鸡', b.pure_eco || [], 'pure_eco_rate', 'pct');
   }
 
-  var FILTERS = { stack: [], dates: [] };  // empty array = no filter
+  var FILTERS = { stack: [], dates: [], platform: '' };  // empty = no filter
 
   // ---- Phase N: 风格星系（谁和谁打得像）----
   var GALAXY = { showTraj: true, last: null };  // V3: 演变轨迹开关
@@ -319,8 +323,9 @@
   // F2: fetch race guard — responses from superseded requests are dropped
   // (last click wins), and a failed fetch reverts to the LAST successfully
   // applied filter set so the chips never claim a filter that isn't shown.
+  // Y2: platform joins the filter set ("" = all / "five_e" / "perfect_world").
   var fetchSeq = 0;
-  var applied = { stack: [], dates: [] };
+  var applied = { stack: [], dates: [], platform: '' };
   function syncChips() {
     document.querySelectorAll('#fl-stack-chips [data-stack]').forEach(function (b) {
       b.classList.toggle('on', FILTERS.stack.indexOf(b.getAttribute('data-stack')) >= 0);
@@ -328,23 +333,35 @@
     document.querySelectorAll('#fl-date-chips [data-date]').forEach(function (b) {
       b.classList.toggle('on', FILTERS.dates.indexOf(b.getAttribute('data-date')) >= 0);
     });
+    document.querySelectorAll('#fl-platform-chips [data-platform]').forEach(function (b) {
+      b.classList.toggle('on', (b.getAttribute('data-platform') || '') === FILTERS.platform);
+    });
+    // 排型（5E 常客）与日期（5E 文件名）对完美平台场没有意义——选平台=完美时禁用
+    var pwOnly = FILTERS.platform === 'perfect_world';
+    ['#fl-stack-chips', '#fl-date-chips'].forEach(function (sel) {
+      document.querySelectorAll(sel + ' [data-stack], ' + sel + ' [data-date]')
+        .forEach(function (b) { b.disabled = pwOnly; });
+    });
   }
   function fetchAndDraw(after) {
     var qs = [];
     if (FILTERS.stack.length) qs.push('stack=' + FILTERS.stack.join(','));
     if (FILTERS.dates.length) qs.push('dates=' + FILTERS.dates.join(','));
+    if (FILTERS.platform) qs.push('platform=' + FILTERS.platform);
     var seq = ++fetchSeq;
     fetch('/api/funlab.json' + (qs.length ? '?' + qs.join('&') : ''), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (seq !== fetchSeq) return;  // a newer click superseded us
-        applied = { stack: FILTERS.stack.slice(), dates: FILTERS.dates.slice() };
+        applied = { stack: FILTERS.stack.slice(), dates: FILTERS.dates.slice(),
+                    platform: FILTERS.platform };
         loadDefs(d); DATA = d; drawBoards(); redrawChart(); if (after) after();
       })
       .catch(function () {
         if (seq !== fetchSeq) return;
         FILTERS.stack = applied.stack.slice();
         FILTERS.dates = applied.dates.slice();
+        FILTERS.platform = applied.platform;
         syncChips();
       });
   }
@@ -352,8 +369,10 @@
   window.__funlabDebug = {
     state: function () {
       return {
-        FILTERS: { stack: FILTERS.stack.slice(), dates: FILTERS.dates.slice() },
-        applied: { stack: applied.stack.slice(), dates: applied.dates.slice() },
+        FILTERS: { stack: FILTERS.stack.slice(), dates: FILTERS.dates.slice(),
+                   platform: FILTERS.platform },
+        applied: { stack: applied.stack.slice(), dates: applied.dates.slice(),
+                   platform: applied.platform },
       };
     },
   };
@@ -457,6 +476,31 @@
             redrawChart();
           });
         });
+        // ---- platform chips (Y2: 全部/完美/5E) ----
+        var platRow = document.getElementById('fl-platform-chips');
+        if (platRow) {
+          var pc = d.platform_counts || {};
+          var platDefs = [
+            ['', '全部', (pc.five_e || 0) + (pc.perfect_world || 0)],
+            ['perfect_world', '完美', pc.perfect_world || 0],
+            ['five_e', '5E', pc.five_e || 0],
+          ];
+          platRow.innerHTML = platDefs.map(function (pd) {
+            return '<button class="chip chip-sm' + (FILTERS.platform === pd[0] ? ' on' : '') +
+              '" data-platform="' + pd[0] + '" type="button">' + pd[1] + ' · ' + pd[2] + '场</button>';
+          }).join('');
+          platRow.querySelectorAll('[data-platform]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              var val = btn.getAttribute('data-platform');
+              if (FILTERS.platform === val) return;
+              FILTERS.platform = val;
+              // 排型/日期对完美库无意义——切到完美时清空，避免误导性空态
+              if (val === 'perfect_world') { FILTERS.stack = []; FILTERS.dates = []; }
+              syncChips();
+              fetchAndDraw();
+            });
+          });
+        }
         // ---- lineup-size chips (排型) ----
         var stacks = Object.keys(d.lineup_counts || {}).map(Number).sort();
         var stackRow = document.getElementById('fl-stack-chips');

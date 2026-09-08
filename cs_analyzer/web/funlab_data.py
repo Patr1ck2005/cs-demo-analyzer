@@ -119,8 +119,11 @@ METRIC_DEFS: dict[str, dict[str, str]] = {
 }
 
 BOARD_DEFS: dict[str, dict[str, str]] = {
-    "donor": {"title": "💸 发枪金主（价值）", "formula": "Σ 发枪价值（$，绝对值）",
-              "note": "唯一保留的绝对值榜（用户 v4 特批：价值=养队含金量）。场次多天然金额大——比意愿请看慷慨率榜。"},
+    # v7 用户裁决：绝对值随场次线性膨胀（打得多≠养得多），donor 榜改每场均值；
+    # 绝对值降为行内括号注记。意愿强度请看慷慨率榜。
+    "donor": {"title": "💸 发枪金主（每场）",
+              "formula": "Σ 发枪价值 ÷ 场次（每场均值，$/场）",
+              "note": "用户 v7 裁决：打得多不等于养得多；行内括号为总价值（$）。意愿强度请看慷慨率榜。"},
     "free_pickup": {"title": "🤙 舔包王（每回合）", "formula": "白嫖枪总次数 ÷ 总回合数",
                     "note": "用户裁决 v5：除总回合数，场次多不占便宜；括号内为总次数。"},
 }
@@ -129,14 +132,22 @@ BOARD_DEFS: dict[str, dict[str, str]] = {
 
 
 def funlab_report(stack: tuple[int, ...] | None = None,
-                  dates: tuple[str, ...] | None = None) -> dict:
-    """Return the merged report for the given filters (memoized per key)."""
+                  dates: tuple[str, ...] | None = None,
+                  platform: str | None = None) -> dict:
+    """Return the merged report for the given filters (memoized per key).
+
+    platform (Y2): None = all; "five_e" / "perfect_world" — derived from the
+    filename prefix (the stored provider metadata is unreliable: 5E demos
+    carry "valve").
+    """
     global _report, _report_key
     scan = _scan_all()
-    key = (tuple(sorted(stack)) if stack else (), tuple(sorted(dates)) if dates else ())
+    key = (tuple(sorted(stack)) if stack else (),
+           tuple(sorted(dates)) if dates else (),
+           platform or "")
     with _lock:
         if _report is None or _report_key != key:
-            _report = _merge(scan, stack, dates)
+            _report = _merge(scan, stack, dates, platform)
             _report_key = key
     return _report
 
@@ -323,12 +334,16 @@ _SUM_FIELDS = [
 ]
 
 
-def _merge(scan: dict, stack: tuple[int, ...] | None, dates: tuple[str, ...] | None) -> dict:
+def _merge(scan: dict, stack: tuple[int, ...] | None, dates: tuple[str, ...] | None,
+           platform: str | None = None) -> dict:
     selected = []
     for e in scan["entries"]:
         if stack and e["lineup_n"] not in stack:
             continue
         if dates and e["date"] not in dates:
+            continue
+        # Y2 平台维度：entry.is_five_e 与 platform_of(filename) 同源
+        if platform and ("five_e" if e["is_five_e"] else "perfect_world") != platform:
             continue
         selected.append(e)
 
@@ -366,6 +381,8 @@ def _merge(scan: dict, stack: tuple[int, ...] | None, dates: tuple[str, ...] | N
             "steamid": m["steamid"], "name": m["name"], "demos": m["demos_n"],
             "kills": m["kills"], "lives": m["lives"], "rounds": m["rounds"],
             "drops_made": m["drops_made"], "drops_value": m["drops_value"],
+            # v7 用户裁决：donor 榜改每场均值（打得多≠养得多），绝对值进括号
+            "drops_value_per_demo": round(m["drops_value"] / m["demos_n"], 1),
             "drop_generosity": round(m["drops_value"] / max(m["own_spend"], 1), 3),
             "drop_poor_share": round(m["drops_poor"] / max(m["drops_made"], 1), 3),
             "drop_profit_rate": round(m["drops_profitable"] / max(m["drops_made"], 1), 3),
@@ -420,19 +437,26 @@ def _merge(scan: dict, stack: tuple[int, ...] | None, dates: tuple[str, ...] | N
     for e in selected:
         lineup_counts[e["lineup_n"]] += 1
 
+    # Y2: platform distribution of the selected demos (drives the chips)
+    platform_counts: dict[str, int] = defaultdict(int)
+    for e in selected:
+        platform_counts["five_e" if e["is_five_e"] else "perfect_world"] += 1
+
     return {
         "generated": __import__("datetime").datetime.now(
             __import__("datetime").timezone.utc).isoformat(timespec="seconds"),
         "gate": {"min_demos": MIN_DEMOS, "players_total": len(merged), "gated": gated},
         "selected_demos": len(selected),
         "lineup_counts": {str(k): v for k, v in sorted(lineup_counts.items())},
+        "platform_counts": {k: v for k, v in sorted(platform_counts.items())},
         "dates": scan["dates"],
         "players": players_out,
         # v5 口径审计：指标口径字典随 API 下发，前端面板/轴提示/榜单统一引用
         "metric_defs": METRIC_DEFS,
         "board_defs": BOARD_DEFS,
         "boards": {
-            "donor": by("drops_value"),
+            # v7 用户裁决：donor 按每场均值排序（绝对值随场次膨胀，见 BOARD_DEFS）
+            "donor": by("drops_value_per_demo"),
             "vulture": by("vulture_rate"),
             "generous": by("drop_generosity"),
             "poor_hero": by("drop_poor_share"),

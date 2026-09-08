@@ -11,6 +11,7 @@
   <div class="mc-body">
     <div class="mc-name" title="{{ d.filename }}">{{ d.filename }}</div>
     <div class="mc-meta">
+      <span class="badge {{ 'fe' if d.platform == 'five_e' else 'pw' if d.platform == 'perfect_world' else 't0' }}">{{ {'five_e': '5E', 'perfect_world': '完美'}.get(d.platform, d.platform) }}</span>
       <span class="badge t0">{{ d.map_name }}</span>
       <span class="mc-actions">查看分析 →</span>
     </div>

@@ -26,6 +26,20 @@ _MATCH_ID_RES = (
 )
 
 
+def platform_of(filename: str) -> str:
+    """Platform label derived from the FILENAME.
+
+    The stored provider metadata is unreliable for this purpose (5E servers
+    send standard SourceTV headers → provider "valve"); the filename prefix
+    is the only dependable signal (Y2). "other" = neither shape matched.
+    """
+    if filename.startswith("g161-"):
+        return "five_e"
+    if re.match(r"^\d{10,}_", filename):
+        return "perfect_world"
+    return "other"
+
+
 def _match_id_of(entry: dict) -> str | None:
     """Stored metadata match_id first, filename patterns as fallback."""
     mid = entry.get("match_id")
@@ -74,12 +88,16 @@ def list_demos(cache_dir: Path = CACHE_DIR) -> list[dict]:
         players = model.get("players", [])
         rounds = model.get("rounds", [])
         path = meta.get("demo_path", "")
+        filename = Path(path).name if path else demo_dir.name
         entries.append(
             {
                 "demo_hash": meta.get("demo_hash", demo_dir.name),
-                "filename": Path(path).name if path else demo_dir.name,
+                "filename": filename,
                 "map_name": meta.get("map_name", "?"),
                 "provider": meta.get("provider", "?"),
+                # Y2: filename-derived platform (provider metadata is
+                # unreliable — 5E demos carry "valve")
+                "platform": platform_of(filename),
                 "demo_path": path,
                 "num_rounds": len([r for r in rounds if not r.get("is_warmup")]),
                 "parsed_at": meta.get("parsed_at", ""),
