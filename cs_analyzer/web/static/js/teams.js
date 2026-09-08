@@ -13,11 +13,16 @@
   function pct(v) { return v == null ? '—' : (v * 100).toFixed(1) + '%'; }
 
   function groupCard(g, title) {
+    // R1: avg_our_win_rate = {rate, conf} — 池化胜率 + Wilson 区间
+    var wr = g.avg_our_win_rate;
+    var rate = wr == null ? null : (typeof wr === 'object' ? wr.rate : wr);
+    var conf = wr != null && typeof wr === 'object' ? wr.conf : null;
     return '<div class="sub" style="margin-bottom:6px">' + title + '</div>' +
       '<div class="stat-row" style="grid-template-columns:1fr 1fr 1fr">' +
       '<div class="stat-card"><div class="stat-label">场次</div><div class="stat-value">' + g.matches + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">己方回合胜率</div><div class="stat-value ' +
-      (g.avg_our_win_rate != null && g.avg_our_win_rate >= 0.5 ? 'pos' : 'neg') + '">' + pct(g.avg_our_win_rate) + '</div></div>' +
+      (rate != null && rate >= 0.5 ? 'pos' : 'neg') + '">' + pct(rate) +
+      CSACommon.fmtConf(conf, {}) + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">地图池</div><div class="stat-value" style="font-size:13px;line-height:1.5">' +
       (g.maps || []).map(esc).join('<br>') + '</div></div></div>';
   }

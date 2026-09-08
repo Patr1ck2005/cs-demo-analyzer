@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -69,20 +70,24 @@ def _norm_spot(x: float, y: float, map_name: str, res_cache: dict) -> tuple[floa
 
 
 def _demo_payload(demo) -> dict:
-    """Per-demo shard payload: flashers / smoke stats / smoke landing events."""
+    """Per-demo shard payload: flashers / smoke stats / smoke landing events /
+    R4 execute-science counters."""
     from cs_analyzer.web import runtime
 
     result = runtime.analyze_module(demo, "utility_effect")
     if result is None:
         return {"demo_hash": demo.metadata.demo_hash,
                 "map_name": demo.metadata.map_name,
-                "flashers": [], "smoke": [], "smoke_events": []}
+                "flashers": [], "smoke": [], "smoke_events": [],
+                "exec_players": [], "exec_rounds": []}
     return {
         "demo_hash": demo.metadata.demo_hash,
         "map_name": demo.metadata.map_name,
         "flashers": result.flashers,
         "smoke": result.smoke,
         "smoke_events": result.smoke_events,
+        "exec_players": result.exec_players,
+        "exec_rounds": result.exec_rounds,
     }
 
 
@@ -191,6 +196,74 @@ def _build() -> dict:
         key=lambda x: -x["net_per_demo"],
     )
 
+    # R1 统计严谨层（merge 层计算，shard 载荷零改动）：
+    #   value_per_throw → EB 收缩（n=投掷数，事件级 k=32）
+    #   net_per_demo → EB 收缩（n=场次数，k=4）
+    from cs_analyzer.analysis.stats import K_PER_DEMO, K_PER_EVENT, attach_conf
+
+    attach_conf(flashers_out, "value_per_throw", "throws",
+                kind="mean", k=K_PER_EVENT, gate_n=3)
+    attach_conf(smoke_out, "net_per_demo", "demos",
+                kind="mean", k=K_PER_DEMO, gate_n=3)
+
+    # ---- R4 道具执行科学 merge ----
+    exec_players: dict[str, dict] = {}
+    for entry in per_demo:
+        for e in entry.get("exec_players", []):
+            sid = e["steamid"]
+            a = exec_players.setdefault(sid, {
+                "steamid": sid, "name": e.get("name") or sid, "demos": set(),
+                "throws": 0, "late_throws": 0, "enemy_blind_throws": 0,
+                "support_kills": 0, "own_followups": 0,
+                "molly_throws": 0, "molly_dmg": 0,
+            })
+            a["demos"].add(entry["demo_hash"])
+            for k in ("throws", "late_throws", "enemy_blind_throws",
+                      "support_kills", "own_followups", "molly_throws", "molly_dmg"):
+                a[k] += e.get(k, 0)
+    from cs_analyzer.analysis.stats import wilson_interval
+
+    exec_out = []
+    for a in exec_players.values():
+        n_bl = a["enemy_blind_throws"]
+        n_thr = a["throws"]
+        n_mol = a["molly_throws"]
+        lo, hi = wilson_interval(a["support_kills"], n_bl) if n_bl else (0.0, 0.0)
+        exec_out.append({
+            "steamid": a["steamid"], "name": a["name"], "demos": len(a["demos"]),
+            "throws": n_thr, "late_throws": a["late_throws"],
+            "late_rate": round(a["late_throws"] / n_thr, 3) if n_thr else None,
+            "enemy_blind_throws": n_bl,
+            "support_kills": a["support_kills"],
+            "support_flash_rate": round(a["support_kills"] / n_bl, 3) if n_bl else None,
+            "support_conf": {"lo": round(lo, 3), "hi": round(hi, 3), "n": n_bl,
+                             "gated": n_bl < 10},
+            "molly_throws": n_mol,
+            "molly_dmg": a["molly_dmg"],
+            "molly_dmg_per_throw": round(a["molly_dmg"] / n_mol, 1) if n_mol else None,
+        })
+    exec_out.sort(key=lambda x: (-(x["support_kills"] or 0), -(x["enemy_blind_throws"] or 0)))
+
+    # 烟阻 × 胜率（按图）：0/1/2+ 桶 + Wilson（n=回合数，桶 <10 回合灰显）
+    smoke_buckets: dict[tuple[str, str, int], list[int]] = defaultdict(list)
+    for entry in per_demo:
+        for r in entry.get("exec_rounds", []):
+            key = (entry["map_name"], r["side"], r["smokes"])
+            smoke_buckets[key].append(r["won"])
+    buckets_out = []
+    for (map_name, side, n_smokes), wins in sorted(smoke_buckets.items()):
+        n = len(wins)
+        w = sum(wins)
+        lo, hi = wilson_interval(w, n) if n else (0.0, 0.0)
+        buckets_out.append({
+            "map_name": map_name, "side": side,
+            "smokes": n_smokes,  # 0/1/2 (2 = 2+)
+            "rounds": n, "wins": w,
+            "win_rate": round(w / n, 3) if n else None,
+            "conf": {"lo": round(lo, 3), "hi": round(hi, 3), "n": n,
+                     "gated": n < 10},
+        })
+
     return {
         "generated": __import__("datetime").datetime.now(
             __import__("datetime").timezone.utc).isoformat(timespec="seconds"),
@@ -206,6 +279,8 @@ def _build() -> dict:
         "smoke": smoke_out,
         "spots_by_map": spots_by_map,
         "maps": sorted(spots_by_map.keys()),
+        "exec_players": exec_out,
+        "smoke_buckets": buckets_out,
     }
 
 

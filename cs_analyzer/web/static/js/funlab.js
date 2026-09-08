@@ -149,7 +149,22 @@
       if (valueKey === 'drops_value_per_demo') {
         txt += ' <span class="sub">(共 ' + (p.drops_value || 0) + '$)</span>';
       }
-      html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">' +
+      // R1 统计严谨层：区间 + n；均值类显示收缩值（原值为主值，收缩进括号）
+      var cf = (p.conf || {})[valueKey];
+      if (cf) {
+        var isMean = typeof p['shrunk_' + valueKey] === 'number';
+        if (isMean) {
+          var sv = p['shrunk_' + valueKey];
+          txt += ' <span class="sub" title="经验贝叶斯收缩值（向全库池均值收缩，小样本回拉）">收缩 ' +
+            (unit === '$' ? Math.round(sv) + '$' : (sv * 100).toFixed(1) + '%') + '</span>';
+          txt += CSACommon.fmtConf(cf, { pct: unit !== '$' });
+        } else {
+          txt += CSACommon.fmtConf(cf, { pct: unit === 'pct' });
+        }
+      }
+      var gated = cf && cf.gated;
+      html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"' +
+        (gated ? ' class="csa-gated"' : '') + '>' +
         '<span><i style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:' + playerColor(p.name) + '"></i>' +
         (i + 1) + '. <a href="/player/' + esc(p.steamid) + '">' + esc(p.name) + '</a></span>' +
         '<b style="color:' + playerColor(p.name) + '">' + txt + '</b></div>';

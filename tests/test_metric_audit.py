@@ -133,7 +133,8 @@ def test_map_best_players_pools_and_rates() -> None:
 
 
 def test_lineups_group_win_rate_is_round_pooled() -> None:
-    """车队/单排组胜率 = Σ胜回合/Σ总回合（场次简单平均有偏）。"""
+    """车队/单排组胜率 = Σ胜回合/Σ总回合（场次简单平均有偏）。R1: 返回
+    {rate, conf}——conf 带 Wilson 区间与 n。"""
     from cs_analyzer.web.lineups_data import pooled_win_rate
 
     ms = [
@@ -142,7 +143,10 @@ def test_lineups_group_win_rate_is_round_pooled() -> None:
         {"our_rounds_won": 0, "our_rounds": 1},     # 0% — 旧均值会被它拉低
     ]
     # 池化 = 12/25 = 0.48；旧简单平均 = 0.333
-    assert pooled_win_rate(ms) == 0.48
+    out = pooled_win_rate(ms)
+    assert out["rate"] == 0.48
+    assert out["conf"]["n"] == 25
+    assert out["conf"]["lo"] < 0.48 < out["conf"]["hi"]
     assert pooled_win_rate([{"our_rounds_won": 0, "our_rounds": 0}]) is None
 
 

@@ -16,10 +16,14 @@
     <div class="stat-value {{ 'pos' if r21 and r21.rating21 >= 1.0 else 'neg' }}">{{ '%.2f'|format(r21.rating21) if r21 else '—' }}</div>
     {% if r21 %}<div class="sub" style="font-size:11px;margin:0">2.0 口径 {{ '%.2f'|format(r21.rating20) }} · 保枪 {{ r21.save_rounds }} 回合</div>{% endif %}</div>
   <div class="stat-card"><div class="stat-label">场均 Rating 2.0</div>
-    <div class="stat-value {{ 'pos' if p.avg_rating >= 1.0 else 'neg' }}">{{ '%.2f'|format(p.avg_rating) }}</div></div>
-  <div class="stat-card"><div class="stat-label">场均 ADR</div><div class="stat-value">{{ '%.1f'|format(p.avg_adr) }}</div></div>
-  <div class="stat-card"><div class="stat-label">场均 KPR</div><div class="stat-value">{{ '%.2f'|format(p.avg_kpr) }}</div></div>
-  <div class="stat-card"><div class="stat-label">场均 HS%</div><div class="stat-value">{{ '%.1f'|format(p.avg_hs_pct) }}</div></div>
+    <div class="stat-value {{ 'pos' if p.avg_rating >= 1.0 else 'neg' }}">{{ '%.2f'|format(p.avg_rating) }}</div>
+    <div class="sub" style="font-size:11px;margin:0" id="conf-rating">…</div></div>
+  <div class="stat-card"><div class="stat-label">场均 ADR</div><div class="stat-value">{{ '%.1f'|format(p.avg_adr) }}</div>
+    <div class="sub" style="font-size:11px;margin:0" id="conf-adr">…</div></div>
+  <div class="stat-card"><div class="stat-label">场均 KPR</div><div class="stat-value">{{ '%.2f'|format(p.avg_kpr) }}</div>
+    <div class="sub" style="font-size:11px;margin:0" id="conf-kpr">…</div></div>
+  <div class="stat-card"><div class="stat-label">场均 HS%</div><div class="stat-value">{{ '%.1f'|format(p.avg_hs_pct) }}</div>
+    <div class="sub" style="font-size:11px;margin:0" id="conf-hs">…</div></div>
   <div class="stat-card"><div class="stat-label">KAST% (2.1)</div>
     <div class="stat-value">{{ '%.0f'|format(r21.kast21) if r21 else '—' }}</div></div>
 </div>
@@ -33,6 +37,24 @@
     <h2 style="border:none">跨场趋势（Rating / ADR / RWS）</h2>
     <div id="career-trend" style="height:360px" class="chart-loading"></div>
   </div>
+</div>
+
+<div class="section-header"><h2>🎯 枪法科学（R3）</h2>
+  <div class="section-actions sub" style="margin:0">预瞄/反击/急停 · 口径见脚注 · 区间 [lo–hi] · n 为样本数</div></div>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>选手</th><th class="num">预瞄中位</th><th class="num">预瞄&lt;10°</th>
+        <th class="num">反击枪中位</th><th class="num">反击≤0.5s</th>
+        <th class="num">急停下开火</th><th class="num">对枪胜率(停/动)</th></tr>
+  </thead>
+  <tbody id="aimsci-tbody">
+    <tr><td colspan="7" class="sub">加载中…（预热后台进行，稍后自动填充）</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="sub" style="font-size:11px;margin-top:6px">
+  口径：<span id="aimsci-notes">…</span>
 </div>
 
 <div class="section-header"><h2>单场热力图</h2>
@@ -72,6 +94,17 @@
 </table>
 </div>
 
+<div class="section-header"><h2>📉 失利模式（R5）</h2>
+  <div class="section-actions sub" style="margin:0">该选手参战队伍的败回合结构化标签分布 · [lo–hi] 为 95% 区间 · n=败回合数</div></div>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>标签</th><th class="num">次数</th><th class="num">占败回合比</th></tr></thead>
+  <tbody id="loss-pattern-tbody">
+    <tr><td colspan="3" class="sub">加载中…</td></tr>
+  </tbody>
+</table>
+</div>
+
 <div class="section-header"><h2>高光时刻</h2>
   <div class="section-actions sub" style="margin:0">该选手的多杀 / 残局 / ACE</div></div>
 <div id="career-highlights" class="grid hl-grid">
@@ -92,6 +125,19 @@
 <script>
 (async function () {
   const SID = '{{ p.steamid }}';
+  // R1 统计严谨层：生涯卡置信区间（fail-soft —— 加载失败保持占位符静默）
+  try {
+    const cf = await fetch(`/api/player/${SID}/career-conf.json`)
+      .then((r) => { if (!r.ok) throw r.status; return r.json(); });
+    const put = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+    const f2 = (x) => (+x).toFixed(2);
+    const f1 = (x) => (+x).toFixed(1);
+    const line = (c, fmt) => c ? `[${fmt(c.lo)}–${fmt(c.hi)}] · n=${c.n}` + (c.gated ? '（样本不足）' : '') : '—';
+    put('conf-rating', '区间 ' + line(cf.rating, f2) + ' · 收缩 ' + f2(cf.rating.shrunk));
+    put('conf-adr', '区间 ' + line(cf.adr, f1) + ' · 收缩 ' + f1(cf.adr.shrunk));
+    put('conf-kpr', '区间 ' + line(cf.kpr, f2) + ' · 收缩 ' + f2(cf.kpr.shrunk));
+    put('conf-hs', '区间 ' + line(cf.hs, f1));
+  } catch (e) { /* 区间行保持占位 */ }
   // radar: server-injected ranges (RADAR_AXES) — must match the per-demo
   // radar normalization exactly (B4: old hardcoded ranges were wrong)
   const AXES = JSON.parse(document.getElementById('radar-ranges').textContent);
@@ -195,6 +241,63 @@
         box.style.backgroundImage = 'none';
       }
     });
+  }
+
+  // R3 枪法科学：跨库向量（aim_peek/wave2 物化；404/无数据时保留占位）
+  try {
+    const aim = await fetch('/api/aim-science.json')
+      .then((r) => { if (!r.ok) throw r.status; return r.json(); });
+    const mine = (aim.players || []).find((x) => x.steamid === SID);
+    const notes = document.getElementById('aimsci-notes');
+    if (notes) notes.textContent = (aim.notes || {}).preaim_def + '；' + (aim.notes || {}).counter_def + '；' + (aim.notes || {}).boundaries;
+    const tb = document.getElementById('aimsci-tbody');
+    if (tb) {
+      const rows = (aim.players || []).slice(0, 10).map((x) => {
+        const me = x.steamid === SID;
+        const f2 = (v) => v == null ? '—' : (+v).toFixed(2);
+        const f1 = (v) => v == null ? '—' : (+v).toFixed(1);
+        const pc = (v) => v == null ? '—' : (v * 100).toFixed(0) + '%';
+        const dsN = x.duel_stopped_n, dmN = x.duel_moving_n;
+        const dsW = dsN ? (100 * x.duel_stopped_wins / dsN).toFixed(0) + '% (' + dsN + ')' : '—';
+        const dmW = dmN ? (100 * x.duel_moving_wins / dmN).toFixed(0) + '% (' + dmN + ')' : '—';
+        const conf = (c) => c ? ` <span class="csa-conf${c.gated ? ' csa-conf-gated' : ''}">[${pc(c.lo)}–${pc(c.hi)}]</span>` : '';
+        return `<tr class="${me ? 'csa-me-row' : ''}">` +
+          `<td><a href="/player/${x.steamid}">${CSACommon.esc(x.name)}</a>${me ? ' ⭐' : ''}</td>` +
+          `<td class="num">${f1(x.preaim_med_deg)}°</td>` +
+          `<td class="num">${pc(x.preaim_lt10_rate)}${conf(x.preaim_lt10_conf)}</td>` +
+          `<td class="num">${f2(x.counter_med_s)}s</td>` +
+          `<td class="num">${pc(x.counter_fast_rate)}${conf(x.counter_fast_conf)}</td>` +
+          `<td class="num">${pc(x.stopped_fire_rate == null ? null : x.stopped_fire_rate)}</td>` +
+          `<td class="num">停 ${dsW} · 动 ${dmW}</td></tr>`;
+      }).join('');
+      tb.innerHTML = rows || '<tr><td colspan="7" class="sub">暂无数据</td></tr>';
+    }
+  } catch (e) {
+    const tb = document.getElementById('aimsci-tbody');
+    if (tb) tb.innerHTML = '<tr><td colspan="7" class="sub">枪法科学数据未就绪（后台预热中，稍后刷新）</td></tr>';
+  }
+
+  // R5 失利模式：该选手参战队伍的败回合标签分布（fail-soft）
+  try {
+    const lp = await fetch(`/api/loss-patterns.json?player=${SID}`)
+      .then((r) => { if (!r.ok) throw r.status; return r.json(); });
+    const tb = document.getElementById('loss-pattern-tbody');
+    const TAGS = {
+      lost_opening: '掉首口', untraded: '无贸易死', lost_force: '强起失利',
+      lost_eco: 'eco失利', utility_deficit: '道具劣势', lost_clutch: '残局失守',
+    };
+    const pc = (v) => (v * 100).toFixed(0) + '%';
+    if (tb) {
+      tb.innerHTML = (lp.tags || []).map((t) =>
+        `<tr><td><span class="loss-tag t-${t.tag}">${TAGS[t.tag] || t.tag}</span>` +
+        `<span class="sub" style="font-size:11px"> ${CSACommon.esc(lp.tag_defs[t.tag] || '')}</span></td>` +
+        `<td class="num">${t.count}</td>` +
+        `<td class="num">${pc(t.share)} <span class="csa-conf${t.conf.gated ? ' csa-conf-gated' : ''}">[${pc(t.conf.lo)}–${pc(t.conf.hi)}] · n=${t.conf.n}</span></td></tr>`
+      ).join('') || '<tr><td colspan="3" class="sub">暂无数据</td></tr>';
+    }
+  } catch (e) {
+    const tb = document.getElementById('loss-pattern-tbody');
+    if (tb) tb.innerHTML = '<tr><td colspan="3" class="sub">失利模式数据未就绪（后台预热中）</td></tr>';
   }
 
   // highlights for this player (M5 payload; explicit failure state)

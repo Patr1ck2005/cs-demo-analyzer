@@ -18,5 +18,21 @@
     });
   }
 
-  window.CSACommon = { esc: esc, fetchJson: fetchJson };
+  // ---- Phase R1: statistical rigor rendering -------------------------------
+  // conf entry: {lo, hi, n, gated} (from web funlab_data / future boards).
+  // Renders as a compact grey badge: "0.61 [0.55–0.67] · 87"; gated rows add
+  // the class csa-conf-gated (grey-out styling lives in style.css). Rows keep
+  // showing — gating never hides (V2 EV-table precedent).
+  function fmtConf(conf, opts) {
+    opts = opts || {};
+    if (!conf || typeof conf !== 'object' || conf.lo == null) return '';
+    var pct = opts.pct !== false;
+    var f = function (x) { return pct ? (x * 100).toFixed(0) + '%' : (+x).toFixed(2); };
+    var s = ' <span class="csa-conf' + (conf.gated ? ' csa-conf-gated' : '') + '" title="样本 n=' +
+      conf.n + (conf.gated ? '（不足 ' + (opts.gate || 3) + '，仅示意）' : '，95% 置信区间') + '">' +
+      '[' + f(conf.lo) + '–' + f(conf.hi) + '] · n=' + conf.n + '</span>';
+    return s;
+  }
+
+  window.CSACommon = { esc: esc, fetchJson: fetchJson, fmtConf: fmtConf };
 })();

@@ -335,6 +335,35 @@ def compare_payload(result: AggregateResult) -> dict:
     for p in result.players:
         ok = p.demo_count >= MIN_SAMPLE_DEMOS
         radar, raw = career_radar(p) if ok else ([], [])
+        # R1 统计严谨层（merge 层，shard 载荷零改动）：
+        #   hs/fkpr/rating 二元或池化比率 → Wilson（n=击杀/回合数）
+        #   kpr/adr → EB 收缩（n=回合数）
+        from cs_analyzer.analysis.stats import K_PER_ROUND, attach_conf
+
+        rows = [{
+            "hs": p.avg_hs_pct / 100.0, "hs_n": p.total_kills,
+            "fkpr": p.avg_fkpr, "fkpr_n": p.total_rounds,
+            "rating": p.avg_rating, "rating_n": p.total_rounds,
+            "kpr": p.avg_kpr, "adr": p.avg_adr,
+        }]
+        # 每次调用会把行级 "conf" 覆盖为该指标自己的 conf —— 逐个捕获
+        attach_conf(rows, "hs", "hs_n", kind="rate", gate_n=30)
+        hs_conf = {**rows[0]["conf"], "lo": round(rows[0]["conf"]["lo"] * 100, 1),
+                   "hi": round(rows[0]["conf"]["hi"] * 100, 1)}
+        attach_conf(rows, "fkpr", "fkpr_n", kind="rate", gate_n=30)
+        fkpr_conf = rows[0]["conf"]
+        attach_conf(rows, "rating", "rating_n", kind="mean", k=K_PER_ROUND, gate_n=30)
+        rating_conf = rows[0]["conf"]
+        rating_shrunk = rows[0].get("shrunk")
+        attach_conf(rows, "kpr", "rating_n", kind="mean", k=K_PER_ROUND, gate_n=30)
+        kpr_conf = rows[0]["conf"]
+        kpr_shrunk = rows[0].get("shrunk")
+        attach_conf(rows, "adr", "rating_n", kind="mean", k=K_PER_ROUND, gate_n=30)
+        adr_conf = rows[0]["conf"]
+        adr_shrunk = rows[0].get("shrunk")
+        conf = {"hs": hs_conf, "fkpr": fkpr_conf, "rating": rating_conf,
+                "kpr": kpr_conf, "adr": adr_conf}
+        shrunk = {"rating": rating_shrunk, "kpr": kpr_shrunk, "adr": adr_shrunk}
         players.append(
             {
                 "steamid": p.steamid,
@@ -342,7 +371,8 @@ def compare_payload(result: AggregateResult) -> dict:
                 "demo_count": p.demo_count,
                 "eligible": ok,
                 "ratings": {
-                    k: {"value": round(fn(p), 3), "pct": pct_rank(k, fn(p))}
+                    k: {"value": round(fn(p), 3), "pct": pct_rank(k, fn(p)),
+                        "conf": conf[k], "shrunk": shrunk.get(k)}
                     for k, fn in metrics.items()
                 }
                 if ok

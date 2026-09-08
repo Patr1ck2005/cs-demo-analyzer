@@ -184,6 +184,10 @@ def _run() -> None:
             # memo only (loo_peek), so without this the cross-demo AUC would
             # never materialize until something else warms it.
             ("winloo", _step_winloo),
+            # R3: aim-science shards (aim_data.aim_peek consumers: career page)
+            ("aimsci", _step_aimsci),
+            # R5: loss-attribution shards (loss_data.loss_peek consumers)
+            ("lossattr", _step_lossattr),
         ):
             with _lock:
                 _state["phase"] = f"wave2:{step_name}"
@@ -270,3 +274,17 @@ def _step_winloo() -> None:
     from cs_analyzer.web.winprob_loo import loo_report
 
     loo_report()
+
+
+def _step_aimsci() -> None:
+    """Prewarm per-demo aim-science shards (R3 枪法科学)."""
+    from cs_analyzer.web.aim_data import aim_report
+
+    aim_report()
+
+
+def _step_lossattr() -> None:
+    """Prewarm per-demo loss-attribution shards (R5 失利归因)."""
+    from cs_analyzer.web.loss_data import loss_report
+
+    loss_report()

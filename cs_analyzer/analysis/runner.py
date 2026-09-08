@@ -33,6 +33,10 @@ import cs_analyzer.analysis.postplant  # noqa: F401
 import cs_analyzer.analysis.weapon_splits  # noqa: F401
 # Phase M fun metrics (quadrant lab)
 import cs_analyzer.analysis.funlab  # noqa: F401
+# Phase R research modules (must be import-registered or run_one raises
+# "failed to produce a result" — U1 lesson)
+import cs_analyzer.analysis.aim_science  # noqa: F401  # R3 枪法科学
+import cs_analyzer.analysis.loss_attribution  # noqa: F401  # R5 失利归因
 
 logger = logging.getLogger(__name__)
 

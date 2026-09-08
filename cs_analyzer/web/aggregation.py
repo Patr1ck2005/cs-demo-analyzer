@@ -63,6 +63,11 @@ def invalidate_aggregate() -> None:
     from cs_analyzer.web import ev_data
 
     ev_data.invalidate_ev()
+    # R3/R5: research memos aggregate the same cache set
+    from cs_analyzer.web import aim_data, loss_data
+
+    aim_data.invalidate_aimsci()
+    loss_data.invalidate_lossattr()
     # X: the win-probability LOO shards aggregate the same cache set
     from cs_analyzer.web import winprob_loo
 

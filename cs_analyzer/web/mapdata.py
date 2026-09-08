@@ -69,7 +69,11 @@ def best_players_for_map(cells: dict[str, dict], min_rounds: int = 10,
 
     v5 口径审计：旧口径 rating×rounds 是绝对值乘积——打得越多乘积越大，
     违反"打得多≠数据好"总原则。门槛 min_rounds 只做样本可靠性过滤。
+    R1: Rating 非二元结果，Wilson 不适用——按均值类 EB 收缩挂 conf
+    （n=回合数，k=64），`rating_shrunk` 仅展示不参与排序。
     """
+    from cs_analyzer.analysis.stats import attach_conf
+
     rows = []
     for cell in cells.values():
         if cell["rounds"] < min_rounds:
@@ -79,7 +83,11 @@ def best_players_for_map(cells: dict[str, dict], min_rounds: int = 10,
             "rounds": cell["rounds"], "demos": cell["demos"],
             "rating": round(cell["_rw"] / cell["rounds"], 3),
         })
-    return sorted(rows, key=lambda x: -x["rating"])[:k]
+    rows.sort(key=lambda x: -x["rating"])
+    attach_conf(rows, "rating", "rounds", kind="mean", k=64, gate_n=min_rounds)
+    for r in rows:
+        r["rating_shrunk"] = r.pop("shrunk", None)
+    return rows[:k]
 
 
 def _demo_payload(demo) -> dict:
@@ -181,16 +189,23 @@ def _build() -> dict:
         # codes (demoparser2 place ids) are noise for the distribution bars
         sites = {k: v for k, v in m["sites"].items() if k in ("A", "B")}
         best = best_players_for_map(per_player_map.get(m["map_name"], {}))
+        # R1: 图级 T/CT 胜率挂 Wilson（n=该图回合数）
+        from cs_analyzer.analysis.stats import wilson_interval
+
+        tw_lo, tw_hi = wilson_interval(m["t_wins"], total) if total else (0.0, 0.0)
         out.append({
             "map_name": m["map_name"],
             "demos": m["demos"],
             "rounds": total,
             "t_win_rate": round(m["t_wins"] / total, 3) if total else 0.0,
             "ct_win_rate": round(m["ct_wins"] / total, 3) if total else 0.0,
+            "t_win_conf": {"lo": round(tw_lo, 3), "hi": round(tw_hi, 3),
+                           "n": total, "gated": total < 30},
             "routes": m["routes"],
             "sites": sites,
             "best_players": [
-                {k: bp[k] for k in ("steamid", "name", "rating", "rounds", "demos")}
+                {k: bp[k] for k in ("steamid", "name", "rating", "rounds",
+                                    "demos", "conf", "rating_shrunk")}
                 for bp in best[:5]
             ][:5],
         })

@@ -67,6 +67,49 @@
               '</td><td class="num">' + (s.net_per_demo != null ? s.net_per_demo.toFixed(2) : '—') + '</td></tr>';
           }).join('') || '<tr><td colspan="5" class="sub">暂无烟中击杀数据</td></tr>';
 
+        // R4 道具执行科学：支援闪光/迟投/燃烧弹（首次尝试渲染，容器缺失则跳过）
+        var execBox = document.getElementById('ul-exec-table');
+        if (execBox) {
+          var body = execBox.querySelector('tbody');
+          var pc = function (v) { return v == null ? '—' : (v * 100).toFixed(0) + '%'; };
+          var conf = function (c) { return c ? ' <span class="csa-conf' + (c.gated ? ' csa-conf-gated' : '') + '">[' +
+            pc(c.lo) + '–' + pc(c.hi) + ']</span>' : ''; };
+          body.innerHTML = (d.exec_players || []).slice(0, 12).map(function (e) {
+            return '<tr><td>' + esc(e.name) + '</td><td class="num">' + e.demos +
+              '</td><td class="num">' + e.enemy_blind_throws + '</td>' +
+              '<td class="num pos">' + e.support_kills + conf(e.support_conf) + '</td>' +
+              '<td class="num">' + pc(e.support_flash_rate) + '</td>' +
+              '<td class="num">' + pc(e.late_rate) + '</td>' +
+              '<td class="num">' + (e.molly_dmg_per_throw != null ? e.molly_dmg_per_throw : '—') + '</td></tr>';
+          }).join('') || '<tr><td colspan="7" class="sub">暂无执行数据</td></tr>';
+        }
+        var bucketBox = document.getElementById('ul-smoke-buckets');
+        if (bucketBox) {
+          var pc2 = function (v) { return v == null ? '—' : (v * 100).toFixed(0) + '%'; };
+          var sel = null;
+          var onPage = document.querySelector('#ma-map-chips .chip.on');
+          if (onPage) sel = onPage.getAttribute('data-map');
+          var rows = (d.smoke_buckets || []).filter(function (b) { return !sel || b.map_name === sel; });
+          bucketBox.innerHTML = rows.map(function (b) {
+            return '<tr><td>' + esc(b.map_name) + '</td><td>' + (b.side === 'T' ? 'T' : 'CT') + '</td>' +
+              '<td class="num">' + (b.smokes === 2 ? '2+' : b.smokes) + '</td>' +
+              '<td class="num">' + b.rounds + '</td>' +
+              '<td class="num">' + pc2(b.win_rate) +
+              ' <span class="csa-conf' + (b.conf.gated ? ' csa-conf-gated' : '') + '">[' + pc2(b.conf.lo) + '–' + pc2(b.conf.hi) + ']</span></td></tr>';
+          }).join('') || '<tr><td colspan="5" class="sub">当前图暂无烟阻桶数据</td></tr>';
+          document.addEventListener('csa:map-changed', function (ev) {
+            var m = ev.detail && ev.detail.map;
+            bucketBox.innerHTML = (d.smoke_buckets || []).filter(function (b) { return b.map_name === m; })
+              .map(function (b) {
+                return '<tr><td>' + esc(b.map_name) + '</td><td>' + (b.side === 'T' ? 'T' : 'CT') + '</td>' +
+                  '<td class="num">' + (b.smokes === 2 ? '2+' : b.smokes) + '</td>' +
+                  '<td class="num">' + b.rounds + '</td>' +
+                  '<td class="num">' + pc2(b.win_rate) +
+                  ' <span class="csa-conf' + (b.conf.gated ? ' csa-conf-gated' : '') + '">[' + pc2(b.conf.lo) + '–' + pc2(b.conf.hi) + ']</span></td></tr>';
+              }).join('') || '<tr><td colspan="5" class="sub">当前图暂无烟阻桶数据</td></tr>';
+          });
+        }
+
         // map chips + spots chart
         var chips = document.getElementById('ul-map-chips');
         var maps = d.maps || [];

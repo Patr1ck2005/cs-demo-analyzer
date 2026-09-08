@@ -23,6 +23,11 @@ FLASH_WINDOW_TICKS = 96   # ±1.5s at 64 tick
 SMOKE_RADIUS = 120        # world units
 FRIENDLY_BLIND_WEIGHT = 0.5
 
+# ---- Phase R4 道具执行科学 ----
+EXEC_SUPPORT_WINDOW_TICKS = 192  # 3s: blinded enemy must die within this
+LATE_AFTER_TICKS = 320           # 5s after the round's execute anchor
+_MOLLY_KEYS = ("inferno", "molotov", "incgrenade")
+
 
 def _finite(v) -> float | None:
     try:
@@ -51,6 +56,11 @@ class UtilityEffectResult(AnalysisResult):
     # {x, y, round, side, kind: "smoke"|"kill"}; world coords, fail-soft
     # (rows without X/Y are skipped). No parser change: events already cached.
     smoke_events: list[dict] = Field(default_factory=list)
+    # R4 道具执行科学: per-player support-flash / late-utility / molly counters
+    exec_players: list[dict] = Field(default_factory=list)
+    # R4: per-round smoke-before-contact buckets for the win-rate merge
+    # [{round, side, smokes: 0|1|2, won}]  (2 = "2+")
+    exec_rounds: list[dict] = Field(default_factory=list)
 
 
 @register_module
@@ -80,9 +90,11 @@ class UtilityEffectModule(AnalysisModule):
         flashers = self._flash_value(demo, side_at)
         smoke, smoke_events = self._smoke_denial(demo, side_at)
         self._fold_flash_assists(demo, flashers)
+        exec_players, exec_rounds = self._execute_science(demo, side_at)
         return UtilityEffectResult(
             module=self.name, demo_hash=demo.metadata.demo_hash,
             flashers=flashers, smoke=smoke, smoke_events=smoke_events,
+            exec_players=exec_players, exec_rounds=exec_rounds,
         )
 
     @staticmethod
@@ -292,3 +304,215 @@ class UtilityEffectModule(AnalysisModule):
         for sid, counts in tally.items():
             sides[sid] = max(counts.items(), key=lambda kv: kv[1])[0]
         return sides
+
+    # ---- R4 道具执行科学 ----
+    def _execute_science(self, demo: ParsedDemo, side_at) -> tuple[list[dict], list[dict]]:
+        """Support flashes / late utility / molly damage / smoke-vs-win buckets.
+
+        Execute anchor per round = min(first player_hurt, bomb_planted) —
+        the moment the round "became real". Utility detonating >5s after the
+        anchor is "late". A support flash = a detonation that blinded ≥1
+        enemy AND a same-side TEAMMATE (not the thrower) killed one of the
+        blinded enemies within 3s.
+        """
+        events = demo.events
+        rounds = demo.regular_rounds
+        if not rounds:
+            return [], []
+        start = rounds[0].start_tick
+        winner = {r.number: r.winner_side for r in rounds}
+
+        hurt = events.get("player_hurt")
+        # execute anchor per round
+        anchor: dict[int, int] = {}
+        if hurt is not None and not hurt.empty:
+            for _, row in hurt.iterrows():
+                t = int(row.get("tick", 0) or 0)
+                if t < start:
+                    continue
+                rnd = demo.data.round_at_tick(t)
+                if rnd is None:
+                    continue
+                if rnd.number not in anchor or t < anchor[rnd.number]:
+                    anchor[rnd.number] = t
+        planted = events.get("bomb_planted")
+        if planted is not None and not planted.empty:
+            for _, row in planted.iterrows():
+                t = int(row.get("tick", 0) or 0)
+                if t < start:
+                    continue
+                rnd = demo.data.round_at_tick(t)
+                if rnd is None:
+                    continue
+                if rnd.number not in anchor or t < anchor[rnd.number]:
+                    anchor[rnd.number] = t
+
+        # blind index for the support-flash scan (tick, victim)
+        blind = events.get("player_blind")
+        blind_rows: list[tuple[int, str]] = []
+        if blind is not None and not blind.empty:
+            for _, row in blind.iterrows():
+                vic = clean_sid(row.get("user_steamid", ""))
+                t = int(row.get("tick", 0) or 0)
+                if vic and t >= start and (_finite(row.get("blind_duration")) or 0) > 0:
+                    blind_rows.append((t, vic))
+        blind_rows.sort()
+
+        # kills index: (tick, attacker, victim, side_of_attacker)
+        kills: list[tuple[int, str, str, str]] = []
+        deaths = events.get("player_death")
+        if deaths is not None and not deaths.empty:
+            for _, row in deaths.iterrows():
+                t = int(row.get("tick", 0) or 0)
+                if t < start:
+                    continue
+                att = clean_sid(row.get("attacker_steamid", ""))
+                vic = clean_sid(row.get("user_steamid", ""))
+                if att and vic and att != vic:
+                    kills.append((t, att, vic, side_at(att, t)))
+        kills.sort()
+
+        import bisect
+
+        stats: dict[str, dict] = {}
+
+        def S(sid: str, name: str = "") -> dict:
+            return stats.setdefault(sid, {
+                "steamid": sid, "name": name or sid,
+                "enemy_blind_throws": 0, "support_kills": 0, "own_followups": 0,
+                "throws": 0, "late_throws": 0,
+                "molly_throws": 0, "inc_throws": 0, "molly_dmg": 0,
+            })
+
+        # per-thrower grenade detonations (throws) + late accounting.
+        # Molotov vs incendiary: molotov_detonate marks molotov throws;
+        # inferno_startburn marks incendiary throws — but some broadcasts fire
+        # BOTH for one molotov, so inferno counts stay separate and are only
+        # used as a fallback when the demo has zero molotov_detonate.
+        throw_sources = (
+            ("flashbang_detonate", False),
+            ("smokegrenade_detonate", False),
+            ("hegrenade_detonate", False),
+            ("molotov_detonate", "molly"),
+            ("inferno_startburn", "inc"),
+        )
+        for evt, molly_kind in throw_sources:
+            table = events.get(evt)
+            if table is None or table.empty:
+                continue
+            for _, row in table.iterrows():
+                t = int(row.get("tick", 0) or 0)
+                if t < start:
+                    continue
+                thrower = clean_sid(row.get("user_steamid", ""))
+                if not thrower:
+                    continue
+                s = S(thrower, str(row.get("user_name", "") or ""))
+                s["throws"] += 1
+                if molly_kind == "molly":
+                    s["molly_throws"] += 1
+                elif molly_kind == "inc":
+                    s["inc_throws"] += 1
+                rnd = demo.data.round_at_tick(t)
+                a = anchor.get(rnd.number) if rnd else None
+                if a is not None and t > a + LATE_AFTER_TICKS:
+                    s["late_throws"] += 1
+        total_molly = sum(s["molly_throws"] for s in stats.values())
+        if total_molly == 0:  # fallback: inferno_startburn as the molly marker
+            for s in stats.values():
+                s["molly_throws"] = s.get("inc_throws", 0)
+
+        # support flashes: per flash detonation blinding enemies
+        flash_det = events.get("flashbang_detonate")
+        if flash_det is not None and not flash_det.empty:
+            bticks = [b[0] for b in blind_rows]
+            for _, row in flash_det.iterrows():
+                t = int(row.get("tick", 0) or 0)
+                if t < start:
+                    continue
+                thrower = clean_sid(row.get("user_steamid", ""))
+                if not thrower:
+                    continue
+                thrower_side = side_at(thrower, t)
+                if not thrower_side:
+                    continue
+                blinded: list[str] = []
+                for i in range(bisect.bisect_left(bticks, t - FLASH_WINDOW_TICKS), len(blind_rows)):
+                    bt, vic = blind_rows[i]
+                    if bt > t + FLASH_WINDOW_TICKS:
+                        break
+                    if vic == thrower:
+                        continue
+                    if side_at(vic, bt) and side_at(vic, bt) != thrower_side:
+                        blinded.append(vic)
+                if not blinded:
+                    continue
+                s = S(thrower, str(row.get("user_name", "") or ""))
+                s["enemy_blind_throws"] += 1
+                blinded_set = set(blinded)
+                for kt, att, vic, att_side in kills:
+                    if kt > t + EXEC_SUPPORT_WINDOW_TICKS:
+                        break
+                    if kt < t or vic not in blinded_set:
+                        continue
+                    if att_side != thrower_side:
+                        continue
+                    if att == thrower:
+                        s["own_followups"] += 1
+                    else:
+                        s["support_kills"] += 1
+
+        # molly damage credit (player_hurt weapon in _MOLLY_KEYS)
+        if hurt is not None and not hurt.empty:
+            for _, row in hurt.iterrows():
+                wpn = str(row.get("weapon", "") or "").lower()
+                if not any(k in wpn for k in _MOLLY_KEYS):
+                    continue
+                att = clean_sid(row.get("attacker_steamid", ""))
+                if not att:
+                    continue
+                s = S(att, str(row.get("attacker_name", "") or ""))
+                s["molly_dmg"] += int(row.get("dmg_health", 0) or 0)
+
+        out = []
+        for s in stats.values():
+            n_bl = s["enemy_blind_throws"]
+            s["support_flash_rate"] = round(s["support_kills"] / n_bl, 3) if n_bl else None
+            s["late_rate"] = round(s["late_throws"] / s["throws"], 3) if s["throws"] else None
+            s["molly_dmg_per_throw"] = (round(s["molly_dmg"] / s["molly_throws"], 1)
+                                        if s["molly_throws"] else None)
+            out.append(s)
+        out.sort(key=lambda x: (-x["support_kills"], -x["enemy_blind_throws"]))
+
+        # smoke-before-contact buckets per attacking side per round
+        det = events.get("smokegrenade_detonate")
+        smokes_before: dict[int, dict[str, int]] = {}
+        if det is not None and not det.empty:
+            for _, row in det.iterrows():
+                t = int(row.get("tick", 0) or 0)
+                if t < start:
+                    continue
+                rnd = demo.data.round_at_tick(t)
+                if rnd is None:
+                    continue
+                a = anchor.get(rnd.number)
+                if a is None or t > a:  # only count smokes BEFORE first contact
+                    continue
+                thrower = clean_sid(row.get("user_steamid", ""))
+                sde = side_at(thrower, t) if thrower else ""
+                if sde:
+                    smokes_before.setdefault(rnd.number, {})[sde] = \
+                        smokes_before.setdefault(rnd.number, {}).get(sde, 0) + 1
+        exec_rounds = []
+        for rnd in rounds:
+            if rnd.number not in anchor or not rnd.winner_side:
+                continue
+            for side in ("T", "CT"):
+                n = smokes_before.get(rnd.number, {}).get(side, 0)
+                exec_rounds.append({
+                    "round": rnd.number, "side": side,
+                    "smokes": min(n, 2),  # 0/1/2+ buckets
+                    "won": 1 if rnd.winner_side == side else 0,
+                })
+        return out, exec_rounds
+

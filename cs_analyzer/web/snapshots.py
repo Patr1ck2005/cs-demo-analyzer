@@ -77,6 +77,8 @@ _SNAPSHOT_SOURCES = (
     "analysis/regulars.py",
     "analysis/util.py",
     "analysis/library.py",
+    "analysis/aim_science.py",
+    "analysis/loss_attribution.py",
     "web/aggregation.py",
     "web/feed_data.py",
     "web/teamplay_data.py",
@@ -87,6 +89,8 @@ _SNAPSHOT_SOURCES = (
     "web/style_map.py",
     "web/ev_data.py",
     "web/winprob_loo.py",
+    "web/aim_data.py",
+    "web/loss_data.py",
     "web/snapshots.py",
 )
 

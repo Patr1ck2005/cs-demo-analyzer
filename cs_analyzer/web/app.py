@@ -15,7 +15,7 @@ from collections import OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Query, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -309,6 +309,60 @@ def _player_rating21(steamid: str) -> dict | None:
         }
     except Exception:  # noqa: BLE001 — U1 card must never 500 the page
         return None
+
+
+@app.get("/api/player/{steamid}/career-conf.json")
+def player_career_conf(steamid: str):
+    """R1: 生涯卡置信区间（merge 层，shard 载荷零改动）。
+
+    rating/KAST/hs/fkpr 的 Wilson（或 EB）区间 + 实际 n——把"打得多≠数据高"
+    落到推断层：小样本选手的区间自然更宽。
+    """
+    from cs_analyzer.analysis.stats import K_PER_ROUND, wilson_interval
+    from cs_analyzer.web.aggregation import aggregated
+
+    row = next((p for p in aggregated().players if p.steamid == steamid), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="player not found")
+
+    def w(pct_val: float, n: int, scale: float = 1.0) -> dict:
+        lo, hi = wilson_interval(pct_val * scale * n, n)
+        return {"lo": round(lo * scale, 3), "hi": round(hi * scale, 3),
+                "n": n, "gated": n < 30}
+
+    r_lo, r_hi = wilson_interval(0, 0)  # placeholder for EB below
+    # Rating/KAST 是回合池化均值（非二元）→ EB 收缩带（n=回合数）
+    from cs_analyzer.analysis.stats import shrunk_mean
+
+    pool_rating = (sum(p.avg_rating * p.total_rounds for p in aggregated().players)
+                   / max(sum(p.total_rounds for p in aggregated().players), 1))
+    pool_kast = (sum(p.avg_kast * p.total_rounds for p in aggregated().players)
+                 / max(sum(p.total_rounds for p in aggregated().players), 1))
+    pool_adr = (sum(p.avg_adr * p.total_rounds for p in aggregated().players)
+                / max(sum(p.total_rounds for p in aggregated().players), 1))
+    pool_kpr = (sum(p.avg_kpr * p.total_rounds for p in aggregated().players)
+                / max(sum(p.total_rounds for p in aggregated().players), 1))
+    rating_shrunk = shrunk_mean(row.avg_rating, row.total_rounds, pool_rating, K_PER_ROUND)
+    kast_shrunk = shrunk_mean(row.avg_kast, row.total_rounds, pool_kast, K_PER_ROUND)
+    adr_shrunk = shrunk_mean(row.avg_adr, row.total_rounds, pool_adr, K_PER_ROUND)
+    kpr_shrunk = shrunk_mean(row.avg_kpr, row.total_rounds, pool_kpr, K_PER_ROUND)
+    del r_lo, r_hi
+
+    def eb(value: float, shrunk: float, digits: int) -> dict:
+        return {"value": round(value, digits), "shrunk": round(shrunk, digits),
+                "lo": round(min(value, shrunk), digits),
+                "hi": round(max(value, shrunk), digits),
+                "n": row.total_rounds, "gated": row.total_rounds < 30}
+
+    return {
+        "steamid": steamid,
+        "rating": eb(row.avg_rating, rating_shrunk, 3),
+        "kast": eb(row.avg_kast, kast_shrunk, 3),
+        "adr": eb(row.avg_adr, adr_shrunk, 1),
+        "kpr": eb(row.avg_kpr, kpr_shrunk, 3),
+        "hs": w(row.avg_hs_pct / 100.0, row.total_kills),
+        "fkpr": w(row.avg_fkpr, row.total_rounds),
+    }
 
 
 @app.get("/highlights", response_class=HTMLResponse)
@@ -882,6 +936,75 @@ def economy_ev_table():
     from cs_analyzer.web.ev_data import ev_table
 
     return JSONResponse(ev_table())
+
+
+# ---- Phase R: research panels (枪法科学 / 失利归因) — routes registered
+# BEFORE the /{placeholder} catch-all (铁律 5) ----
+
+@app.get("/api/aim-science.json")
+def aim_science_cross():
+    """R3: cross-library aim-science report (memoized; warm-up via wave2)."""
+    from cs_analyzer.web.aim_data import aim_report
+
+    return JSONResponse(aim_report())
+
+
+@app.get("/api/demo/{demo_hash}/analysis/aim_science.json")
+def aim_science_demo(demo_hash: str):
+    """R3: per-demo aim-science vectors (single demo)."""
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    from cs_analyzer.analysis.aim_science import compute_aim_science
+
+    result = compute_aim_science(demo)
+    return JSONResponse({
+        "demo_hash": result.demo_hash,
+        "players": result.players,
+        "notes": result.notes,
+    })
+
+
+@app.get("/api/demo/{demo_hash}/loss-attribution.json")
+def loss_attribution_demo(demo_hash: str):
+    """R5: per-round loss tags for one demo (both teams, no 'our side' guess)."""
+    demo = _load(demo_hash)
+    if demo is None:
+        return JSONResponse({"error": "demo 未找到"}, status_code=404)
+    result = _analyze_module(demo, "loss_attribution")
+    return JSONResponse({
+        "rounds": result.rounds,
+        "teams": result.teams,
+        "notes": result.notes,
+    })
+
+
+@app.get("/api/loss-patterns.json")
+def loss_patterns_cross(player: str | None = None):
+    """R5: cross-library loss-mode distribution (per team, or ?player= per player)."""
+    from cs_analyzer.analysis.stats import wilson_interval
+    from cs_analyzer.web import loss_data
+
+    if player:
+        p = loss_data.loss_patterns_for(player)
+        if p is None:
+            raise HTTPException(status_code=404, detail="player has no loss data")
+        return JSONResponse(p)
+    report = loss_data.loss_report()
+    out = []
+    for t in report["teams"]:
+        n = t["lost_rounds"]
+        tags = []
+        for tag, c in t["tags"].items():
+            lo, hi = wilson_interval(c, n) if n else (0.0, 0.0)
+            tags.append({
+                "tag": tag, "count": c, "share": round(c / n, 3) if n else 0.0,
+                "conf": {"lo": round(lo, 3), "hi": round(hi, 3), "n": n,
+                         "gated": n < 30},
+            })
+        out.append({"team": t["team"], "lost_rounds": n, "tags": tags})
+    return JSONResponse({"teams": out, "demos": report["demos"],
+                         "tag_defs": report["tag_defs"]})
 
 
 # ---- Phase H: highlights / compare / system payloads ----

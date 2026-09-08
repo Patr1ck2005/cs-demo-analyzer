@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-07（Phase X 信息架构重组完成——单行三簇导航 + 深度合并 fun-lab/utility-lab + 遗留小件清账，待审+待验收）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-08（Phase R 研究型深挖完成——统计严谨基建全站 retrofit + 枪法科学 + 道具执行科学 + 失利归因，工作区待审+待验收）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -921,3 +921,112 @@ Y2 探针 3/3（chips 过滤+互斥禁用+计数徽章 / donor 每场+括号 / �
 **Y2 里程碑状态**：测试 305→307。改动面：web/{store,app,funlab_data}.py、
 static/js/funlab.js、static/style.css、templates/{players,_match_card,matches}.html、
 docs/funlab-metrics.md、tests/test_funlab.py。
+
+## 18. Phase R —— 研究型深挖：统计基建 + 枪法科学 + 道具执行 + 失利归因（2026-09-08，一次性到底）
+
+**用户裁决（问答定案）**：主线 4 条全做（枪法科学/统计严谨基建/道具执行科学/
+失利归因引擎）；落地=仅网页面板（口径进 METRIC_DEFS，不新增研究文档）；统计
+retrofit=全站；D2b 继续延后（零 FACEIT 依赖）；全部完成后单批提交；验收=标准+
+研究复核（探针数值可复现）。
+
+### R1 统计严谨基建 ✅
+- **`analysis/stats.py`（新）**：`wilson_interval`（比率 95% 区间，1/1=100% 显示
+  [20.7%–100%]——"1局0胜"教训制度化）、`shrunk_mean`（经验贝叶斯线性收缩
+  `(n·x+k·μ)/(n+k)`；k 按分母类型：**每场 k=4 / 每事件 k=32 / 每回合 k=64**）、
+  `attach_conf`（行级挂 `conf:{lo,hi,n,gated}`）。
+- **门槛语义：gated=灰显不隐藏**（行保留+显示 n+不参与"王"高亮；EV 表先例）。
+- **设计铁则：conf 全部在 merge 层计算，shard 载荷零改动 → 快照零失效**（Y2 先例）。
+- **前端**：`common.js` 新 `CSACommon.fmtConf`（`[lo–hi] · n` 徽章 + `.csa-conf-gated`）；
+  style.css `.csa-gated`（行半透明）。
+- **retrofit 面**：funlab 全部榜单（`_CONF_SPECS` 31 指标表：比率→Wilson
+  n=真实计数分母；均值/金额比→EB n=场次或回合数，收缩值行内括号"收缩 X"；
+  METRIC_DEFS 增补 `conf`/`n_note` 随 API 下发）；utilitylab（value_per_throw EB
+  k=32、烟中每场净值 EB k=4）；mapdata（本图最强 Rating EB + 图级 T 胜率 Wilson
+  `t_win_conf`）；lineups（pooled_win_rate 返回 `{rate, conf}`——teams.js 适配）；
+  compare（compare_payload：hs/fkpr Wilson、rating/kpr/adr EB，行级 conf+shrunk）；
+  生涯页（新 `/api/player/{sid}/career-conf.json`：rating/kast/adr/kpr EB +
+  hs/fkpr Wilson，卡片下方区间行）。
+- **测试**：`tests/test_stats_conf.py` 18 项（Wilson 单调/含 p̂/n=0 稳定、收缩
+  极限行为、gating 三态、funlab 载荷不带 conf 回归）。
+
+### R3 枪法科学 ✅
+- **`analysis/aim_science.py`（新，runner import 清单已注册）**：
+  - **预瞄偏移** = 首次伤害（生命窗内 attacker→victim 首次 player_hurt）前
+    24 tick 视角与目标方向 3D 夹角；`preaim_med_deg`/`preaim_lt10_rate`(Wilson)/
+    `preaim_pitch_med_deg`。
+  - **视角约定自动校准**（关键）：四候选（yaw 镜像×pitch 符号）按"伤害时刻
+    视角-目标夹角中位数应≈0"打分选优，诊断值 `aim_dmg_med_deg` 随数据下发。
+    **实库 35/35 demos 校准 1.85–2.43°，OK**（合成 demo 几何断言 30°±0.5）。
+  - **反击枪延迟** = 本生命首次被伤害 → 下一枪（3s 窗）；中位数 + ≤0.5s 份额。
+    实库 0.06–0.14s（对枪中开火为主），fast_rate ~50-60%。
+  - **急停纪律** = 开火时 velocity<50u/s 份额（实库 ~51%）；对枪胜率按停/动分桶。
+  - **诚实边界**（页面脚注）：无地图几何→无视线判定；preaim 是"伤害前 Δt"代理；
+    64tick ±1 tick=±15.6ms。
+- **数据流**：`web/aim_data.py`（新）+ **aimsci T3 分片族**；`/api/aim-science.json`
+  跨库 + `/api/demo/{h}/analysis/aim_science.json` 单场（通配前注册）；
+  warmup wave2 加 `aimsci` 步；分片已在探针首跑物化（35 片）。
+- **UI**：生涯页"🎯 枪法科学"表（实库 top10：Jake 34 场 845 交战 preaim 3.15°/
+  lt10 84%[81–86]/反击 0.08s/急停 51%/停 41% vs 动 45%）。
+
+### R4 道具执行科学 ✅
+- **`analysis/utility_effect.py` 扩展**（零新事件依赖）：`exec_players`
+  （enemy_blind_throws/support_kills/**support_flash_rate**（致盲≥1敌且 3s 内
+  **队友**击杀被致盲者）/late_throws（执行锚点=首伤或下包，5s 后引爆=迟投）/
+  molly_dmg_per_throw（molotov_detonate 计投，inferno_startburn 仅零回退——
+  防单投双计））+ `exec_rounds`（回合×方 首伤前落烟数 0/1/2+ 桶）。
+- **UI**：utilitylab 分片载荷 + merge 挂 Wilson（support_conf n<10 灰显）；
+  /map-analysis 道具区新"道具执行科学（R4）"表 + "烟阻×回合胜率"表
+  （随 csa:map-changed 联动，桶 <10 回合灰显）。
+- 实库：八挂うみ 支援闪光 12%（13/108，[6–20%]）、迟投 44%；烟阻桶随图联动正常。
+
+### R5 失利归因 ✅
+- **`analysis/loss_attribution.py`（新）**：每败回合多重标签：
+  `lost_opening`（首杀归敌）/`untraded`（≥2 次死亡无人 2s 内击杀凶手——
+  单次不标；**实库校验：全库被复仇率 7.7%（funlab 同语义）↔ 失利回合 94% 无贸易死，
+  是真信号不是 bug**）/`lost_force`+`lost_eco`（economy 买法单源）/
+  `utility_deficit`（敌 utility 伤害 >1.5×己方且 ≥20）/`lost_clutch`
+  （进入 1vX **且敌方仍 ≥2 人**——1v1 不算；与 highlights 口径镜像。
+  **首版缺"敌方≥2"条件导致 97% 全命中，实库探针抓出后修复：593 次进入 1vX /
+  108 次转化 ≈18%**）。输出 `rounds`（含 loser_sids）+ `teams` 计数 + roster。
+- **数据流**：`web/loss_data.py`（新）+ **lossattr 分片族**（`_EconCtx` 迷你
+  ctx 复用 economy 单源）+ `/api/demo/{h}/loss-attribution.json` +
+  `/api/loss-patterns.json(?player=)`（参战队伍过滤：无败回合的选手 404，
+  不造假零）+ wave2 `lossattr` 步。
+- **UI**：对局详情概览 tab"📉 失利归因"逐回合标签 chips（六色 loss-tag，
+  **点击 → /viewer?round=N&t=0 深链**；双队并列不推断"我方"）；生涯页
+  "失利模式"分布卡（Wilson 区间）。
+
+### R 验收（全绿）
+- **pytest 307→333**（+26：test_stats_conf 18 + test_phase_r 8 含合成几何断言/
+  分片落盘/404 语义）；visual_check **22 页 0 失败**；accept_buttons **16 步 0 失败**。
+- **`scripts/probe_research.py`（新）→ `output/research_probe.json`**（数值可复现）：
+  校准 35/35 OK（0 suspect）、aim top8、失利标签分布、道具执行榜、烟阻桶、
+  funlab conf 样例（Jake snipe 21.7% [17.6–26.4] n=340；donor 收缩 1936→3246 ✓）。
+- **截图人工复核**：r_career_top.png（枪法科学表+区间行+失利模式卡）、
+  r_loss_panel.png（逐回合标签 chips）、players_lab.png（榜单 conf 徽章+
+  灰显）、map_utility.png（R4 两表）、r_compare_table.png（单场选手全灰显）。
+- 快照：源码变更→指纹失配全量重建（预期）；新分片族 aimsci/lossattr 已登记
+  `_SNAPSHOT_SOURCES`（src-digest 失效链覆盖）；warmup wave2 六步全 done。
+
+### R 期坑（新增）
+1. **fail-soft 吞异常差点静默坏死（T4 教训重演）**：loss 模块把 Round 对象当
+   round number 用 → `_demo_payload` 全体抛错被 scan_hashes fail-soft 吞掉 →
+   报告空 teams。探针 stderr 的后台 traceback 暴露。修复+探针加
+   "loss teams 不得为空" 输出核验；**研究探针必须核验关键容器非空**。
+2. **lost_clutch 定义缺陷**：首版"败方曾剩 1 人"几乎每回合命中（97%）——
+   败方最后一人死亡前必然经过 alive==1。修复=加"敌方仍 ≥2 人存活"（1v1 收头
+   不算残局失守），与 highlights 镜像。**研究指标的实库分布 sanity 检查是必须步骤**。
+3. **React-to-self conf 覆盖**：chart_data compare_payload 五次 attach_conf 串行
+   调用同一行列表，行级 "conf" 键被最后一次覆盖——必须逐次捕获（本轮踩过）。
+4. ps1 内联 playwright JS 的引号转义不可靠——验收脚本一律落盘 .py 再跑（§4 规则变体）。
+
+### R 里程碑状态
+- 测试 307→**333**；新增文件：analysis/{stats,aim_science,loss_attribution}.py、
+  web/{aim_data,loss_data}.py、scripts/probe_research.py、
+  tests/{test_stats_conf,test_phase_r}.py。
+- 改动面：analysis/{runner,utility_effect}.py、web/{app,aggregation,chart_data,
+  funlab_data,lineups_data,mapdata,snapshots,utilitylab_data,warmup}.py、
+  static/js/{common,funlab,teams,utilitylab}.js、static/style.css、
+  templates/{map_analysis,match_detail,player_career}.html、
+  docs/funlab-metrics.md、tests/test_metric_audit.py。
+- 待用户输入：D2b（FACEIT key，`scripts/pro_fetch.py --key ...` 即跑）。

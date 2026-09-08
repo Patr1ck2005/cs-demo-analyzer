@@ -1,4 +1,44 @@
-# 趣味指标口径文档 v7（2026-09-07 Phase Y2 平台维度 + donor 口径修正）
+# 趣味指标口径文档 v8（2026-09-08 Phase R 统计严谨层 + 研究面板）
+
+> **v8 变更（Phase R，一次到底四条研究主线）**：
+> **① 统计严谨基建（R1）**：`analysis/stats.py` 新增 **Wilson 95% 置信区间**
+> （比率类指标：`[lo–hi] · n`，样本越小区间越宽；1 局 1 胜的 100% 现在显示为
+> [20.7%–100%]，"小样本陷阱"教训制度化）与 **经验贝叶斯收缩**（均值类指标：
+> `(n·x + k·μ)/(n+k)`，μ=全库池均值，k=4（每场）/32（每事件）/64（每回合），
+> 小样本向池均值回拉，收缩值进行内括号"收缩 X"，原值仍是主值）。
+> **门槛语义：gated=灰显不隐藏**（行保留、显示实际 n，EV 表 N<5 先例）。
+> conf 全部在 **merge 层计算，shard 载荷零改动 → 快照零失效**。
+> **retrofit 面（全站）**：funlab 全部榜单（比率→Wilson/均值→EB）、utilitylab
+> （价值/投、烟中每场净值）、mapdata（本图最强 Rating EB + 图级 T 胜率 Wilson）、
+> lineups（池化胜率 Wilson）、compare（hs/fkpr Wilson、rating/kpr/adr EB）、
+> 生涯页（新 /api/player/{sid}/career-conf.json，Rating/KAST/HS%/FKPR 区间行）。
+> **② 枪法科学（R3）**：新 `analysis/aim_science.py` + `/api/aim-science.json`
+> + 生涯页"🎯 枪法科学"表。口径：
+> - **预瞄偏移** = 首次伤害前 24 tick（64t≈0.375s）视角与目标方向 3D 夹角中位数；
+>   preaim<10° 份额带 Wilson。**视角约定自动校准**：每 demo 四候选
+>   （yaw 镜像×pitch 符号）按"伤害时刻视角与目标夹角中位数应≈0"打分选优，
+>   校准诊断 `aim_dmg_med_deg` 随数据下发（实库 35/35 demos 1.85–2.43°，OK）。
+> - **反击枪延迟** = 本生命首次被伤害 → 下一枪；中位数 + ≤0.5s 份额（Wilson）。
+> - **急停纪律** = 开火时 velocity<50u/s 份额；对枪胜率按 开火时停/动 分桶。
+> 诚实边界（页面脚注）：无地图几何 → 无视线/遮挡判定；64tick ±1 tick=±15.6ms。
+> **③ 道具执行科学（R4）**：utility_effect 新 `exec_players`/`exec_rounds`；
+> /map-analysis 道具区新两表。**支援闪光** = 致盲 ≥1 敌人且 3s 内队友（非投掷者）
+> 击杀被致盲者 ÷ 致盲性投掷（Wilson）。**迟投率** = 执行锚点（本回合首次交火或
+> 下包）5s 后才引爆的道具 ÷ 总投掷。**燃烧伤害/投**。**烟阻×胜率** = 按图按方
+> 首次交火前落烟数 0/1/2+ 分桶的回合胜率（Wilson，桶 <10 回合灰显）。
+> **④ 失利归因（R5）**：新 `analysis/loss_attribution.py` + lossattr 分片 +
+> `/api/demo/{h}/loss-attribution.json` + `/api/loss-patterns.json(?player=)`。
+> 每个败回合多重标签：`lost_opening` 掉首口 / `untraded` 无贸易死（≥2 次死亡
+> 无人 2s 内击杀凶手；单次不标）/ `lost_force` 强起 / `lost_eco` eco /
+> `utility_deficit` 道具劣势（敌 utility 伤害 >1.5×己方且 ≥20）/
+> `lost_clutch` 残局失守（进入 1vX 且敌方仍 ≥2 人存活——1v1 收头不算；
+> 语义与 highlights 镜像，实库校验：593 次进入 1vX vs 108 次转化）。
+> 对局详情概览 tab 逐回合标签 chips（点击 → 回放器定位）；**双队并列，
+> 不推断"我方"**（pug demo 无队名）；生涯页"失利模式"分布卡（Wilson 区间）。
+> 实库分布（35 场）：untraded 94% / lost_clutch ~78% / lost_opening ~56% /
+> utility_deficit ~25%——被复仇率 7.7% 的库生态下 94% 无贸易死是真信号。
+
+# 趣味指标口径文档 v7 历史（2026-09-07 Phase Y2 平台维度 + donor 口径修正）
 
 > **v7 变更（Phase Y2，用户裁决）**：
 > **① 发枪金主榜改每场均值**：`Σ 发枪价值 ÷ 场次`（$/场），行内括号保留总价值。

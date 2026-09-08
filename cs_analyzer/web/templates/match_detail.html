@@ -83,6 +83,12 @@
     {% endfor %}
   </div>
 
+  <div class="section-header"><h2>📉 失利归因（R5）</h2>
+    <div class="section-actions sub" style="margin:0">每个败回合的结构化标签 · 点击标签 → 回放器定位该回合 · 双队并列（pug demo 不推断"我方"）</div></div>
+  <div class="card" style="padding:8px" id="lossattr-panel">
+    <div class="sub" style="padding:6px">加载中…</div>
+  </div>
+
   <div class="section-header"><h2>本场高光</h2>
     <div class="section-actions sub" style="margin:0">多杀 / 残局 / ACE · 点击直达回放</div></div>
   <div class="grid hl-grid" id="match-highlights">
@@ -229,6 +235,7 @@
       } catch (e) { hideSkeleton('radar-chart'); }
       loadMatchHighlights();
       loadWinProbability();
+      loadLossAttribution();
     },
     kills: async () => {
       mountPayloadChart('duels-chart', (p) => p.cells.length ? CSACharts.duelsOption(p) : null);
@@ -613,12 +620,46 @@
       });
   }
 
+  // ---- R5 失利归因：逐回合标签 chips（双队并列；点击 → 回放器定位）----
+  const TAG_ZH = {
+    lost_opening: '掉首口', untraded: '无贸易死', lost_force: '强起失利',
+    lost_eco: 'eco失利', utility_deficit: '道具劣势', lost_clutch: '残局失守',
+  };
+  async function loadLossAttribution() {
+    const box = document.getElementById('lossattr-panel');
+    if (!box) return;
+    try {
+      const p = await fetchJson(`/api/demo/${H}/loss-attribution.json`);
+      const rounds = p.rounds || [];
+      const lost = rounds.filter((r) => r.tags && r.tags.length);
+      if (!lost.length) {
+        box.innerHTML = '<div class="sub" style="padding:6px">本场的失利回合均未命中任何结构化标签</div>';
+        return;
+      }
+      const teamTitle = (side) => side === 'T' ? 'T 方' : 'CT 方';
+      box.innerHTML = rounds.map((r) => {
+        const chips = (r.tags || []).map((t) =>
+          `<a class="loss-tag t-${t}" href="/match/${H}/viewer?round=${r.round}&t=0" ` +
+          `title="${CSACommon.esc((p.tag_defs && p.tag_defs[t]) || t)} → 回放器定位 R${r.round}">${TAG_ZH[t] || t}</a>`).join('');
+        return `<div style="display:flex;gap:6px;align-items:center;font-size:12px;padding:2px 0">` +
+          `<a href="/match/${H}/viewer?round=${r.round}&t=0" class="badge ${r.winner_side === 'T' ? 't' : 'ct'}" ` +
+          `style="min-width:38px;text-align:center">R${r.round}</a>` +
+          `<span class="sub" style="min-width:78px">${teamTitle(r.loser_side)} 败 · ${r.buy === 'unknown' ? '买法未知' : ({ eco: 'eco', force: '强起', full: '长枪' })[r.buy] || r.buy}</span>` +
+          `<span>${chips || '<span class="sub">无标签</span>'}</span></div>`;
+      }).join('') +
+      `<div class="sub" style="font-size:11px;margin-top:6px">标签口径：${Object.entries(p.tag_defs || {}).map(([k, v]) => `${TAG_ZH[k] || k}=${v}`).join('；')}</div>`;
+    } catch (e) {
+      box.innerHTML = '<div class="sub" style="padding:6px">失利归因数据不可用</div>';
+    }
+  }
+
   document.querySelectorAll('tr.row-link').forEach((tr) => {
     tr.addEventListener('click', (e) => {
       if (e.target.closest('a') || e.target.closest('button')) return;
       location.href = tr.dataset.href;
     });
   });
+  loadLossAttribution();
 })();
 </script>
 {% endblock %}

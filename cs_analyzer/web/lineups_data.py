@@ -47,10 +47,20 @@ def _start_lineups(demo) -> dict[str, list[dict]]:
 
 def pooled_win_rate(ms: list[dict]) -> float | None:
     """Σ胜回合 ÷ Σ总回合（v5 口径审计：回合池化——旧口径是各场胜率的简单
-    平均，2 回合的小场与 24 回合的大场等权，有偏）。"""
+    平均，2 回合的小场与 24 回合的大场等权，有偏）。R1: 附 Wilson 区间
+    conf（n=回合数）。"""
+    from cs_analyzer.analysis.stats import wilson_interval
+
     won = sum(m.get("our_rounds_won") or 0 for m in ms)
     tot = sum(m.get("our_rounds") or 0 for m in ms)
-    return round(won / tot, 3) if tot else None
+    if not tot:
+        return None
+    lo, hi = wilson_interval(won, tot)
+    return {
+        "rate": round(won / tot, 3),
+        "conf": {"lo": round(lo, 3), "hi": round(hi, 3), "n": tot,
+                 "gated": tot < 30},
+    }
 
 
 def _build() -> dict:
@@ -145,7 +155,6 @@ def _build() -> dict:
             "avg_our_win_rate": pooled_win_rate(ms),
             "maps": sorted({m["map"] for m in ms}),
         }
-
     return {
         "generated": __import__("datetime").datetime.now(
             __import__("datetime").timezone.utc).isoformat(timespec="seconds"),

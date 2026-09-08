@@ -130,6 +130,123 @@ BOARD_DEFS: dict[str, dict[str, str]] = {
 # 其余榜单与同名指标口径一致（vulture/generous/poor_hero/whiff/eco/snipe/stolen/
 # team_dmg/clutch/flags/jame/rebel/showoff/pure_eco），前端直接引用 METRIC_DEFS。
 
+# ---- Phase R1 统计严谨层（merge 层计算，shard 载荷零改动 → 快照零失效）----
+# 每指标 conf 规格：wilson（分子≤分母的 0..1 比率，n=计数分母）|
+# eb（每场/每回合均值或金额比，经验贝叶斯收缩，n=单位数）。
+# 门槛语义：n < 3 → gated=True（行保留、灰显、显示实际 n）。
+from cs_analyzer.analysis.stats import (  # noqa: E402
+    K_PER_DEMO,
+    K_PER_ROUND,
+    DEFAULT_GATE_N,
+    shrunk_mean,
+    wilson_interval,
+)
+
+# metric -> (kind, n-expr over merged dict m, k)
+_CONF_SPECS: dict[str, tuple[str, str, float]] = {
+    # 比率类（Wilson，n=真实计数分母）
+    "drop_poor_share": ("rate", "drops_made", 0),
+    "drop_profit_rate": ("rate", "drops_made", 0),
+    "drop_waste_rate": ("rate", "drops_received", 0),
+    "free_pickup_rate": ("rate", "drops_received+free_pickups", 0),
+    "eco_frag_rate": ("rate", "kills", 0),
+    "whiff_rate": ("rate", "lives", 0),
+    "snipe_rate": ("rate", "kills", 0),
+    "stolen_rate": ("rate", "kills+stolen_from", 0),
+    "clutch_freq": ("rate", "rounds", 0),
+    "multi_rate": ("rate", "rounds", 0),
+    "awp_rate": ("rate", "kills", 0),
+    "wallbang_rate": ("rate", "kills", 0),
+    "thrusmoke_rate": ("rate", "kills", 0),
+    "noscope_rate": ("rate", "kills", 0),
+    "blind_rate": ("rate", "kills", 0),
+    "air_rate": ("rate", "kills", 0),
+    "knife_rate": ("rate", "kills", 0),
+    "flags_rate": ("rate", "kills", 0),
+    "avenged_rate": ("rate", "lives", 0),
+    "revenge_rate": ("rate", "teammate_deaths", 0),
+    "jame_index": ("rate", "team_lost_rounds", 0),
+    "rebel_rate": ("rate", "eco_rounds_played", 0),
+    "rebel_win_rate": ("rate", "rebel_rounds", 0),
+    "showoff_rate": ("rate", "eco_rounds_played", 0),
+    "pure_eco_rate": ("rate", "eco_rounds_played", 0),
+    # 均值/金额比类（EB 收缩，n=单位数；k 按分母类型）
+    "drops_value_per_demo": ("mean", "demos_n", K_PER_DEMO),
+    "drop_generosity": ("mean", "demos_n", K_PER_DEMO),
+    "vulture_rate": ("mean", "demos_n", K_PER_DEMO),
+    "free_pickup_pr": ("mean", "rounds", K_PER_ROUND),
+    "eco_hard_rate": ("mean", "eco_rounds_played", K_PER_ROUND),
+    "avg_dist_m": ("mean", "dist_n", K_PER_ROUND),
+    "team_dmg_rpr": ("mean", "rounds", K_PER_ROUND),
+}
+
+# METRIC_DEFS 增补字段（conf 类型 + n 说明），随 API 下发
+_CONF_DEFS_NOTE: dict[str, dict[str, str]] = {}
+
+
+def _conf_n_of(m: dict, expr: str) -> float:
+    """Evaluate an n-expression like "kills+stolen_from" over the merged dict."""
+    total = 0.0
+    for part in expr.split("+"):
+        total += float(m.get(part.strip(), 0) or 0)
+    return total
+
+
+def _conf_decorate(players_out: list[dict], raws: list[dict]) -> dict[str, dict[str, str]]:
+    """Attach per-metric ``conf`` to each player row (in place).
+
+    Two passes: first collect EB pool priors over the whole filtered board
+    (per metric), then write row["conf"][metric] = {lo,hi,n,gated}(+shrunk).
+    Returns the metric_defs增补 note map (conf type + n description).
+    """
+    # pass 1: EB priors
+    priors: dict[str, float] = {}
+    for metric, (kind, nexpr, k) in _CONF_SPECS.items():
+        if kind != "mean":
+            continue
+        tn = tv = 0.0
+        for row, m in zip(players_out, raws):
+            n = _conf_n_of(m, nexpr)
+            if n > 0:
+                tn += n
+                tv += n * float(row.get(metric, 0) or 0)
+        priors[metric] = (tv / tn) if tn > 0 else 0.0
+
+    notes: dict[str, dict[str, str]] = {}
+    for row, m in zip(players_out, raws):
+        conf: dict[str, dict] = {}
+        for metric, (kind, nexpr, k) in _CONF_SPECS.items():
+            n = _conf_n_of(m, nexpr)
+            v = float(row.get(metric, 0) or 0)
+            if kind == "rate":
+                lo, hi = wilson_interval(v * n, n)
+                entry = {"lo": round(lo, 4), "hi": round(hi, 4),
+                         "n": int(round(n)), "gated": n < DEFAULT_GATE_N}
+                notes.setdefault(metric, {"conf": "wilson",
+                                          "n_note": f"n={nexpr.replace('+', '＋')}"})
+            else:
+                s = shrunk_mean(v, n, priors[metric], k)
+                row["shrunk_" + metric] = round(s, 4)
+                entry = {"lo": round(min(v, s), 4), "hi": round(max(v, s), 4),
+                         "n": int(round(n)), "gated": n < DEFAULT_GATE_N}
+                unit = "场次" if k == K_PER_DEMO else "回合/事件数"
+                notes.setdefault(metric, {"conf": "eb", "n_note": f"n={unit}"})
+            conf[metric] = entry
+        row["conf"] = conf
+        # 紧凑分母表（tooltip 用）
+        row["n"] = {
+            "demos": m.get("demos_n", 0), "rounds": m.get("rounds", 0),
+            "kills": m.get("kills", 0), "lives": m.get("lives", 0),
+            "drops_made": m.get("drops_made", 0),
+            "drops_received": m.get("drops_received", 0),
+            "eco_rounds": m.get("eco_rounds_played", 0),
+            "teammate_deaths": m.get("teammate_deaths", 0),
+            "team_lost_rounds": m.get("team_lost_rounds", 0),
+            "rebel_rounds": m.get("rebel_rounds", 0),
+            "dist_n": m.get("dist_n", 0),
+        }
+    return notes
+
 
 def funlab_report(stack: tuple[int, ...] | None = None,
                   dates: tuple[str, ...] | None = None,
@@ -364,6 +481,7 @@ def _merge(scan: dict, stack: tuple[int, ...] | None, dates: tuple[str, ...] | N
             m["max_dist_m"] = max(m["max_dist_m"], p.get("max_dist_m", 0.0))
 
     players_out = []
+    raws = []
     gated = 0
     for m in merged.values():
         m["demos_n"] = len(m["demos"])
@@ -426,7 +544,11 @@ def _merge(scan: dict, stack: tuple[int, ...] | None, dates: tuple[str, ...] | N
             "showoff_rounds": m["showoff_rounds"],
             "pure_eco_rate": round(m["pure_eco_rounds"] / eco_r, 3),
         })
+        raws.append(m)
     players_out.sort(key=lambda p: -p["kills"])
+
+    # R1: 统计严谨层（conf 全部在 merge 层计算，不影响 scan 快照）
+    conf_defs = _conf_decorate(players_out, raws)
 
     def by(key):
         rows = [p for p in players_out if p["kills"] >= 10]
@@ -452,7 +574,8 @@ def _merge(scan: dict, stack: tuple[int, ...] | None, dates: tuple[str, ...] | N
         "dates": scan["dates"],
         "players": players_out,
         # v5 口径审计：指标口径字典随 API 下发，前端面板/轴提示/榜单统一引用
-        "metric_defs": METRIC_DEFS,
+        # R1: metric_defs 增补 conf/n_note 字段（口径文档化的推断层）
+        "metric_defs": {k: {**v, **conf_defs.get(k, {})} for k, v in METRIC_DEFS.items()},
         "board_defs": BOARD_DEFS,
         "boards": {
             # v7 用户裁决：donor 按每场均值排序（绝对值随场次膨胀，见 BOARD_DEFS）
