@@ -231,6 +231,7 @@ def players_page(request: Request):
 def player_career(request: Request, steamid: str):
     from cs_analyzer.web.aggregation import aggregated
     from cs_analyzer.web.chart_data import RADAR_AXES
+    from cs_analyzer.web.rating21_data import player_card as player_rating21
 
     result = aggregated()
     row = next((p for p in result.players if p.steamid == steamid), None)
@@ -238,77 +239,16 @@ def player_career(request: Request, steamid: str):
         return TEMPLATES.TemplateResponse(
             request, "error.html", {"message": f"未找到选手 {steamid}"}, status_code=404
         )
-    # U1: Rating 2.1 vs 2.0 side-by-side (round-weighted across demos)
-    r21 = _player_rating21(steamid)
+    # U1: Rating 2.1 vs 2.0 side-by-side (round-weighted across demos).
+    # S3-A2: shard layer lives in web/rating21_data.py (digest-covered
+    # producer module — app.py must not hold shard payload code).
+    r21 = player_rating21(steamid)
     # B4: career radar must normalize with the same server-side ranges as the
     # per-demo radar (the old hardcoded template ranges were wrong).
     return TEMPLATES.TemplateResponse(
         request, "player_career.html",
         {"p": row, "radar_axes": RADAR_AXES, "r21": r21},
     )
-
-
-def _rating21_shard_payload(demo: ParsedDemo) -> dict:
-    """Per-demo ratings21 shard payload (T3 pattern): round count + a small
-    per-player metrics dict, enough for round-weighted career aggregation."""
-    from cs_analyzer.web import runtime
-
-    result = runtime.analyze_module(demo, "ratings21")
-    if result is None:
-        return {"rounds": 0, "players": {}}
-    return {
-        "rounds": result.rounds_total,
-        "players": {
-            p.steamid: {"r21": p.Rating21, "r20": p.Rating,
-                        "kast": p.KAST21, "saves": p.save_rounds}
-            for p in result.players
-        },
-    }
-
-
-def _rating21_shards() -> list[tuple[str, dict]]:
-    """All demo rating21 payloads via the T3 shard cache: per-demo JSON
-    shards mean a career-page visit reads 24 tiny files instead of loading
-    24 parquet demos (~15s per visit before; <1s after)."""
-    from cs_analyzer.analysis.library import scan_hashes
-    from cs_analyzer.web import runtime, snapshots
-
-    cache_dir = runtime.cache().cache_dir
-    hashes = snapshots._cached_demo_hashes(cache_dir)
-    sharded, missing = snapshots.load_shards("rating21", runtime.out_dir(),
-                                             cache_dir, hashes)
-    if missing:
-        pairs = scan_hashes(cache_dir, missing, _rating21_shard_payload)
-        for h, payload in pairs:
-            snapshots.save_shard("rating21", runtime.out_dir(), cache_dir, h, payload)
-            sharded[h] = payload
-    return [(h, sharded[h]) for h in hashes if h in sharded]
-
-
-def _player_rating21(steamid: str) -> dict | None:
-    """Round-weighted Rating 2.1 / 2.0 / KAST21 / saves for one player."""
-    try:
-        num21 = num20 = den = kast = saves = 0
-        for _h, payload in _rating21_shards():
-            p = payload["players"].get(steamid)
-            n = payload["rounds"]
-            if p is None or n <= 0:
-                continue
-            num21 += p["r21"] * n
-            num20 += p["r20"] * n
-            kast += p["kast"] * n
-            saves += p["saves"]
-            den += n
-        if den == 0:
-            return None
-        return {
-            "rating21": round(num21 / den, 2),
-            "rating20": round(num20 / den, 2),
-            "kast21": round(kast / den),
-            "save_rounds": saves,
-        }
-    except Exception:  # noqa: BLE001 — U1 card must never 500 the page
-        return None
 
 
 @app.get("/api/player/{steamid}/career-conf.json")
@@ -916,17 +856,10 @@ def win_probability_charts(demo_hash: str):
     })
 
 
-@app.get("/api/demo/{demo_hash}/analysis/economy_ev.json")
-def economy_ev_demo(demo_hash: str):
-    """Per-demo decision-EV cells (V2)."""
-    demo = _load(demo_hash)
-    if demo is None:
-        return JSONResponse({"error": "demo 未找到"}, status_code=404)
-    result = _analyze_module(demo, "economy_ev")
-    return JSONResponse({
-        "cells": [c.model_dump() for c in result.cells],
-        "min_samples": result.min_samples, "total_rounds": result.total_rounds,
-    })
+# S3-C1: the per-demo economy_ev endpoint is gone — the economy tab
+# deliberately consumes the cross-library /api/ev/table.json (pooled cells;
+# per-demo EV tables are all grey under the n>=5 gate). The analysis module
+# and the ev_cells shard family remain in service via ev_data.
 
 
 @app.get("/api/ev/table.json")
@@ -942,26 +875,18 @@ def economy_ev_table():
 
 @app.get("/api/aim-science.json")
 def aim_science_cross():
-    """R3: cross-library aim-science report (memoized; warm-up via wave2)."""
-    from cs_analyzer.web.aim_data import aim_report
+    """R3: cross-library aim-science report (peek-only, S3-B2).
 
-    return JSONResponse(aim_report())
+    Cold shards + a missed wave2 window used to block this request on a
+    whole-library scan (the U1 landmine shape). Serve the warm memo or 503 —
+    the career panel already renders 预热中 on failure. Tests warm explicitly
+    via aim_data.aim_report() per the documented report-level contract."""
+    from cs_analyzer.web.aim_data import aim_peek
 
-
-@app.get("/api/demo/{demo_hash}/analysis/aim_science.json")
-def aim_science_demo(demo_hash: str):
-    """R3: per-demo aim-science vectors (single demo)."""
-    demo = _load(demo_hash)
-    if demo is None:
-        return JSONResponse({"error": "demo 未找到"}, status_code=404)
-    from cs_analyzer.analysis.aim_science import compute_aim_science
-
-    result = compute_aim_science(demo)
-    return JSONResponse({
-        "demo_hash": result.demo_hash,
-        "players": result.players,
-        "notes": result.notes,
-    })
+    memo = aim_peek()
+    if memo is None:
+        return JSONResponse({"status": "warming"}, status_code=503)
+    return JSONResponse(memo)
 
 
 @app.get("/api/demo/{demo_hash}/loss-attribution.json")
@@ -980,9 +905,16 @@ def loss_attribution_demo(demo_hash: str):
 
 @app.get("/api/loss-patterns.json")
 def loss_patterns_cross(player: str | None = None):
-    """R5: cross-library loss-mode distribution (per team, or ?player= per player)."""
+    """R5: cross-library loss-mode distribution (per team, or ?player= per player).
+
+    S3-B2: peek-only — 503 {"status": "warming"} until wave2 materialized the
+    memo (request paths must never trigger a whole-library scan; same U1
+    lesson as aim-science above)."""
     from cs_analyzer.analysis.stats import wilson_interval
     from cs_analyzer.web import loss_data
+
+    if loss_data.loss_peek() is None:
+        return JSONResponse({"status": "warming"}, status_code=503)
 
     if player:
         p = loss_data.loss_patterns_for(player)

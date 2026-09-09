@@ -34,6 +34,11 @@ _thread: threading.Thread | None = None
 _state: dict = {
     "phase": "idle",  # idle -> snapshots -> aggregate -> ... -> wave2 -> done | error
     "ready": False,
+    # S3-B1: ready flips true after wave1, but wave2 (rating21/winloo/aimsci/
+    # lossattr/evcells shards) may still be rebuilding. Acceptance tooling
+    # must gate on BOTH flags — waiting on ready alone races the rebuild
+    # window (the S2-era "back-to-back acceptance degradation" root cause).
+    "wave2_done": False,
     "error": "",
     "t_started": 0.0,
     "t_done": 0.0,
@@ -77,8 +82,8 @@ def kick() -> None:
     with _lock:
         if _thread is not None and _thread.is_alive():
             return  # already prewarming
-        _state.update(phase="idle", ready=False, error="", t_done=0.0,
-                      snapshot_hits=[], snapshot_saved=[])
+        _state.update(phase="idle", ready=False, wave2_done=False, error="",
+                      t_done=0.0, snapshot_hits=[], snapshot_saved=[])
         _state.pop("done_once", None)
         _thread = threading.Thread(target=_run, name="csa-warmup", daemon=True)
         _thread.start()
@@ -107,7 +112,8 @@ def reset_for_tests() -> None:
     global _thread
     with _lock:
         _thread = None
-        _state.update(phase="idle", ready=False, error="", t_started=0.0, t_done=0.0,
+        _state.update(phase="idle", ready=False, wave2_done=False, error="",
+                      t_started=0.0, t_done=0.0,
                       snapshot_hits=[], snapshot_saved=[])
         _state.pop("done_once", None)
 
@@ -116,7 +122,7 @@ def _run() -> None:
     with _lock:
         if _state["phase"] not in ("idle", "error"):
             return  # another thread is already running (or already done)
-        _state.update(phase="snapshots", ready=False, error="",
+        _state.update(phase="snapshots", ready=False, wave2_done=False, error="",
                       t_started=time.time(), t_done=0.0,
                       snapshot_hits=[], snapshot_saved=[])
     t0 = time.perf_counter()
@@ -132,7 +138,7 @@ def _run() -> None:
         with _lock:
             _state["snapshot_hits"] = hits
         logger.info("warmup: %d/%d memo(s) restored from snapshots",
-                    len(hits), len(snapshots.SNAPSHOT_NAMES) if hits else 0)
+                    len(hits), len(snapshots.SNAPSHOT_NAMES))
 
         # ---- wave 1: dashboard-critical memos (skip the ones restored) ----
         for step_name, snap_name, step in (
@@ -188,6 +194,10 @@ def _run() -> None:
             ("aimsci", _step_aimsci),
             # R5: loss-attribution shards (loss_data.loss_peek consumers)
             ("lossattr", _step_lossattr),
+            # S3-B3: EV cells shards — previously the ONLY shard family with
+            # no warm step, so the first economy-tab visit after a restart
+            # paid the whole-library scan synchronously in-request.
+            ("evcells", _step_evcells),
         ):
             with _lock:
                 _state["phase"] = f"wave2:{step_name}"
@@ -197,6 +207,7 @@ def _run() -> None:
                 logger.exception("warmup wave2 step %s failed", step_name)
         with _lock:
             _state["phase"] = "done"
+            _state["wave2_done"] = True
 
         # second save: wave 2 just materialized map/lineups/style-map, so the
         # NEXT restart restores those too (no ~85s wave2 scan on a warm boot)
@@ -264,9 +275,9 @@ def _step_stylemap() -> None:
 
 def _step_rating21() -> None:
     """Prewarm per-demo rating21 shards (U1 card cold-visit landmine)."""
-    from cs_analyzer.web.app import _rating21_shards
+    from cs_analyzer.web.rating21_data import shards
 
-    _rating21_shards()
+    shards()
 
 
 def _step_winloo() -> None:
@@ -288,3 +299,10 @@ def _step_lossattr() -> None:
     from cs_analyzer.web.loss_data import loss_report
 
     loss_report()
+
+
+def _step_evcells() -> None:
+    """Prewarm per-demo economy-EV cells shards (S3-B3: match economy tab)."""
+    from cs_analyzer.web.ev_data import ev_table
+
+    ev_table()

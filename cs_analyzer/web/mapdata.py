@@ -63,14 +63,15 @@ def _pool_map_players(players: list) -> dict[str, dict[str, dict]]:
     return out
 
 
-def best_players_for_map(cells: dict[str, dict], min_rounds: int = 10,
+def best_players_for_map(cells: dict[str, dict], min_rounds: int = 40,
                          k: int = 5) -> list[dict]:
     """本图最强选手：按回合加权 Rating（比率）排序。
 
     v5 口径审计：旧口径 rating×rounds 是绝对值乘积——打得越多乘积越大，
-    违反"打得多≠数据好"总原则。门槛 min_rounds 只做样本可靠性过滤。
-    R1: Rating 非二元结果，Wilson 不适用——按均值类 EB 收缩挂 conf
-    （n=回合数，k=64），`rating_shrunk` 仅展示不参与排序。
+    违反"打得多≠数据好"总原则。门槛 min_rounds 只做样本可靠性过滤
+    （S3 用户裁决：≥40 回合才纳入统计——约半张图的量，10 回合的"最强"
+    噪声太大）。R1: Rating 非二元结果，Wilson 不适用——按均值类 EB 收缩
+    挂 conf（n=回合数，k=64），`rating_shrunk` 仅展示不参与排序。
     """
     from cs_analyzer.analysis.stats import attach_conf
 

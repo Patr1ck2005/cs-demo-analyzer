@@ -1,15 +1,12 @@
 """Phase S2 tests: conf display completion, scan-sources dry-run, hygiene."""
 from __future__ import annotations
 
-import hashlib
 import zipfile
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
-from cs_analyzer.model.parsed_demo import ParsedDemo
-from tests.conftest import S_ALICE, build_demo_data, build_parsed_demo
+from tests.conftest import build_parsed_demo
 
 
 # ---------- S2-A1: stats.py participates in the snapshot fingerprint ----------

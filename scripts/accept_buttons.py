@@ -46,14 +46,20 @@ def api(path: str) -> dict:
         return json.loads(r.read().decode("utf-8"))
 
 
-def wait_warm(timeout_s: float = 600) -> bool:
-    """Block until the prewarm finished (snapshot rebuild can take minutes)."""
+def wait_warm(timeout_s: float = 1800) -> bool:
+    """Block until the prewarm finished (snapshot rebuild can take minutes).
+
+    S3-B1: gate on ready AND wave2_done — ready flips true after wave1 while
+    wave2 shard rebuilds may still be running; waiting on ready alone races
+    that window (the S2-era back-to-back degradation root cause)."""
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         try:
             st = api("/api/warmup.json")
-            if st.get("ready") or st.get("phase") == "error":
-                return bool(st.get("ready"))
+            if st.get("phase") == "error":
+                return False
+            if st.get("ready") and st.get("wave2_done"):
+                return True
         except Exception:
             pass
         time.sleep(2.0)

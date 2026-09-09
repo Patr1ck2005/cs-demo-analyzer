@@ -79,6 +79,13 @@ _SNAPSHOT_SOURCES = (
     "analysis/library.py",
     "analysis/aim_science.py",
     "analysis/loss_attribution.py",
+    # S3-A1: per-demo SHARD-family producers. src8 = digest of THIS list, so
+    # a change inside any of these must roll the shard dirs or stale per-demo
+    # payloads survive under a fingerprint-identical rebuild (same defect
+    # class as the S2-A1 merge-layer gap).
+    "analysis/win_probability.py",   # winloo   shards (web/winprob_loo.py)
+    "analysis/economy_ev.py",        # ev_cells shards (web/ev_data.py)
+    "analysis/ratings21.py",         # rating21 shards (web/rating21_data.py)
     # S2-A1: R1 conf values (Wilson z / EB k) are computed at MERGE layer and
     # land inside the T1 snapshot payloads of lineups/map/utilitylab — a
     # stats.py change must invalidate those numbers or stale intervals
@@ -96,6 +103,7 @@ _SNAPSHOT_SOURCES = (
     "web/winprob_loo.py",
     "web/aim_data.py",
     "web/loss_data.py",
+    "web/rating21_data.py",
     "web/snapshots.py",
 )
 

@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-08（Phase S2 全面审计整改 + 稳定化收尾完成——A1 conf 失效链补口/展示补全/扫描平台目录/验收 20 步 + 窄视口轮，342 绿，待审+待验收）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-08（Phase S3 第四轮审计整改——分片失效链补口/peek 路由/wave2 竞态根治/死端点清理，待审+待验收）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -1097,3 +1097,80 @@ D2b（等 FACEIT key）；gh-pages/内容生产线（冻结维持）。
   test_analysis,test_analysis_util,test_chart_data,test_phase_x}.py。
 - 阶段性收口：功能面无欠账（除等 key 的 D2b 与冻结线），文档口径齐，
   验收工具覆盖全部交互面。
+
+## 20. Phase S3 —— 第四轮全面审计整改 + 稳定化收口（2026-09-08）
+
+**任务**：S2 之后的再一轮"视觉检验（含按钮）+ 架构深检 + 收尾计划"。审计在
+342 绿基线上完成：机械验收三轮全绿（pytest 342 / visual_check 28 页 0 失败 /
+accept_buttons 20 步 0 失败，fresh-server 单跑）、6 页截图人工复核（career/
+system/match_detail 概览+经济/map_utility/teams）、78 路由逐一核对、**5 个 T3
+分片族生产者溯源**、11 memo 失效链、JS fetch↔路由双向契约、probe 数值锚点核对。
+
+### 审计结论
+
+健康面：路由通配遮蔽无（铁律 5 维持）；JS fetch↔路由双向零悬空；CSS 契约齐
+（.csa-conf/.loss-tag 全定义）；TODO/FIXME=0；probe 数值与 R 期锚点吻合
+（Jake preaim 3.15°/counter 0.08s/校准 35/35 OK）。
+
+### 发现与整改
+
+| # | 级别 | 发现 | 整改 |
+|---|------|------|------|
+| A1 | **P1** | **S2-A1 同类缺口复发（per-demo 层）**：`src8`=_SNAPSHOT_SOURCES 全清单摘要，但 winloo/ev_cells/rating21 三个分片族的底层生产者 `analysis/{win_probability,economy_ev,ratings21}.py` 不在清单——改这三个文件（EV 公式/logistic 特征/R2.1 系数）分片不失效，旧数值复活 | 三文件入清单；覆盖测试改为**分片族→生产者映射表**锁（`test_snapshot_sources_cover_produced_numbers`，下一个分片族必须声明生产者） |
+| A2 | P2 | rating21 载荷映射（`_rating21_shard_payload`/`_rating21_shards`/`_player_rating21`）住在 app.py——app.py 不该进清单（路由文件进了=每次路由改动失效全部快照）；且 `warmup._step_rating21` import app 是 S 期 runtime 解耦原则残留 | 纯移动 ~60 行 → 新 `web/rating21_data.py`（照 winprob_loo 结构）；app.py −60 行；**最后一个 warmup→app import 消失** |
+| B1 | P2 | **"ready≠wave2 完成"竞态**：ready=True 先于 wave2（rating21/winloo/aimsci/lossattr 各 35 分片），两个验收脚本 wait_warm 只看 ready——S2 期"背靠背劣化 16/13/3 失败"的根因不止自触发负载，这里是共犯 | `_state["wave2_done"]` 标志（wave2 循环后置位，reset/kick 归零）；两脚本 wait_warm 改等 `ready && wave2_done`——S2 的"纪律契约"升级为"工具强制" |
+| B2 | P2 | `/api/aim-science.json` 与 `/api/loss-patterns.json` 直接调 report()（同步预热）——违反 kick-only peek 模式（U1 教训；winloo 有 loo_peek 先例）：分片冷+wave2 未完成时打开生涯页=请求同步阻塞整库扫描 | 两路由改 peek-503（`{"status":"warming"}`）；career JS 文案本就写"预热中"零改动；测试按文档契约显式 warm（`invalidate_*`+`report()`），另加冷路由→503 断言 |
+| B3 | P2 | `ev_cells` 是唯一没有 warmup 步的分片族——重启后首个经济 tab 访问同步整库扫描 | wave2 新增 `evcells` 步（`ev_data.ev_table()`） |
+| C | P2 | **两个出生即孤儿端点**（"开发到中途"实证）：`/api/demo/{h}/analysis/economy_ev.json` 与 `/api/demo/{h}/analysis/aim_science.json` 全库零消费（UI 有意选了跨库面：EV 表池化 N=756 才有意义、R3 向量本质跨库聚合） | 两端点删除（analysis 模块与分片族不动）；源码级静态锁 + 404 断言；loss-attribution 的 per-demo 端点存活（对局页消费中），冒烟保留 |
+| D1 | P2 | tests/test_phase_s2.py 存留 5 个未用 import——S2 "F401 归零"验收只扫了 cs_analyzer，**口径失误** | 删；本轮验收以全树 ruff 为准并记录 |
+| D2 | P2 | probe_research 缺承诺的空容器守卫：`calib=[]` → verdict "OK (0/0)" 假阳性（fail-soft 静默死亡类别，T4 教训再现） | 结构守卫：校准覆盖数==库内 demo 数 + 5 个报告容器非空，违反 exit 2 并打印容器名 |
+| D3 | P3 | `assert "shrunk" in body["hs"] or True` 虚空断言 | 改 `not in`（hs=Wilson 无收缩口径固化） |
+| E | P3 | 四小件：career 热力图未选场=纯黑空盒（加占位提示+选场隐藏）；match_detail `if (note_el=...)` 赋值条件（改 const+if）；warmup 日志分母 `if hits else 0`（全量重建打 0/0，恒用总长）；system 扫描失败文案不区分 404/网络错误 | 全部小改 |
+| F | 坑 | `test_warmup_kick_rearms_after_ready` 只 stub 8 个旧步骤，wave2 新步骤靠**磁盘分片与旧 src8 匹配**蒙混真跑；A1 改清单→src8 变→分片全冷→该测试在进程内真扫 35 demo 整库（300s 超时暴露） | 步骤清单补全为全 stub（13 步），测试封闭性恢复其 docstring 本意 |
+
+### S3 期坑（新增）
+
+1. **验收口径必须全树**：S2 的 "ruff F 级归零" 实际只验证了 cs_analyzer——
+   tests/test_phase_s2.py 的 5 个 F401 一直都在。验收命令与口径要写进 HANDOFF，
+   不写口径的"全绿"不可信。
+2. **ready ≠ wave2 完成**：/api/warmup.json 的 ready=True 在 wave1 后即置位，
+   wave2 分片重建还在跑。任何等热的代码（验收脚本、未来 CI）必须等
+   `ready && wave2_done`。S2 的"fresh-server 单跑"契约背后是这个竞态。
+3. **stub 清单会腐烂**：warmup 每加一步，"全步骤 stub"的测试就要同步补——
+   否则测试依赖磁盘分片恰好命中，清单一变（src8 变）就真扫全库。
+
+### S3 里程碑状态
+
+- 测试 342→**343**（+1：死端点静态锁+404 断言；覆盖测试重写为分片族映射锁）。
+- app.py 1540→**1479** 行（rating21 抽取 −60、死端点 −25、peek 改造等）。
+- warmup 链：11 memo + 6 分片族（新增 evcells 步）+ wave2_done 标志。
+- 验收（全绿，见下）。
+
+### S3 验收（全绿）
+
+- **pytest 342→343 全绿**（exit 0）。
+- **visual_check 22 + 窄视口 6 = 28 截图 0 失败**（0 console 错误；career 页人工
+  复核：热力图占位生效、R3/R5 面板 warm 服务正常）。
+- **accept_buttons 20 步 0 失败**（全量重建完成后的热服务器单跑）。
+- **probe_research verdict OK (0/35 suspect)**，结构守卫生效（exit 0）。
+- **全树 ruff `--select F401,F821,F811,F841` = 0**（这次含 tests/scripts，口径教训已吸收）。
+- A1 指纹失效按预期触发一次性全量重建：T1 8/8 重算 + 6 分片族全物化
+  （wave2 全程 ~11 分钟；期间 ready=True 但 wave2=False —— B1 竞态的活体演示，
+  新门控在这 11 分钟里会正确拦住验收脚本）。
+- 重启后快照命中验证：warmup.json `ready=true wave2_done=true snapshot_saved=8`。
+
+### S3 补充裁决：本图最强选手门槛 10→40 回合（用户审计中提出）
+
+- `mapdata.best_players_for_map(min_rounds=40)`（约半张图的量——20 回合的单场
+  爆种行全部出局）；表头/口径行/空态文案同步"≥40"；docs v8 补记。
+- 实库复核：8 图中 6 图有榜（minRounds 43–75，无 40 以下行），anubis/vertigo
+  小样本图整表空 → 空态"样本不足（该图无选手达到 40 回合门槛）"。
+- 教训进验收工具：全量重建实测 ~15 分钟，两脚本 wait_warm 上限 900s→**1800s**。
+
+### S3 明确不动项（维持既有裁决）
+
+app.py 主体不再拆（1479 行）；match_detail inline JS；ruff 风格类基线
+（I001/N806/B905 等，非正确性）；coverage.html（CLI 在用）；D2b（等 FACEIT
+key）；gh-pages/内容生产线（冻结维持）。
+
+

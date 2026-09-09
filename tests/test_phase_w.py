@@ -99,23 +99,24 @@ def test_weapon_timeline_uses_demo_tick_rate(web_client) -> None:
 
 
 def test_rating21_card_sharded_and_stable(web_client, monkeypatch, tmp_path) -> None:
-    """_player_rating21 reads per-demo rating21 shards: first call writes
-    them, later calls hit them, and the card value stays stable."""
+    """player_card reads per-demo rating21 shards: first call writes them,
+    later calls hit them, and the card value stays stable."""
+    from cs_analyzer.web import rating21_data
     from tests.conftest import S_ALICE
 
     _c, h, _demo = web_client
     monkeypatch.setattr(web_app, "OUT_DIR", tmp_path / "web")
 
-    card1 = web_app._player_rating21(S_ALICE)
+    card1 = rating21_data.player_card(S_ALICE)
     assert card1 is not None
     for key in ("rating21", "rating20", "kast21", "save_rounds"):
         assert key in card1
     shard_root = tmp_path / "web" / "snapshots" / "shards" / "rating21"
     assert any(shard_root.rglob(f"{h}_*.json")), "rating21 shard must exist"
 
-    card2 = web_app._player_rating21(S_ALICE)
+    card2 = rating21_data.player_card(S_ALICE)
     assert card2 == card1, "round-weighted card drifted between calls"
-    unknown = web_app._player_rating21("76561199999999999")
+    unknown = rating21_data.player_card("76561199999999999")
     assert unknown is None  # player absent from the library
 
 

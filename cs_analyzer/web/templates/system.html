@@ -179,7 +179,8 @@
       scanBox.innerHTML = `<div style="margin-bottom:4px">平台源扫描（dry-run，未导入）：共 <b>${d.total_new}</b> 个新 demo · demos/ 现有 ${d.known_demos} 个。</div>${rows}` +
         `<div class="sub" style="margin-top:6px">新 demo 需复制到 demos/ 后用"一键入库"解析。</div>`;
     } catch (e) {
-      scanBox.innerHTML = '扫描失败（配置缺失或网络错误）。';
+      scanBox.innerHTML = '扫描失败' + (e && e.message === 'HTTP 404'
+        ? '（未配置 configs/demo_sources.yaml）' : '（网络错误或服务异常）。');
     } finally {
       scanBtn.disabled = false;
     }

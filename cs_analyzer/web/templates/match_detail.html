@@ -441,8 +441,9 @@
     const tb = document.querySelector('#ev-table tbody');
     try {
       const p = await fetchJson(`/api/ev/table.json`);
-      if (note_el = document.getElementById('ev-note')) {
-        note_el.textContent = 'V2 · ' + (p.note || '') + ` · 本表 N=${(p.total_rounds || 0)}`;
+      const noteEl = document.getElementById('ev-note');
+      if (noteEl) {
+        noteEl.textContent = 'V2 · ' + (p.note || '') + ` · 本表 N=${(p.total_rounds || 0)}`;
       }
       const rows = (p.cells || []).filter((c) => c.n > 0);
       tb.innerHTML = rows.length ? rows.map((c) => {

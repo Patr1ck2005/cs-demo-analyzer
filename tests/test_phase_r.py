@@ -2,6 +2,8 @@
 science + loss attribution + research web APIs/shards."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -305,10 +307,18 @@ def research_client(tmp_path, monkeypatch):
 class TestResearchWeb:
     def test_aim_science_api_and_shards(self, research_client, tmp_path):
         client, demo_hash = research_client
+        # S3-B2: the cross-library route is peek-only — cold memo -> 503
+        assert client.get("/api/aim-science.json").status_code == 503
+        # report-level access warms the shard memo (documented contract);
+        # on the 1-demo synthetic library this is fast.
+        from cs_analyzer.web import aim_data
+
+        aim_data.invalidate_aimsci()
+        body_warm = aim_data.aim_report()
+        assert body_warm["players"]
         r = client.get("/api/aim-science.json")
         assert r.status_code == 200
         body = r.json()
-        assert body["players"], "cross-library report must contain players"
         carol = next(p for p in body["players"] if p["steamid"] == S_CAROL)
         assert carol["preaim_med_deg"] == pytest.approx(30.0, abs=0.5)
         assert carol["preaim_lt10_conf"]["gated"] is True  # n=1 < 20
@@ -317,14 +327,17 @@ class TestResearchWeb:
         shards = list((tmp_path / "web" / "snapshots" / "shards" / "aimsci")
                       .rglob("*.json"))
         assert shards, "aimsci shard family must be written"
-        # per-demo route shares the single-source computation
-        r2 = client.get(f"/api/demo/{demo_hash}/analysis/aim_science.json")
-        assert r2.status_code == 200
-        assert any(p["steamid"] == S_CAROL for p in r2.json()["players"])
 
     def test_loss_patterns_api_and_shards(self, research_client, tmp_path):
         client, demo_hash = research_client
         # Carol's side (Team 2) loses round 1 of the synthetic demo
+        # S3-B2: peek-only route — cold memo -> 503, warm explicitly first
+        assert client.get(
+            f"/api/loss-patterns.json?player={S_CAROL}").status_code == 503
+        from cs_analyzer.web import loss_data
+
+        loss_data.invalidate_lossattr()
+        assert loss_data.loss_report()["teams"] is not None
         r = client.get(f"/api/loss-patterns.json?player={S_CAROL}")
         assert r.status_code == 200
         body = r.json()
@@ -336,10 +349,24 @@ class TestResearchWeb:
         shards = list((tmp_path / "web" / "snapshots" / "shards" / "lossattr")
                       .rglob("*.json"))
         assert shards, "lossattr shard family must be written"
-        # demo route shape
+        # demo route shape (live endpoint: the match page loss chips consume it)
         r2 = client.get(f"/api/demo/{demo_hash}/loss-attribution.json")
         assert r2.status_code == 200
         assert "rounds" in r2.json() and "teams" in r2.json()
+
+    def test_dead_research_routes_stay_dead(self, web_client):
+        """S3-C: the two orphaned per-demo endpoints (zero UI consumers since
+        birth) are removed — locked at the source level like test_phase_s2
+        A3 so they cannot quietly return."""
+        src = Path("cs_analyzer/web/app.py").read_text(encoding="utf-8")
+        assert '"/api/demo/{demo_hash}/analysis/aim_science.json"' not in src
+        assert '"/api/demo/{demo_hash}/analysis/economy_ev.json"' not in src
+        # and the API surface agrees
+        client, demo_hash, _demo = web_client
+        assert client.get(
+            f"/api/demo/{demo_hash}/analysis/aim_science.json").status_code == 404
+        assert client.get(
+            f"/api/demo/{demo_hash}/analysis/economy_ev.json").status_code == 404
 
     def test_career_conf_api(self, web_client):
         client, demo_hash, demo = web_client
@@ -350,5 +377,7 @@ class TestResearchWeb:
             assert body[key]["n"] > 0
             assert body[key]["lo"] <= body[key]["hi"]
             assert "shrunk" in body[key]
-        assert "shrunk" in body["hs"] or True  # hs is Wilson (no shrink)
         assert body["hs"]["n"] > 0
+        # S3-D3: hs is a Wilson interval (proportion) — no EB shrinkage by
+        # design; lock the contract so the vacuous `or True` never returns.
+        assert "shrunk" not in body["hs"]

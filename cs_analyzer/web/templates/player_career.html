@@ -62,7 +62,9 @@
     <select id="career-match-pick" class="input" style="min-width:220px"></select>
   </div></div>
 <div class="routes-wrap">
-  <div class="map-chart" id="career-heatmap" style="max-width:480px"></div>
+  <div class="map-chart" id="career-heatmap" style="max-width:480px;position:relative">
+    <div id="career-heatmap-hint" class="sub" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:12px;pointer-events:none">选择上方场次后<br>此处展示该图的热力点位</div>
+  </div>
 </div>
 
 <div class="section-header"><h2>场次列表</h2>
@@ -225,12 +227,15 @@
     let mounted = null;
     picker.addEventListener('change', async () => {
       const box = document.getElementById('career-heatmap');
+      const hint = document.getElementById('career-heatmap-hint');
       if (picker.value === '') { // placeholder row picked — clear, don't load demo 0
         box.classList.remove('chart-loading');
         box.style.backgroundImage = 'none';
+        if (hint) hint.style.display = 'flex';
         if (mounted) { mounted.dispose(); mounted = null; }
         return;
       }
+      if (hint) hint.style.display = 'none';
       const i = Number(picker.value);
       if (!opts[i]) return;
       box.classList.add('chart-loading');

@@ -281,9 +281,14 @@ def test_warmup_kick_rearms_after_ready(monkeypatch):
     warmup.reset_for_tests()
     monkeypatch.setattr(snapshots, "restore_all", lambda out_dir, cache_dir: [])
     monkeypatch.setattr(snapshots, "save_all", lambda out_dir, cache_dir: {})
+    # EVERY step must be stubbed (S3 lesson): the wave2 shard steps silently
+    # depended on disk shards matching the old src8 — a fingerprint-source
+    # change made them cold and a real kick scanned the whole library here.
     for name in ("_step_aggregate", "_step_highlights", "_step_teamplay",
                  "_step_utilitylab", "_step_funlab", "_step_map",
-                 "_step_lineups", "_step_stylemap"):
+                 "_step_lineups", "_step_stylemap", "_step_rating21",
+                 "_step_winloo", "_step_aimsci", "_step_lossattr",
+                 "_step_evcells"):
         monkeypatch.setattr(warmup, name, lambda: None)
     warmup.kick()
     deadline = _t.monotonic() + 10

@@ -60,24 +60,31 @@ def test_fingerprint_ignores_empty_subdirs_and_files(tmp_path):
     assert library_fingerprint(tmp_path) == fp1
 
 
-def test_snapshot_sources_cover_merge_layer_math():
-    """S2-A1: conf values (Wilson z / EB k) are computed by analysis/stats.py
-    at MERGE layer and land inside T1 snapshot payloads (lineups/map/
-    utilitylab) — a stats change MUST invalidate those snapshots or stale
-    intervals survive a fingerprint-identical rebuild."""
+def test_snapshot_sources_cover_produced_numbers():
+    """S2-A1 + S3-A1: every layer that produces persisted numbers must sit
+    inside _SNAPSHOT_SOURCES (T1 payloads AND T3 shard families — src8 is
+    the digest of this list, so a missing producer means its numbers survive
+    a code change under a fingerprint-identical rebuild). Kept as a
+    family->producer map so the next shard family cannot be added without
+    naming its producer file."""
     import cs_analyzer.web.snapshots as snaps
 
-    for need in (
-        "analysis/stats.py",
-        "web/aim_data.py",
-        "web/loss_data.py",
-        "analysis/aim_science.py",
-        "analysis/loss_attribution.py",
-    ):
-        assert need in snaps._SNAPSHOT_SOURCES, (
-            f"{need} missing from _SNAPSHOT_SOURCES — its numbers would "
-            "survive a code change inside a fingerprint-identical snapshot"
-        )
+    family_producers = {
+        # T1 whole-payload snapshot payloads (merge layer)
+        "t1_conf_math": ["analysis/stats.py"],
+        "aimsci": ["analysis/aim_science.py", "web/aim_data.py"],
+        "lossattr": ["analysis/loss_attribution.py", "web/loss_data.py"],
+        "ev_cells": ["analysis/economy_ev.py", "web/ev_data.py"],
+        "winloo": ["analysis/win_probability.py", "web/winprob_loo.py"],
+        "rating21": ["analysis/ratings21.py", "web/rating21_data.py"],
+    }
+    for family, producers in family_producers.items():
+        for need in producers:
+            assert need in snaps._SNAPSHOT_SOURCES, (
+                f"{family}: {need} missing from _SNAPSHOT_SOURCES — its "
+                "numbers would survive a code change inside a "
+                "fingerprint-identical rebuild"
+            )
 
 
 # -------------------------------------------------------------- load / save

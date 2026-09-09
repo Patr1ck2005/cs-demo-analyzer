@@ -99,7 +99,7 @@
         '<td class="num ' + (bp.rating >= 1 ? 'pos' : 'neg') + '">' + bp.rating.toFixed(2) +
         confHtml + shrunkHtml + '</td>' +
         '<td class="num">' + bp.demos + '</td></tr>';
-    }).join('') || '<tr><td colspan="4" class="sub">样本不足</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="sub">样本不足（该图无选手达到 40 回合门槛）</td></tr>';
   }
 
   function init() {

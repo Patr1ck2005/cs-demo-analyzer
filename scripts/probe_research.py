@@ -94,6 +94,33 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(out, ensure_ascii=False, indent=2),
                         encoding="utf-8")
+
+    # ---- S3-D2: structural guard — an empty container must FAIL loudly,
+    # never pass as "OK (0/0)" (the fail-soft silent-death class: T4 lesson).
+    # Calibration must cover the whole library; every report container must
+    # be non-empty for a non-empty library.
+    problems: list[str] = []
+    if not hashes:
+        problems.append("library is empty (0 cached demos)")
+    else:
+        if len(calib) != len(hashes):
+            problems.append(
+                f"calibration covers {len(calib)}/{len(hashes)} demos")
+        for label, container in (
+            ("aim.players", aim.get("players")),
+            ("loss.teams", loss.get("teams")),
+            ("utility.exec_players", util.get("exec_players")),
+            ("utility.smoke_buckets", util.get("smoke_buckets")),
+            ("funlab.players", fun.get("players")),
+        ):
+            if not container:
+                problems.append(f"{label} is empty")
+    if problems:
+        for p in problems:
+            print(f"GUARD FAIL: {p}")
+        print("written (for diagnosis): " + str(out_path))
+        return 2
+
     print(f"verdict: {out['aim_calibration']['verdict']} "
           f"({len(aim_bad)}/{len(calib)} suspect)")
     print(f"written: {out_path}")

@@ -110,7 +110,7 @@ def test_funlab_report_free_pickup_pr_round_denominator(web_client) -> None:
 
 def test_map_best_players_pools_and_rates() -> None:
     """本图最强: 同图多场必须池化（旧实现同图覆盖只留最后一场），
-    排序按回合加权 Rating（比率），<10 回合被门槛挡住。"""
+    排序按回合加权 Rating（比率），<40 回合被门槛挡住（S3 用户裁决）。"""
     from types import SimpleNamespace
 
     from cs_analyzer.web.mapdata import _pool_map_players, best_players_for_map
@@ -119,17 +119,17 @@ def test_map_best_players_pools_and_rates() -> None:
         return {"map_name": map_name, "rounds": rounds, "Rating": rating}
 
     p1 = SimpleNamespace(steamid="a", name="A", demo_count=3, demos=[
-        row("de_mirage", 12, 1.4), row("de_mirage", 12, 1.2),
-        row("de_mirage", 12, 1.0)])           # pooled rating 1.2 over 36 rounds
+        row("de_mirage", 16, 1.4), row("de_mirage", 16, 1.2),
+        row("de_mirage", 16, 1.0)])           # pooled rating 1.2 over 48 rounds
     p2 = SimpleNamespace(steamid="b", name="B", demo_count=1, demos=[
-        row("de_mirage", 24, 1.5)])           # one hot map (24 rounds, 1.5)
+        row("de_mirage", 40, 1.5)])           # one hot map (40 rounds, 1.5)
     p3 = SimpleNamespace(steamid="c", name="C", demo_count=1, demos=[
-        row("de_mirage", 8, 2.0)])            # below the 10-round gate
+        row("de_mirage", 32, 2.0)])           # below the 40-round gate
     cells = _pool_map_players([p1, p2, p3])
     best = best_players_for_map(cells["de_mirage"])
     assert [b["steamid"] for b in best] == ["b", "a"], "排序只看加权 Rating"
-    assert best[0]["rounds"] == 24 and best[1]["rounds"] == 36, "同图多场池化"
-    assert all(b["steamid"] != "c" for b in best), "10 回合门槛"
+    assert best[0]["rounds"] == 40 and best[1]["rounds"] == 48, "同图多场池化"
+    assert all(b["steamid"] != "c" for b in best), "40 回合门槛"
 
 
 def test_lineups_group_win_rate_is_round_pooled() -> None:

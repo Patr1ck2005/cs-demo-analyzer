@@ -5,6 +5,7 @@ can Read each image and verify layout/art before handing off to the user.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -13,6 +14,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import sync_playwright
 
 BASE = "http://127.0.0.1:8000"
+
+
+def wait_warm(timeout_s: float = 1800) -> bool:
+    """Gate on ready AND wave2_done (S3-B1): ready flips true after wave1,
+    but wave2 shard rebuilds (rating21/winloo/aimsci/lossattr/evcells) may
+    still be running — waiting on ready alone races that window and the R/S2
+    era acceptance runs degraded exactly there."""
+    import time
+    import urllib.request
+
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(BASE + "/api/warmup.json",
+                                        timeout=10) as r:
+                st = json.loads(r.read().decode("utf-8"))
+            if st.get("phase") == "error":
+                return False
+            if st.get("ready") and st.get("wave2_done"):
+                return True
+        except Exception:
+            pass
+        time.sleep(2.0)
+    return False
+
+
 H = "769f7be048a28713ba1e09e8bce0b5f6d4d46f5a146bb8663256ea142aa65217"
 OUT = Path("output/.visual")
 
@@ -60,6 +87,9 @@ NARROW_PAGES = [
 
 
 def main() -> int:
+    if not wait_warm():
+        print("warmup (incl. wave2) did not finish — aborting visual check")
+        return 1
     OUT.mkdir(parents=True, exist_ok=True)
     failures = []
     with sync_playwright() as pw:
