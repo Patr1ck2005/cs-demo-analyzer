@@ -243,11 +243,14 @@ def player_career(request: Request, steamid: str):
     # S3-A2: shard layer lives in web/rating21_data.py (digest-covered
     # producer module — app.py must not hold shard payload code).
     r21 = player_rating21(steamid)
+    # Round 2: duel board display gate (visible-greyed threshold)
+    from cs_analyzer.web.duel_data import DUEL_GATE_N
+
     # B4: career radar must normalize with the same server-side ranges as the
     # per-demo radar (the old hardcoded template ranges were wrong).
     return TEMPLATES.TemplateResponse(
         request, "player_career.html",
-        {"p": row, "radar_axes": RADAR_AXES, "r21": r21},
+        {"p": row, "radar_axes": RADAR_AXES, "r21": r21, "gate_duels": DUEL_GATE_N},
     )
 
 
@@ -831,28 +834,69 @@ def weapon_timeline_charts(demo_hash: str):
 
 @app.get("/api/demo/{demo_hash}/analysis/win_probability.json")
 def win_probability_charts(demo_hash: str):
-    """Round win-probability curve (V1 胜势曲线) + cross-demo LOO AUC."""
+    """Round win-probability curve (V2) + cross-demo LOO metrics.
+
+    Curve source: the OOS curve from the LOO memo (trained on every OTHER
+    demo — the honest generalization number) when the memo is warm; the
+    per-demo in-sample fit is the cold fallback, labeled in `note`.
+    loo_memo_peek reads the WARM memo only: a cold first visit must not pay
+    the whole-library scan synchronously (U1 lesson); warmup wave2
+    materializes it in the background.
+    """
     demo = _load(demo_hash)
     if demo is None:
         return JSONResponse({"error": "demo 未找到"}, status_code=404)
     result = _analyze_module(demo, "win_probability")
-    # V1 X4: honest generalization number — train on every OTHER demo, score
-    # this one (LOO across matches). loo_peek reads the WARM memo only: a
-    # cold first visit must not pay the whole-library scan synchronously
-    # (U1 lesson); warmup wave2 materializes it in the background.
-    from cs_analyzer.web.winprob_loo import loo_peek
+    from cs_analyzer.web.winprob_loo import loo_memo_peek
 
-    loo = loo_peek(demo_hash)
+    memo = loo_memo_peek()
+    entry = (memo or {}).get("demos", {}).get(demo_hash)
+    loo_auc = entry.get("auc") if entry else None
+
+    # OOS merge: the T-view snapshots' p_win is replaced by the leave-one-out
+    # prediction at the same (round, tick). Band fields go None — this round
+    # ships no per-point band on the OOS curve (35 pooled bootstrap refits
+    # were judged not worth it; docs/research-ledger.md). Snapshots without
+    # an OOS point keep the in-sample value.
+    oos_t: dict[tuple[int, int], float] = {}
+    if entry:
+        by_pos = (memo or {}).get("oos_curves", {}).get(demo_hash, {}).get("by_pos", {})
+        for key, p in by_pos.items():
+            rn_s, tk_s, s_s = key.split(":")
+            if int(s_s) == 1:  # T-view only — the page curve's perspective
+                oos_t[(int(rn_s), int(tk_s))] = float(p)
+    curve_source = "oos" if oos_t else "insample"
+
+    rounds_out = []
+    for rnd in result.rounds:
+        rows = []
+        for s in rnd:
+            d = {"round": s.round, "tick": s.tick, "side": s.side,
+                 "alive_diff": s.alive_diff, "buy_diff": round(s.buy_diff, 2),
+                 "planted": s.planted, "p_win": s.p_win,
+                 "p_lo": s.p_lo, "p_hi": s.p_hi, "outcome": s.outcome}
+            if oos_t:
+                p = oos_t.get((s.round, s.tick))
+                if p is not None:
+                    d["p_win"], d["p_lo"], d["p_hi"] = round(p, 3), None, None
+            rows.append(d)
+        rounds_out.append(rows)
+
+    note = result.sample_note
+    if curve_source == "oos" and loo_auc is not None:
+        n_demos = (memo or {}).get("n_demos")
+        brier = (memo or {}).get("brier")
+        note = (f"跨场诚实曲线：其余 {n_demos - 1} 场训练 · 本场留一 AUC {loo_auc:.2f}"
+                + (f" · 库级 Brier {brier:.3f}" if brier is not None else ""))
+
     return JSONResponse({
-        "rounds": [[{
-            "round": s.round, "tick": s.tick, "side": s.side,
-            "alive_diff": s.alive_diff, "buy_diff": round(s.buy_diff, 2),
-            "planted": s.planted, "p_win": s.p_win,
-            "p_lo": s.p_lo, "p_hi": s.p_hi, "outcome": s.outcome,
-        } for s in rnd] for rnd in result.rounds],
+        "rounds": rounds_out,
         "auc": result.model_auc, "n_train_rounds": result.n_train_rounds,
-        "loo_auc": loo["auc"] if loo else None,
-        "note": result.sample_note,
+        "model": result.model_version, "curve_source": curve_source,
+        "loo_auc": loo_auc,
+        "brier": (memo or {}).get("brier"),
+        "calibration": (memo or {}).get("calibration"),
+        "note": note,
     })
 
 
@@ -901,6 +945,25 @@ def loss_attribution_demo(demo_hash: str):
         "teams": result.teams,
         "notes": result.notes,
     })
+
+
+@app.get("/api/duel-model.json")
+def duel_model_cross(player: str | None = None):
+    """Round 2: cross-library duel-model board (peek-only, S3-B2 precedent).
+
+    503 {"status": "warming"} until wave2 materialized the duelmo memo —
+    request paths must never trigger a whole-library scan (U1 lesson).
+    ?player= narrows to one player's 对枪实力 row."""
+    from cs_analyzer.web import duel_data
+
+    if duel_data.duel_peek() is None:
+        return JSONResponse({"status": "warming"}, status_code=503)
+    if player:
+        p = duel_data.duel_for(player)
+        if p is None:
+            raise HTTPException(status_code=404, detail="player has no duel data")
+        return JSONResponse(p)
+    return JSONResponse(duel_data.duel_report())
 
 
 @app.get("/api/loss-patterns.json")

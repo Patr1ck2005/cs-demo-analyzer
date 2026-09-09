@@ -198,6 +198,9 @@ def _run() -> None:
             # no warm step, so the first economy-tab visit after a restart
             # paid the whole-library scan synchronously in-request.
             ("evcells", _step_evcells),
+            # Round 2: duel-model shards (duel_data.duel_peek consumers:
+            # career page 对枪实力 board)
+            ("duelmo", _step_duelmo),
         ):
             with _lock:
                 _state["phase"] = f"wave2:{step_name}"
@@ -306,3 +309,10 @@ def _step_evcells() -> None:
     from cs_analyzer.web.ev_data import ev_table
 
     ev_table()
+
+
+def _step_duelmo() -> None:
+    """Prewarm per-demo duel-model shards (Round 2 对枪模型)."""
+    from cs_analyzer.web.duel_data import duel_report
+
+    duel_report()

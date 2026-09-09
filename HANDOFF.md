@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-08（Phase S3 第四轮审计整改——分片失效链补口/peek 路由/wave2 竞态根治/死端点清理，待审+待验收）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-09（Phase V2 研究性开发 Round 1-3 完结——V2 胜率 AUC 0.8335 已接受 + 对枪模型首基线 0.806 + Round 3 双假设负结果结案，进入稳定化收尾，369 测试全绿，待审+待验收）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,7 +13,7 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 24 个 demo 在库、303 测试全绿、visual_check 22 页零 console 错误、accept_buttons 13 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、369 测试全绿、visual_check 28 页零 console 错误、accept_buttons 20 步零失败**。
 
 **Git 状态（Phase X 完成待审）**：origin/main = `acfb704`（Phase W 已提交推送）。
 **Phase X 信息架构重组已完成**——单行三簇导航（对象/洞察/工具）、/fun-lab 与
@@ -1172,5 +1172,78 @@ system/match_detail 概览+经济/map_utility/teams）、78 路由逐一核对�
 app.py 主体不再拆（1479 行）；match_detail inline JS；ruff 风格类基线
 （I001/N806/B905 等，非正确性）；coverage.html（CLI 在用）；D2b（等 FACEIT
 key）；gh-pages/内容生产线（冻结维持）。
+
+## 21. Phase V2 —— 研究性开发 Round 1：胜率模型升级（2026-09-09，待审+待验收）
+
+**背景**：用户立项"研究性开发，迭代开发 cs 对战算法"。计划批准：胜率模型 V2 +
+对枪模型两条线、每轮直接上页面、用现有 35 场。方法论 = baseline-driven
+iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账）。
+**协议与台账在 `docs/research-ledger.md`，评估器 `scripts/research_eval.py`**
+（数据=winloo 分片，LOO 跨场，weighted/pooled AUC + Brier + logloss + 固定
+十分位校准）。V1 基线冻结：weighted AUC 0.8168 / Brier 0.171（6031 快照）。
+
+### Round 1 结果：V2 已接受
+
+- **weighted AUC 0.8168→0.8335（+1.7pt）、Brier 0.171→0.1682、logloss 同降，
+  校准两端修复**（[0,10%] 桶 pred 5.4% vs obs 5.5%）。裁决=接受（事前标准：
+  AUC≥基线且 Brier≤基线）。
+- **12 特征**（FEATURE_NAMES 定序=shard 行序契约）：alive_diff/buy_diff/
+  equip_diff/planted/**plant_sec/elapsed_sec（名义时长截断防泄露：115s/OT 20s）/
+  hp_diff/awp_diff/util_diff/rating_diff（存活者 Rating21 和差）/side（T=1/CT=0，
+  双侧视角建样）/alive_diff×planted**。纯 numpy 逻辑回归不变。
+- **页面语义**：对局页胜势曲线默认**跨场诚实曲线**（LOO memo 暖时回放其余 34 场
+  训练的 OOS 预测，note 标"V2·跨场"）；memo 冷回退单场 in-sample（"V2·单场"）。
+  OOS 曲线无逐点带（35 场池化 bootstrap 实测超预算，台账记录）。
+- **实现面**：`win_probability.py` 重写（`_TickState` per-player 连续段查询、
+  `brier_score`/`decile_calibration` 共享 helper、`requires=("economy",
+  "ratings21")`）；`winprob_loo.py` payload v2（12 宽行+sides/positions+meta
+  **形状守卫拒 legacy**）+ OOS by_pos（键含 side 防 T/CT 同 tick 覆盖）+
+  `loo_memo_peek()`；app.py API 增 `model`/`curve_source`/`brier`/`calibration`；
+  match_detail JS 带渲染（无带时不画 band）。
+- **失效链**：`_SNAPSHOT_SOURCES` += `analysis/economy.py`（winloo 新依赖）。
+  src8 已 roll → 部署后一次性全量重建（~15 分钟惯例）。
+- **测试 343→355**（+12：`tests/test_winprob_v2.py` 双侧视角/防泄露截断/hp tick
+  路径/无 tick 降级/warmup 死亡剔除/形状守卫/API 键/OOS 合并）。
+- **新坑（已修）**：重写 `_auc` 丢并列步进 `i=j+1` → 并列预测死循环（pytest
+  全体挂起的根因；修复+注释）。教训：纯函数重构先跑含并列的旧单元测试。
+- 观察留档：本轮增益未做逐特征消融；research_eval 后续可加 `--ablate`。
+
+### Round 2 —— 对枪胜率模型（首个诚实基线，已落地）
+
+- `analysis/duel_model.py`（新模块，runner 已注册）：engagement 抽取（首伤建样）
+  + 四规则标签 + 17 特征 + `_calibrate_convention`（aim_science 同款视角校准）。
+  **关键修复**：致命首伤同 tick 翻 is_alive → t0−1 重试，样本 4296→5871、
+  AUC 0.748→**0.806**、Brier 0.193→**0.153**（排除流分析发现的系统性偏差，
+  过程记台账）。
+- `web/duel_data.py`（duelmo 分片族 + LOO + 选手聚合板）；`/api/duel-model.json
+  (?player=)` peek-503；生涯页"🎯 对枪实力"块（期望=跨场留一 p、超预期差
+  EB 收缩展示、<20 灰显）；失效链 += duel_model.py + duel_data.py；wave2
+  `_step_duelmo`（**test_stabilize 桩清单已同步 14 步**）；family 映射锁已加。
+- `research_eval.py --model duel` 落地（同协议）；台账 Round 2 记
+  **weighted AUC 0.8062 / Brier 0.1527 / 5871 判定样本**。
+- **数据事实**：WMPVP `player_hurt` 无 `distance` 列（玩家死亡事件才有）——
+  对枪距离走 tick XY 平面距离 fallback（游戏单位），口径注记照实。
+- 测试 355→**369**（+14：四规则标签/特征序/致命首伤保留/队伤不建样/503 契约/
+  404/评估器 arity）。
+
+### Round 3 —— 假设迭代（双负结果，触发收尾规则）
+
+- **H-A**：对枪模型加"先开火"双特征（首伤前 3s 内 weapon_fire，严格早于 t0）
+  → AUC 0.8062→0.8063（≈0）。裁决：不采纳进页面（特征留模块零成本）。解读：
+  交战结果在首伤瞬间已被场景特征（预瞄/停动/被闪）基本定型。
+- **H-B**：胜率模型 rating_diff 换跨库生涯 Rating（rating21 分片 LOO 排除
+  自身）→ AUC 0.8177 ≈ 完全去掉该特征（0.8188）。裁决：不采纳；per-demo 版
+  的增量来自"本场谁还活着"的合规状态信息；页面 OOS 训练集是其它 34 场的行，
+  rating_diff 各场自己的值，语义一致，无泄露。
+- **基建**：`research_eval.py --ablate <col>` / `--rating-mode career`；
+  winloo 分片 payload 增 `alive_keys`（每快照存活者名单，形状守卫同步）——
+  career rekey 的合并层实现（`_career_ratings`/`_rekey_rating_column`）留作
+  未来假设的现成材料。round_deaths 重构为 (tick, sid) 对（no-tick 降级路径
+  的存活集重建准确化）。
+- **收尾规则触发**：连续两轮无改进（预设的两个假设都测完且均负）→ 按计划
+  进入稳定化收尾：pytest 369 全绿、ruff F 级 0，验收与提交待用户。
+
+### Round 2 预告（未开始→已提前完成，见上）
+
 
 

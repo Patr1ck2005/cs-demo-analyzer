@@ -72,6 +72,10 @@ def invalidate_aggregate() -> None:
     from cs_analyzer.web import winprob_loo
 
     winprob_loo.invalidate_winloo()
+    # Round 2: the duel-model shards aggregate the same cache set
+    from cs_analyzer.web import duel_data
+
+    duel_data.invalidate_duelmo()
     # S: per-demo in-memory analysis caches key by demo_hash — a re-parse of
     # the same hash (PARSER_VERSION bump) must not keep serving old modules
     from cs_analyzer.web.app import _analysis_cache, _module_cache

@@ -62,7 +62,7 @@
   </div>
 
   <div class="section-header"><h2>胜势曲线（实验）</h2>
-    <div class="section-actions sub" id="winprob-note" style="margin:0">V1 · T 方视角逐事件胜率</div></div>
+    <div class="section-actions sub" id="winprob-note" style="margin:0">V2 · T 方视角逐事件胜率</div></div>
   <div class="card" style="padding:8px">
     <div id="winprob-chart" style="width:100%;height:340px" class="chart-loading"></div>
   </div>
@@ -462,7 +462,8 @@
   async function loadWinProbability() {    const note = document.getElementById('winprob-note');
     try {
       const p = await fetchJson(`/api/demo/${H}/analysis/win_probability.json`);
-      if (note && p.note) note.textContent = 'V1 · ' + p.note;
+      const srcTag = p.curve_source === 'oos' ? 'V2·跨场' : 'V2·单场';
+      if (note && p.note) note.textContent = srcTag + ' · ' + p.note;
       const rounds = p.rounds || [];
       if (!rounds.length) { hideSkeleton('winprob-chart'); return; }
       const series = [];
@@ -472,16 +473,21 @@
         const r = rnd[0].round;
         const xs = rnd.map((s) => s.tick);
         const ys = rnd.map((s) => Math.round(s.p_win * 1000) / 10);
-        const bandLo = rnd.map((s) => Math.round(s.p_lo * 1000) / 10);
-        const bandHi = rnd.map((s) => Math.round(s.p_hi * 1000) / 10);
         series.push({ name: `R${r}`, type: 'line', showSymbol: false, smooth: true,
                       data: xs.map((x, i) => [x, ys[i]]),
                       lineStyle: { width: 2 }, z: 3 });
-        series.push({ name: `R${r}b1`, type: 'line', data: xs.map((x, i) => [x, bandLo[i]]),
-                      lineStyle: { opacity: 0 }, stack: `band${r}`, symbol: 'none', silent: true, z: 1 });
-        series.push({ name: `R${r}b2`, type: 'line', data: xs.map((x, i) => [x, bandHi[i] - bandLo[i]]),
-                      lineStyle: { opacity: 0 }, areaStyle: { color: 'rgba(167,139,250,.10)' },
-                      stack: `band${r}`, symbol: 'none', silent: true, z: 1 });
+        // V2 OOS curve has no per-point band (p_lo/p_hi null) — the band
+        // series render only for the in-sample fallback curve.
+        const hasBand = rnd.some((s) => s.p_lo !== null && s.p_lo !== undefined);
+        if (hasBand) {
+          const bandLo = rnd.map((s) => Math.round(s.p_lo * 1000) / 10);
+          const bandHi = rnd.map((s) => Math.round(s.p_hi * 1000) / 10);
+          series.push({ name: `R${r}b1`, type: 'line', data: xs.map((x, i) => [x, bandLo[i]]),
+                        lineStyle: { opacity: 0 }, stack: `band${r}`, symbol: 'none', silent: true, z: 1 });
+          series.push({ name: `R${r}b2`, type: 'line', data: xs.map((x, i) => [x, bandHi[i] - bandLo[i]]),
+                        lineStyle: { opacity: 0 }, areaStyle: { color: 'rgba(167,139,250,.10)' },
+                        stack: `band${r}`, symbol: 'none', silent: true, z: 1 });
+        }
         for (let i = 0; i < rnd.length; i++) {
           const s = rnd[i];
           if (s.planted && (i === 0 || !rnd[i - 1].planted)) {

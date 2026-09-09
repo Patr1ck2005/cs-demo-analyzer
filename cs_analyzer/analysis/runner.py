@@ -37,6 +37,8 @@ import cs_analyzer.analysis.funlab  # noqa: F401
 # "failed to produce a result" — U1 lesson)
 import cs_analyzer.analysis.aim_science  # noqa: F401  # R3 枪法科学
 import cs_analyzer.analysis.loss_attribution  # noqa: F401  # R5 失利归因
+# Research Round 2: engagement-level duel win model (duelmo shards)
+import cs_analyzer.analysis.duel_model  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

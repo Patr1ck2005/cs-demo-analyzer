@@ -288,7 +288,7 @@ def test_warmup_kick_rearms_after_ready(monkeypatch):
                  "_step_utilitylab", "_step_funlab", "_step_map",
                  "_step_lineups", "_step_stylemap", "_step_rating21",
                  "_step_winloo", "_step_aimsci", "_step_lossattr",
-                 "_step_evcells"):
+                 "_step_evcells", "_step_duelmo"):
         monkeypatch.setattr(warmup, name, lambda: None)
     warmup.kick()
     deadline = _t.monotonic() + 10

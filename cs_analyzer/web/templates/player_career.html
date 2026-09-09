@@ -57,6 +57,23 @@
   口径：<span id="aimsci-notes">…</span>
 </div>
 
+<div class="section-header"><h2>🎯 对枪实力（Round 2）</h2>
+  <div class="section-actions sub" style="margin:0">模型已吸收距离/武器/血甲/预瞄/被闪等场景优势 · 超预期差=比模型预期更能打多少 · &lt;{{ gate_duels }} 场灰显</div></div>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>选手</th><th class="num">对枪数</th><th class="num">实际胜率</th>
+        <th class="num">模型期望</th><th class="num">超预期差</th></tr>
+  </thead>
+  <tbody id="duelmo-tbody">
+    <tr><td colspan="5" class="sub">加载中…（预热后台进行，稍后自动填充）</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="sub" style="font-size:11px;margin-top:6px">
+  口径：<span id="duelmo-notes">…</span>
+</div>
+
 <div class="section-header"><h2>单场热力图</h2>
   <div class="section-actions" style="margin:0">
     <select id="career-match-pick" class="input" style="min-width:220px"></select>
@@ -286,6 +303,38 @@
   } catch (e) {
     const tb = document.getElementById('aimsci-tbody');
     if (tb) tb.innerHTML = '<tr><td colspan="7" class="sub">枪法科学数据未就绪（后台预热中，稍后刷新）</td></tr>';
+  }
+
+  // Round 2 对枪实力：跨库 duelmo memo（duel_peek/wave2 物化；503 时保留占位）
+  try {
+    const dm = await fetch('/api/duel-model.json')
+      .then((r) => { if (!r.ok) throw r.status; return r.json(); });
+    const notes = document.getElementById('duelmo-notes');
+    if (notes) notes.textContent = (dm.notes || {}).sample_def + '；' + (dm.notes || {}).label_def
+      + '；' + (dm.notes || {}).diff_def + '；' + (dm.notes || {}).boundaries;
+    const tb = document.getElementById('duelmo-tbody');
+    if (tb) {
+      const pc = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
+      const rows = (dm.players || []).slice(0, 12).map((x) => {
+        const me = x.steamid === SID;
+        const gated = (x.conf || {}).gated;
+        const cls = (me ? 'csa-me-row' : '') + (gated ? ' csa-conf-gated' : '');
+        const diffTxt = x.diff == null ? '—'
+          : (x.diff >= 0 ? '+' : '') + (x.diff * 100).toFixed(1) + 'pt'
+            + (x.diff_shrunk == null ? '' : ` <span class="sub">（收缩 ${(x.diff_shrunk * 100).toFixed(1)}pt）</span>`);
+        const conf = x.conf ? ` <span class="csa-conf${gated ? ' csa-conf-gated' : ''}">[${pc(x.conf.lo)}–${pc(x.conf.hi)}]</span>` : '';
+        return `<tr class="${cls}">` +
+          `<td><a href="/player/${x.steamid}">${CSACommon.esc(x.name)}</a>${me ? ' ⭐' : ''}</td>` +
+          `<td class="num">${x.n}${gated ? ' <span class="sub">少</span>' : ''}</td>` +
+          `<td class="num">${pc(x.win_rate)}${conf}</td>` +
+          `<td class="num">${pc(x.expected_rate)}</td>` +
+          `<td class="num">${diffTxt}</td></tr>`;
+      }).join('');
+      tb.innerHTML = rows || '<tr><td colspan="5" class="sub">暂无数据</td></tr>';
+    }
+  } catch (e) {
+    const tb = document.getElementById('duelmo-tbody');
+    if (tb) tb.innerHTML = '<tr><td colspan="5" class="sub">对枪模型数据未就绪（后台预热中，稍后刷新）</td></tr>';
   }
 
   // R5 失利模式：该选手参战队伍的败回合标签分布（fail-soft）

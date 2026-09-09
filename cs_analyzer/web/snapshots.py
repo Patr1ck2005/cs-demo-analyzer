@@ -84,8 +84,17 @@ _SNAPSHOT_SOURCES = (
     # payloads survive under a fingerprint-identical rebuild (same defect
     # class as the S2-A1 merge-layer gap).
     "analysis/win_probability.py",   # winloo   shards (web/winprob_loo.py)
+    # V2: winloo extraction consumes EconomyResult + build_purchase_log
+    # (buy tiers / AWP buyers / utility counts) — economy.py changes must
+    # roll the winloo shards or stale feature rows survive a rebuild.
+    "analysis/economy.py",
     "analysis/economy_ev.py",        # ev_cells shards (web/ev_data.py)
     "analysis/ratings21.py",         # rating21 shards (web/rating21_data.py)
+    # Round 2: duelmo shards (web/duel_data.py) — engagement-level duel
+    # features + labels; duel extraction also reads win_probability's
+    # stats helpers at merge layer (already listed).
+    "analysis/duel_model.py",
+    "web/duel_data.py",
     # S2-A1: R1 conf values (Wilson z / EB k) are computed at MERGE layer and
     # land inside the T1 snapshot payloads of lineups/map/utilitylab — a
     # stats.py change must invalidate those numbers or stale intervals

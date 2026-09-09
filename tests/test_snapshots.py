@@ -77,6 +77,7 @@ def test_snapshot_sources_cover_produced_numbers():
         "ev_cells": ["analysis/economy_ev.py", "web/ev_data.py"],
         "winloo": ["analysis/win_probability.py", "web/winprob_loo.py"],
         "rating21": ["analysis/ratings21.py", "web/rating21_data.py"],
+        "duelmo": ["analysis/duel_model.py", "web/duel_data.py"],
     }
     for family, producers in family_producers.items():
         for need in producers:
