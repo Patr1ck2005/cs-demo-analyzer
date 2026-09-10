@@ -587,12 +587,30 @@ def main() -> int:
 
         run("V-B2 overlap sweep (mode/filters/slider/half/chip)", step_overlap_sweep)
 
-        # ---- 22/23. (tail, V-B4) the self-invalidating steps: 一键入库 +
+        # ---- 22. 复盘提升包 A1: Ctrl+K palette — type a regular's name,
+        # Enter must land on their career page ----
+        def step_cmdk():
+            page.goto(BASE + "/", wait_until="networkidle", timeout=60000)
+            board = api("/api/search.json?q=Jake")
+            assert board["players"], "search API should know Jake"
+            jake_href = "/player/" + board["players"][0]["steamid"]
+            page.keyboard.press("Control+K")
+            page.wait_for_selector("#cmdk-input", timeout=10000)
+            page.fill("#cmdk-input", "Jake")
+            page.wait_for_selector("#cmdk-list .cmdk-row", timeout=15000)
+            page.keyboard.press("Enter")
+            page.wait_for_url(lambda url: url.endswith(jake_href),
+                              timeout=20000)
+            expect_no_console_errors("cmdk palette")
+
+        run("A1 Ctrl+K palette lands on player page", step_cmdk)
+
+        # ---- 23/24. (tail, V-B4) the self-invalidating steps: 一键入库 +
         # upload kick invalidate_aggregate → wave2 rebuild — deliberately
         # LAST so they never poison the memo-dependent assertions above.
         # Run-order contract: fresh server → this script once, nothing else.
 
-        # ---- 22. 一键入库 (idempotent on a clean demos/) ----
+        # ---- 23. 一键入库 (idempotent on a clean demos/) ----
         def step_import():
             page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
             page.click("#sys-import")
@@ -605,7 +623,7 @@ def main() -> int:
 
         run("system import click (tail, invalidates)", step_import)
 
-        # ---- 23. F10: upload rejects non-.dem, queues the .dem ----
+        # ---- 24. F10: upload rejects non-.dem, queues the .dem ----
         def step_upload():
             DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
             fake = ACCEPT_DIR / "accept-fake.dem"

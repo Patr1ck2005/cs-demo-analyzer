@@ -1303,6 +1303,42 @@ async def auto_import_toggle(request: Request):
     return JSONResponse(auto_import.status())
 
 
+# ---- 复盘提升包 A1: global quick search (Ctrl+K palette) ----
+
+@app.get("/api/search.json")
+def search_api(q: str = ""):
+    """Cross-library quick search over the T1 aggregate memo (request-safe).
+
+    Matches players (name substring / steamid prefix) and demos (filename /
+    map / match_id substring). Never scans — aggregated() is snapshot-backed.
+    """
+    from cs_analyzer.web.aggregation import aggregated
+
+    qn = (q or "").strip().lower()
+    out: dict = {"q": qn, "players": [], "matches": []}
+    if not qn:
+        return JSONResponse(out)
+    result = aggregated()
+    for p in result.players:
+        if qn in p.name.lower() or p.steamid.startswith(qn):
+            out["players"].append({
+                "name": p.name, "steamid": p.steamid,
+                "sub": f"{p.demo_count} 场 · Rating {p.avg_rating:.2f}",
+            })
+        if len(out["players"]) >= 5:
+            break
+    for d in result.demos:
+        hay = f"{d.filename} {d.map_name} {d.match_id or ''}".lower()
+        if qn in hay:
+            out["matches"].append({
+                "name": d.filename, "hash": d.demo_hash,
+                "sub": f"{d.map_name} · {d.t_score}:{d.ct_score} · {d.rounds} 回合",
+            })
+        if len(out["matches"]) >= 5:
+            break
+    return JSONResponse(out)
+
+
 @app.get("/api/system/scan-sources.json")
 def system_scan_sources():
     """S2-A5: dry-run scan of the platform source dirs (configs/demo_sources.yaml).

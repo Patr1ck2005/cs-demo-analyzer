@@ -1327,5 +1327,18 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
 - **观察留档**：本组数据 untraded 标签在败回合普遍命中（Jake 97%）——
   "主标签占比"规则对该组区分度有限，未来假设：败回合内标签**率**而非在场性。
 
+### A1 全局快速搜索（2026-09-10 深夜，复盘提升包续件）
+
+- `GET /api/search.json?q=`：T1 aggregate memo 双源（PlayerRow + DemoRow），
+  选手=昵称子串/steamid 前缀、对局=文件名/地图/match_id 子串，各 cap 5，
+  **永不扫库**（request-safe，aggregated() 快照背书）。
+- 前端：base.html 全站挂 `#cmdk` 遮罩 + `static/js/search.js`（Ctrl+K/Cmd+K 开、
+  Esc/背板关、↑↓ 选择、Enter 直达、150ms 防抖）；样式进 style.css；所有
+  服务端字符串经 CSACommon.esc 转义（F8 惯例）。
+- 验收：accept_buttons 23→**24 步**（步骤 22=Ctrl+K → 输入 Jake → Enter 落点
+  /player/{sid}）；自触发入库/上传步骤顺延为 23/24（队尾契约不变）。
+- 测试 390→**393**（search API 三态 + base 模板装载锁）；visual 28 页 0 失败；
+  accept 24 步 0 失败；ruff F 级 0。
+
 
 

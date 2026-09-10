@@ -45,8 +45,17 @@
 <main>
 {% block content %}{% endblock %}
 </main>
+<div id="cmdk" hidden>
+  <div class="cmdk-backdrop"></div>
+  <div class="cmdk-panel" role="dialog" aria-label="全局搜索">
+    <input id="cmdk-input" type="text" placeholder="搜索：昵称 / SteamID / 地图 / 文件名…（Ctrl+K）" autocomplete="off" spellcheck="false">
+    <div id="cmdk-list"></div>
+    <div class="cmdk-foot sub">↑↓ 选择 · Enter 打开 · Esc 关闭</div>
+  </div>
+</div>
 <script src="/static/js/common.js?v={{ static_v }}"></script>
 <script src="/static/app.js?v={{ static_v }}"></script>
+<script src="/static/js/search.js?v={{ static_v }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

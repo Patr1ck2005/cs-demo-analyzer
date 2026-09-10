@@ -196,6 +196,38 @@ def test_viewer_overlap_404(web_client) -> None:
         assert "未找到 demo" in r.text
 
 
+def test_search_api(web_client) -> None:
+    """/api/search.json over the T1 aggregate memo (复盘提升包 A1)."""
+    c, h, _ = web_client
+    r = c.get("/api/search.json?q=")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["players"] == [] and body["matches"] == []
+    # player by name substring + steamid prefix
+    r2 = c.get("/api/search.json?q=alice")
+    assert r2.status_code == 200
+    players = r2.json()["players"]
+    assert players and players[0]["name"] == "Alice"
+    assert players[0]["steamid"].startswith("7656111")
+    r3 = c.get("/api/search.json?q=76561111111110002")
+    assert any(p["name"] == "Bob" for p in r3.json()["players"])
+    # demo by map substring
+    r4 = c.get("/api/search.json?q=mirage")
+    assert r4.json()["matches"], "map substring should hit the demo row"
+    m = r4.json()["matches"][0]
+    assert m["hash"] == h
+    # capped at 5 each side
+    r5 = c.get("/api/search.json?q=e")
+    assert len(r5.json()["players"]) <= 5 and len(r5.json()["matches"]) <= 5
+
+
+def test_base_template_carries_cmdk() -> None:
+    """A1: the palette markup + script ship on every page via base.html."""
+    tpl = (Path(web_app.__file__).parent / "templates" / "base.html"
+           ).read_text(encoding="utf-8")
+    assert 'id="cmdk"' in tpl and "js/search.js" in tpl
+
+
 def test_highlights_page(web_client) -> None:
     c, _, _ = web_client
     r = c.get("/highlights")
