@@ -33,10 +33,13 @@
 
 <div class="section-header"><h2>未入库文件</h2>
   <div class="section-actions">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+      <input type="checkbox" id="sys-auto-import"> 自动入库（每 30s 监视 demos/）</label>
     <button class="btn btn-sm" id="sys-scan-sources" type="button">扫描平台目录</button>
     <button class="btn btn-sm" id="sys-import" type="button">一键入库</button></div></div>
 <div class="card">
   <div id="sys-unparsed" class="sub">加载中…</div>
+  <div id="sys-auto-status" class="sub" style="margin-top:6px"></div>
   <div id="sys-scan-result" class="sub" style="margin-top:8px;display:none"></div>
 </div>
 
@@ -154,6 +157,33 @@
       await fetch('/system/import', { method: 'POST' });
       setTimeout(() => { pollUnparsed(); pollJobs(); btn.disabled = false; }, 800);
     } catch (e) { btn.disabled = false; }
+  });
+
+  // 复盘提升包 B2: auto-import watcher toggle + status
+  const autoCb = document.getElementById('sys-auto-import');
+  const autoSt = document.getElementById('sys-auto-status');
+  async function pollAutoImport() {
+    try {
+      const r = await fetch('/api/system/auto-import.json');
+      if (!r.ok) return;
+      const s = await r.json();
+      autoCb.checked = s.enabled;
+      autoSt.innerHTML = `自动入库：${s.enabled ? '开启' : '关闭'} · 监视 <code>${CSACommon.esc(s.watched)}</code>` +
+        ` · ${CSACommon.esc(s.last_action)}` +
+        (s.failed_n ? ` · <span style="color:var(--err)">${s.failed_n} 个解析失败（不重试）</span>` : '');
+    } catch (e) { /* keep previous frame */ }
+  }
+  pollAutoImport();
+  setInterval(pollAutoImport, 10000);
+  autoCb.addEventListener('change', async () => {
+    try {
+      await fetch('/api/system/auto-import.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: autoCb.checked }),
+      });
+    } catch (e) { /* status line refreshes on next poll */ }
+    pollAutoImport();
   });
 
   // S2-A5: platform source dirs dry-run scan (reports only, never imports)

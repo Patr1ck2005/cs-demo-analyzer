@@ -65,6 +65,29 @@ main { max-width: 860px; margin: 0 auto; padding: 32px 24px; }
   {% for r in trend %}<span class="{{ 'w-t' if r.w == 'T' else 'w-ct' }}" title="R{{ r.n }}: {{ r.w }}"></span>{% endfor %}
 </div>
 
+<div class="section-header" style="border-color:#e6e4f0"><h2 style="color:#16182a;border:none">复盘结论（败方视角）</h2></div>
+{% if conclusions.key_rounds or conclusions.improvements %}
+<p class="sub" style="margin:0 0 10px">
+  曲线来源：{{ '跨场留一诚实曲线' if conclusions.curve_source == 'oos' else '单场拟合（跨场 memo 未预热）' }}
+  · 败方：{{ conclusions.loser_side }} 方
+</p>
+<div class="section-header" style="border-color:#e6e4f0;border:none"><h3 style="color:#16182a;margin:6px 0">关键回合</h3></div>
+{% for c in conclusions.key_rounds %}
+<div class="rp-hl"><span><span class="tier">R{{ c.round }}</span> · {{ c.rule }} · {{ c.sentence }}</span>
+  <span class="sub">{{ c.tags|join('、') if c.tags else '—' }}</span></div>
+{% else %}
+<div class="sub">本场无摆幅 ≥35% / 优势局失守 / 残局·无贸易的败回合。</div>
+{% endfor %}
+<div class="section-header" style="border-color:#e6e4f0;border:none"><h3 style="color:#16182a;margin:10px 0 6px">每人改进点（有证据才列出）</h3></div>
+{% for p in conclusions.improvements %}
+<div class="rp-hl"><span><b>{{ p.name }}</b> · {{ p.points|join('；') }}</span></div>
+{% else %}
+<div class="sub">本场所有选手各维度均在库基线带宽内（或跨库样本未就绪）。</div>
+{% endfor %}
+{% else %}
+<div class="sub">复盘结论不可用（{{ conclusions.notes.get('tie', '样本或数据未就绪') }}）。</div>
+{% endif %}
+
 <div class="section-header" style="border-color:#e6e4f0"><h2 style="color:#16182a;border:none">选手数据（按 Rating）</h2></div>
 <table class="rp-table">
   <thead><tr><th>选手</th><th>阵营</th><th class="num">K</th><th class="num">D</th><th class="num">ADR</th>

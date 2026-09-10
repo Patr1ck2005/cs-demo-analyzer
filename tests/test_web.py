@@ -838,6 +838,9 @@ def test_reports_page_and_match_report(web_client) -> None:
     assert "对局报告" in r2.text
     assert "选手数据" in r2.text
     assert "回合走势" in r2.text
+    # 复盘提升包 B1: conclusions section renders with honest fallbacks
+    assert "复盘结论" in r2.text
+    assert "败方视角" in r2.text
     # unknown demo -> error page convention (Phase S: real 404)
     r3 = c.get("/report/deadbeef")
     assert r3.status_code == 404

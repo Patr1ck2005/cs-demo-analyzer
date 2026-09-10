@@ -28,6 +28,32 @@
     <div class="stat-value">{{ '%.0f'|format(r21.kast21) if r21 else '—' }}</div></div>
 </div>
 
+{# 复盘提升包 A2: 实力画像卡 — 强项/弱项结论（同一 conclusions 合成层，B1 改进点同源） #}
+<div class="section-header"><h2>🎯 实力画像（vs 全库基线）</h2>
+  <div class="section-actions sub" style="margin:0">对枪=超预期差区间 · 枪法=急停下开火 vs 库中位 · 失利=主标签占比 · 道具=闪光价值/投掷</div></div>
+<div class="card" style="margin-bottom:14px">
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    {% for d in profile.dims %}
+    <div style="flex:1;min-width:220px;border:1px solid #2a2d47;border-radius:8px;padding:8px 10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <b style="font-size:13px">{{ d.label }}</b>
+        {% if d.verdict == 'strong' %}<span class="badge ok">强项</span>
+        {% elif d.verdict == 'weak' %}<span class="badge" style="color:var(--err);border-color:rgba(255,77,94,.3);background:rgba(255,77,94,.12)">弱项</span>
+        {% elif d.verdict == 'normal' %}<span class="badge">正常</span>
+        {% else %}<span class="badge">样本不足</span>{% endif %}
+      </div>
+      <div class="sub" style="font-size:11px;margin-top:4px">{{ d.anchor }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if profile.strong_items or profile.weak_items %}
+  <div class="sub" style="margin-top:8px">
+    {% for s in profile.strong_items %}<div>✅ {{ s }}</div>{% endfor %}
+    {% for s in profile.weak_items %}<div>⚠️ {{ s }}</div>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+
 <div class="grid">
   <div class="card" style="margin-bottom:0">
     <h2 style="border:none">生涯六轴雷达</h2>

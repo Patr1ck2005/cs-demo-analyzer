@@ -1298,5 +1298,34 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
 - **复验全绿**：pytest 370；visual_check 28 页 0 失败；accept_buttons 23 步
   0 失败（含新 overlap sweep 与队尾自触发步骤）；ruff F 级 0。待批准提交。
 
+### 复盘提升包（2026-09-10 晚，B1+A2+B2 一次到底）
+
+- **背景**：用户选定下一阶段方向=个人/车队复盘提升（开发需求讨论：菜单 8 项
+  A1/A2/B1/B2/B3/C1/C2/C3，C1 职业库等 FACEIT key 出列；本轮批准 B1+A2+B2）。
+  口径表随计划批准（关键回合三规则/每人改进点证据强度/画像四维判定/自动入库
+  稳定性+失败不重试），全部常量收在 `web/conclusions.py` 顶部。
+- **B1 自动复盘报告**：新 `web/conclusions.py`（纯合成层，零新分析——只读
+  winprob/lossattr 模块结果 + duel/aim/loss/utilitylab peek，永不扫库）；
+  `report_data.report_context()` 增 conclusions 键，report_match.html 新
+  "复盘结论（败方视角）"区（关键回合 + 每人改进点），PNG/PDF 导出自动包含。
+  失败模式留档：模板写 `p.items` → Jinja 解析为 dict.items() 方法，
+  真库数据 500（pytest 合成 demo 无弱项没暴露）→ 改名 `points` + 模板级
+  回归锁 `test_report_template_uses_points_not_items`。
+- **A2 实力画像卡**：生涯页顶部四维判定卡（对枪=diff 区间、枪法=急停下开火 vs
+  库中位、失利=主标签占比、道具=闪光价值/投掷 vs 库中位），与 B1 共用
+  `player_profile()` 单一实现；强项/弱项徽章（badge ok / 内联红）+ 数据锚。
+- **B2 自动入库**：新 `web/auto_import.py` 守护线程（30s 轮询 demos/ 根目录；
+  文件"连续两轮 size+mtime 不变且 ≥20s 龄"才入队——防半拷贝文件；任务走既有
+  `tasks.tasks.submit(app._parse_job)`；每批一次 invalidate；解析失败记
+  `_failed` **永不重试**）；开关持久化 `output/web/auto_import_state.json`
+  （默认开），`GET/POST /api/system/auto-import.json` + system 页开关/状态行；
+  demos/pro 不监听（D2b 另行）。
+- **测试 370→390**（+20：conclusions 13[含模板回归锁] + auto_import 7）。
+- **复验全绿**：pytest 390；visual_check 28 页 0 失败（report_match/player_career
+  截图人工复核：结论区/画像卡渲染正确）；accept_buttons 23 步 0 失败；
+  ruff F 级 0。README 补自动复盘/自动入库两 bullet；生涯页截图已刷新。
+- **观察留档**：本组数据 untraded 标签在败回合普遍命中（Jake 97%）——
+  "主标签占比"规则对该组区分度有限，未来假设：败回合内标签**率**而非在场性。
+
 
 

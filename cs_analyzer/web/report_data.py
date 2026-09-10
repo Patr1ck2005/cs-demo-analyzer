@@ -48,6 +48,10 @@ def report_context(demo: ParsedDemo) -> dict:
                 highlights.append({"tier": h.tier, "name": h.name, "round": h.round,
                                    "kills": h.kills, "side": h.side})
     meta = demo.metadata
+    # 复盘提升包 B1: rule-based conclusions (loser perspective) — reads the
+    # lazy per-module memos via runtime; never scans (peek-only layers).
+    from cs_analyzer.web.conclusions import match_conclusions
+
     return {
         "meta": {
             "map_name": meta.map_name,
@@ -64,5 +68,6 @@ def report_context(demo: ParsedDemo) -> dict:
         "trend": [{"n": r.number, "w": r.winner_side} for r in reg],
         "players": players,
         "highlights": highlights,
+        "conclusions": match_conclusions(demo),
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     }

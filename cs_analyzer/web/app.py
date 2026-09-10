@@ -52,6 +52,10 @@ async def _lifespan(app: FastAPI):
 
     _stale_cache_sweep()
     warmup.start_once()
+    # 复盘提升包 B2: demos/ watcher (daemon thread; system-page toggle).
+    from cs_analyzer.web import auto_import
+
+    auto_import.start_once()
     yield
 
 
@@ -248,9 +252,13 @@ def player_career(request: Request, steamid: str):
 
     # B4: career radar must normalize with the same server-side ranges as the
     # per-demo radar (the old hardcoded template ranges were wrong).
+    # 复盘提升包 A2: strength profile (same conclusions layer as B1 report).
+    from cs_analyzer.web.conclusions import player_profile
+
     return TEMPLATES.TemplateResponse(
         request, "player_career.html",
-        {"p": row, "radar_axes": RADAR_AXES, "r21": r21, "gate_duels": DUEL_GATE_N},
+        {"p": row, "radar_axes": RADAR_AXES, "r21": r21, "gate_duels": DUEL_GATE_N,
+         "profile": player_profile(steamid, name=row.name)},
     )
 
 
@@ -1272,6 +1280,27 @@ def system_import():
 
         invalidate_aggregate()
     return RedirectResponse("/system", status_code=303)
+
+
+# ---- 复盘提升包 B2: demos/ watcher toggle (system page) ----
+
+@app.get("/api/system/auto-import.json")
+def auto_import_status_api():
+    from cs_analyzer.web import auto_import
+
+    return JSONResponse(auto_import.status())
+
+
+@app.post("/api/system/auto-import.json")
+async def auto_import_toggle(request: Request):
+    from cs_analyzer.web import auto_import
+
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="需要 JSON body")
+    auto_import.set_enabled(bool(body.get("enabled")))
+    return JSONResponse(auto_import.status())
 
 
 @app.get("/api/system/scan-sources.json")
