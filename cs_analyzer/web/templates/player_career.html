@@ -315,7 +315,7 @@
     const tb = document.getElementById('duelmo-tbody');
     if (tb) {
       const pc = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
-      const rows = (dm.players || []).slice(0, 12).map((x) => {
+      const rowHtml = (x) => {
         const me = x.steamid === SID;
         const gated = (x.conf || {}).gated;
         const cls = (me ? 'csa-me-row' : '') + (gated ? ' csa-conf-gated' : '');
@@ -329,7 +329,15 @@
           `<td class="num">${pc(x.win_rate)}${conf}</td>` +
           `<td class="num">${pc(x.expected_rate)}</td>` +
           `<td class="num">${diffTxt}</td></tr>`;
-      }).join('');
+      };
+      const list = dm.players || [];
+      let rows = list.slice(0, 12).map(rowHtml).join('');
+      // 收尾 V-A1: 对枪块的语义是"我的对枪实力"——榜单 200+ 人，Top 12 之外
+      // 的选手此前在自己的生涯页看不到本人行；有榜内数据就追加显示。
+      const meIdx = list.findIndex((x) => x.steamid === SID);
+      if (meIdx >= 12) {
+        rows += '<tr><td colspan="5" class="sub">…</td></tr>' + rowHtml(list[meIdx]);
+      }
       tb.innerHTML = rows || '<tr><td colspan="5" class="sub">暂无数据</td></tr>';
     }
   } catch (e) {

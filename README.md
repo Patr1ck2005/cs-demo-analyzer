@@ -5,7 +5,7 @@
 **本地优先的 CS2 Demo 分析平台** —— 解析 `.dem`，产出定量统计 + 电竞 OB 级实时 2D 回放
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-276_passing-3DDC97)](#)
+[![Tests](https://img.shields.io/badge/tests-369_passing-3DDC97)](#)
 [![License](https://img.shields.io/badge/License-MIT-a78bfa)](#license)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows11&logoColor=white)](#)
 [![ECharts](https://img.shields.io/badge/charts-Apache_ECharts-AA344D?logo=apacheecharts&logoColor=white)](https://echarts.apache.org/)
@@ -75,9 +75,20 @@
 | :---: | :---: |
 | ![生涯](docs/screenshots/player_career.png) | ![对比](docs/screenshots/compare.png) |
 
-生涯页聚合每位选手的全部场次（雷达/趋势/单场热力图/个人高光）；对比页基于 ≥5 场有效样本计算
+生涯页聚合每位选手的全部场次（雷达/趋势/单场热力图/个人高光/🎯 对枪实力：实际对枪胜率
+vs 跨场模型期望与超预期差）；对比页基于 ≥5 场有效样本计算
 全库**百分位分位**，可勾选多名选手雷达叠加。**五排协同**卡：跨场助攻/补枪/闪光助攻连接网络
 （矩阵热力 + Top 连线）、车队局 vs 混野的胜率/Rating/首杀对比、常客画像标签（闪光发动机/首杀先锋/残局大师）。
+
+### 🗂 收藏 · 队伍 · 地图 · 系统
+| 收藏 | 队伍 |
+| :---: | :---: |
+| ![收藏](docs/screenshots/favorites.png) | ![队伍](docs/screenshots/teams.png) |
+| **地图分析** | **系统** |
+| ![地图](docs/screenshots/map_analysis.png) | ![系统](docs/screenshots/system.png) |
+
+收藏 + 备注编辑（跨页星标同步）；车队局画像与五排协同网络；按图开局/烟阻桶/道具落点分析；
+一键入库 + 平台目录 dry-run 扫描 + 快照性能面板。
 
 ## 快速开始
 
@@ -114,7 +125,7 @@ csa coverage "demos/*.dem" --out report.html   # 解析覆盖度报告
 - SourceTV 容错：无 `player_info` 时从 spawn 重建名单；阵营以逐 tick `team_num` 多数派为真值（换边安全）
 - 经验 tick rate 推导（velocity ÷ 位移中位数），match_id 自动提取
 
-**定量分析（13 个可插拔模块）**
+**定量分析（21 个可插拔模块）**
 - 基础：K/D/A、KPR、ADR、HS%、首杀/首死率
 - 评分：RWS、HLTV Rating 2.0 近似、KAST（标准 trade 语义）、Impact
 - 进阶：对枪矩阵、经济买法分类与胜率、闪光价值 + 闪光助攻、烟中击杀、开局路线聚类（T/CT）、
@@ -163,7 +174,9 @@ csa coverage "demos/*.dem" --out report.html   # 解析覆盖度报告
 | `basic_stats` | K/D/A、KPR、ADR、HS%、FKPR/FDPR |
 | `ratings` | RWS、Rating 2.0、KAST、Impact |
 | `preference` | 位置热力、道具落点、接敌风格、准星高度 |
+| `funlab` | 趣味数据：风格星系、跨时间窗向量漂移、四象限 |
 | `duels` | 选手 × 选手对枪胜率矩阵 |
+| `duel_model` | 跨场对枪模型：留一期望胜率 + 超预期差（EB 收缩展示） |
 | `economy` | 逐回合 eco/force/full 分类 + 各买法胜率 + 连败 |
 | `utility_effect` | 闪光价值榜、闪光助攻、烟中击杀/死亡 |
 | `routes` | 开局路线聚类（种子化 k-means，T/CT 双方） |
@@ -171,18 +184,25 @@ csa coverage "demos/*.dem" --out report.html   # 解析覆盖度报告
 | `kill_context` | 穿墙/穿烟/盲狙/空中/距离徽章、MVP、捡枪 |
 | `hitgroups` | 部位伤害分布、护甲减伤效率 |
 | `aim` | 开火转化、移动状态开火、首发延迟 |
+| `aim_science` | 跨库枪法科学：停/动开火、急停开火、对枪停动拆分 |
+| `loss_attribution` | 逐回合失利归因标签 + 跨库失利模式分布 |
 | `postplant` | 守包/retake 胜率、拆弹尝试与用时 |
 | `weapon_splits` | 武器类别击杀/死亡拆分 |
 | `ratings21` | HLTV Rating 2.1 口径近似（KAST 保枪规则 + 助攻加成 + 再校准） |
 | `weapon_timeline` | 逐 tick 武器持有段 / 每回合开局主武器 / 持有时长击杀转化 |
-| `win_probability` | 回合胜势曲线（逐事件 logistic + bootstrap 置信带） |
+| `win_probability` | 回合胜势曲线 V2（双侧逐事件 logistic；页面默认跨场留一诚实曲线，标注留一 AUC / 库级 Brier） |
 | `economy_ev` | 决策 EV 查询表（买法×比分×连败，N<5 灰显） |
 
 ## 职业基准与竞技 AI
 
 - **职业基准参照**：bo3.gg 公开统计 API 采集 s1mple / m0NESY / donk 等选手的逐图数据
   （`python scripts/pro_baseline.py s1mple m0nesy donk`），/compare 页职业基准卡展示。
-- **胜势曲线**：对局概览页逐回合 T 方胜率曲线，含下包标记与 80% 置信带（单场拟合，样本随库增长增强）。
+- **胜势曲线 V2**：对局概览页逐回合 T 方胜率曲线，含下包标记；默认展示**跨场诚实曲线**
+  （其余场次训练的留一预测，标注本场留一 AUC 与库级 Brier）。评估协议与各轮结果
+  （含负结果）见 [docs/research-ledger.md](docs/research-ledger.md)。
+- **对枪实力模型**：每回合首次伤害建样（先死者归谁；含距离/武器/血甲/预瞄/被闪上下文），
+  生涯页展示实际对枪胜率 vs 模型期望与**超预期差**——模型吸收场景优势后，剩下的才是
+  "比预期更能打"（符合"人与人对比必须排除打得多=数据高"的口径原则）。
 - **决策 EV**：经济 Tab 的买法×比分差×连败状态查询表，小样本格自动灰显。
 - **风格演变**：趣味数据页风格星系支持时间窗演变轨迹（同一选手跨窗口向量漂移）。
 - **控图 v2**：交战衰减 + 存活加权 + 密度去重（⚙ 面板可调，v1/v2 开关并存）。
@@ -200,16 +220,20 @@ RWS 与 Rating 为自实现的专有公式近似（HLTV 2.0 / ESEA RWS 风格）
 
 ```bash
 pip install -e ".[dev]"
-pytest                    # 276 tests
+pytest                    # 369 tests
 ruff check cs_analyzer/
 ```
 
 ### 性能（Phase T）
 
-跨场聚合快照落盘 + 进程池扫描 + per-demo 分片增量：冷重启到数据就绪 **~5s**（24 demo 库，
+跨场聚合快照落盘 + 进程池扫描 + per-demo 分片增量：冷重启到数据就绪 **~5s**（35 demo 库，
 此前 ~175s）；全量重算 201s→131s；新增 demo 只补算新 demo（5×）。`/system` 页有实时
 性能面板（快照清单/指纹/预热耗时），快照目录 `output/web/snapshots/` 可随时删除自动重建。
 
 ## License
 
 MIT
+
+
+<!-- project-hub:web-entry -->
+统一网页入口、停止和重启方式见 [WEB_ENTRY.md](WEB_ENTRY.md)。以此处登记端口和新脚本为准。

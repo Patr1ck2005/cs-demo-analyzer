@@ -530,6 +530,53 @@ def main() -> int:
 
         run("S2 scan-sources dry-run button", step_scan_sources)
 
+        # ---- 21. 收尾 V-A1: the career duel block shows the viewer's own
+        # row even outside the Top 12 (board is 200+ players; slice(0,12)
+        # used to hide 209 of them on their own career page) ----
+        def step_duel_self_row():
+            board = api("/api/duel-model.json")
+            players = board.get("players", [])
+            if len(players) <= 12:
+                return  # small library: the Top 12 covers everyone
+            victim = players[14]  # rank 15 — provably outside the slice
+            page.goto(BASE + f"/player/{victim['steamid']}",
+                      wait_until="networkidle", timeout=90000)
+            page.wait_for_function(
+                """() => {
+                    const tb = document.getElementById('duelmo-tbody');
+                    return tb && tb.querySelector('a') &&
+                        !tb.textContent.includes('未就绪');
+                }""", timeout=60000)
+            hrefs = page.eval_on_selector_all(
+                "#duelmo-tbody a", "els => els.map(e => e.getAttribute('href'))")
+            sids = [h.split("/player/")[1] for h in hrefs if h]
+            assert victim["steamid"] in sids, \
+                f"rank-15 player's own duel row missing: {sids}"
+            expect_no_console_errors("duel self row")
+
+        run("V-A1 duel block shows own row outside Top 12", step_duel_self_row)
+
+        # ---- 22. 收尾 V-A2: winprob V2 OOS note (no duplicated 跨场 prefix)
+        # + chart actually mounted on the match page ----
+        def step_winprob_v2():
+            page.goto(BASE + f"/match/{H}", wait_until="networkidle",
+                      timeout=90000)
+            page.wait_for_function(
+                """() => {
+                    const el = document.getElementById('winprob-note');
+                    return el && /留一 AUC/.test(el.textContent);
+                }""", timeout=90000)
+            note = page.locator("#winprob-note").text_content()
+            assert "V2·跨场" in note, f"source tag missing: {note!r}"
+            assert note.count("跨场") == 1, f"duplicated prefix back: {note!r}"
+            mounted = page.evaluate(
+                "() => { const el = document.getElementById('winprob-chart');"
+                " return el ? !!echarts.getInstanceByDom(el) : false; }")
+            assert mounted, "winprob chart not mounted"
+            expect_no_console_errors("winprob V2")
+
+        run("V-A2 winprob OOS note + chart mounted", step_winprob_v2)
+
         browser.close()
 
     print("\nACCEPTANCE FAILURES:", failures or "none")

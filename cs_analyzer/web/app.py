@@ -886,7 +886,8 @@ def win_probability_charts(demo_hash: str):
     if curve_source == "oos" and loo_auc is not None:
         n_demos = (memo or {}).get("n_demos")
         brier = (memo or {}).get("brier")
-        note = (f"跨场诚实曲线：其余 {n_demos - 1} 场训练 · 本场留一 AUC {loo_auc:.2f}"
+        # 收尾 V-A2: 页面已加 "V2·跨场" 来源标——note 里不再重复"跨场诚实曲线"前缀
+        note = (f"其余 {n_demos - 1} 场训练 · 本场留一 AUC {loo_auc:.2f}"
                 + (f" · 库级 Brier {brier:.3f}" if brier is not None else ""))
 
     return JSONResponse({

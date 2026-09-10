@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-09（Phase V2 研究性开发 Round 1-3 完结——V2 胜率 AUC 0.8335 已接受 + 对枪模型首基线 0.806 + Round 3 双假设负结果结案，进入稳定化收尾，369 测试全绿，待审+待验收）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-10（Phase V2 完结+收尾检查完成：fa45b7e 已推送；收尾修复=对枪块本人行 Top12 外追加/胜率注释去重复/胜势曲线 V2 正名；README+14 张截图对齐现状；accept_buttons 20→22 步；收尾改动待批准提交）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,13 +13,9 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、369 测试全绿、visual_check 28 页零 console 错误、accept_buttons 20 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、369 测试全绿、visual_check 28 页零 console 错误、accept_buttons 22 步零失败**。
 
-**Git 状态（Phase X 完成待审）**：origin/main = `acfb704`（Phase W 已提交推送）。
-**Phase X 信息架构重组已完成**——单行三簇导航（对象/洞察/工具）、/fun-lab 与
-/utility-lab 深度合并退役（301）、五排协同迁 /teams、/report 入口补链+导出防泄漏、
-遗留小件清账（utilitylab/mapdata 分片化、V1 跨场 LOO、V3 阈值客户端化），明细见 §17。
-**工作区待审，等用户验收 + provenance**。
+**Git 状态**：origin/main = `fa45b7e`（Phase V2 研究轮 1-3 已提交推送）。工作区为**收尾检查改动**（对枪块本人行修复 + 胜率注释去重 + V2 正名 + README/截图对齐 + accept_buttons +2 步），待批准提交。
 
 - **Phase X 一句话**：13 一级页 → 10 + 链接卫生 + 遗留性能/科学性小件全清，303 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
@@ -1244,6 +1240,36 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
   进入稳定化收尾：pytest 369 全绿、ruff F 级 0，验收与提交待用户。
 
 ### Round 2 预告（未开始→已提前完成，见上）
+
+### 收尾检查 —— 面向页面与用户流程的阶段收官（2026-09-10，fa45b7e 之后）
+
+- **审计面**：79 路由 vs 导航/模板内链对账（无死链、无孤儿导航；legacy `/demo/*`+
+  `/aggregate` 301 在位；`/{placeholder}` catch-all 404 正常）；关键对象流（上传/
+  一键入库/scan-sources dry-run/收藏 star+note/报告导出单飞/⚙ 19 参数存取）全部有
+  按钮级验收覆盖；HANDOFF 既有"不动债务"清单复核仍成立（app.py 1535 行不拆、
+  inline JS、ruff 风格基线、coverage.html、gh-pages、D2b）。
+- **修复 1（V-A1，半成品）**：生涯页"对枪实力"块只渲染榜 Top 12，而榜 221 人 →
+  排名 >12 的选手（209/221）在自己的生涯页看不到本人行（复现：rank15 丶风雨同路
+  `/player/76561198840580326`）。修复：Top 12 外追加本人行（`…` 分隔；数据同一
+  payload，零 API 改动；`duel_for(?player=)` 留作外部契约）。
+- **修复 2（V-A2，措辞重复）**：页面"V2·跨场"来源标 + note"跨场诚实曲线：…"前缀
+  语义重复 → note 去前缀（app.py；现渲染"V2·跨场 · 其余 34 场训练 · 本场留一
+  AUC …"）。
+- **修复 3（正名）**：对局页"胜势曲线（实验）"→"胜势曲线 V2"（V2 已是接受态默认）。
+- **验收脚本**：accept_buttons 20→**22 步**（21=rank15 选手本人行断言；22=note 无
+  重复前缀 + 胜率图挂载断言）。
+- **README 对齐现状**：badge/pytest 276→369；模块 13→21（表补 funlab/aim_science/
+  loss_attribution/duel_model 四行）；win_probability 行改 V2 口径；性能节 24→35
+  demo；"职业基准与竞技 AI"节加对枪模型 bullet + `docs/research-ledger.md` 链接；
+  界面一览补收藏/队伍/地图/系统截图行；保留文件尾 hub web-entry 块。
+- **截图**：`docs/screenshots/` 14 张 PNG 全量重摄（player_career 含对枪块、
+  match_overview 含 V2 注释与 OOS 曲线；4 张 GIF 手工录制保留）。
+- **快照零误伤**：app.py/模板不在 `_SNAPSHOT_SOURCES`——本轮全部改动不触发指纹
+  失效；buttons 自触发 invalidate 后立刻重启会撞 wave2 重建窗口（S2 坑 1 再次
+  实证，等 `phase=done` 再跑）。
+- **复验全绿**：pytest 369；visual_check 28 页 0 失败；accept_buttons 22 步 0 失败
+  （fresh-server 单跑契约；期间一轮 hub"网页服务已意外退出"复跑即过，负载时序
+  非代码）；ruff F 级 0。待批准提交。
 
 
 
