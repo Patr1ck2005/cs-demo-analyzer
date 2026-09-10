@@ -619,9 +619,12 @@ def match_detail(request: Request, demo_hash: str):
 def match_viewer(request: Request, demo_hash: str):
     demo = _load(demo_hash)
     if demo is None:
+        # 收尾 V-B1: 404 分支必须真的返回 404 —— 漏 status_code 时 error.html
+        # 会以 200 出去，与 /match、/player 的 404 分支不一致。
         return TEMPLATES.TemplateResponse(
             request, "error.html",
             {"message": f"未找到 demo {demo_hash[:12]}（缓存可能正在后台重解析，请稍后刷新重试）"},
+            status_code=404,
         )
     meta = demo.metadata
     reg = demo.regular_rounds

@@ -7,6 +7,13 @@ defects F1/F2/F3/F4/F5/F9/F10/F12 at the UI level plus the Phase X IA
 regressions (nav active state, retired 301s, lab deep-link); server-side
 contracts are covered by tests/test_phase_w.py and tests/test_phase_x.py.
 
+Run-order contract (收尾 V-B4): fresh server → this script ONCE, nothing
+else. The self-invalidating steps (一键入库 / upload) live at the TAIL —
+mid-run they used to kick a wave2 rebuild under the memo-dependent V2
+steps (16/19/20 eat 503s while shards rebuild). Memo-dependent steps
+additionally gate on wait_warm() so an externally cold server heals
+instead of failing.
+
 Writes temporary artifacts only under output/.accept/ (fake upload payload);
 cleans up after itself. Exit code 1 = any failure.
 """
@@ -275,51 +282,14 @@ def main() -> int:
 
         run("F9 report export single-flight", step_export)
 
-        # ---- 10. 一键入库 (idempotent on a clean demos/) ----
-        def step_import():
-            page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
-            page.click("#sys-import")
-            # the click feedback IS the disabled state (fetch in flight)
-            page.wait_for_timeout(300)
-            assert page.locator("#sys-import").is_disabled(), "import gave no click feedback"
-            page.wait_for_function("!document.getElementById('sys-import').disabled",
-                                   timeout=15000)
-            expect_no_console_errors("system import")
+        # ---- (收尾 V-B4) steps 10/11 moved to the TAIL: the import/upload
+        # steps invalidate the aggregate + kick a wave2 rebuild, and the
+        # V2-era steps 16-20 consume wave2 memos (aimsci/winloo/duelmo) —
+        # mid-run they raced that rebuild and ate 503s (7/23 failures in one
+        # round). Self-invalidating steps now run last, after every
+        # memo-dependent assertion is done.
 
-        run("system import click", step_import)
-
-        # ---- 11. F10: upload rejects non-.dem, queues the .dem ----
-        def step_upload():
-            DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
-            fake = ACCEPT_DIR / "accept-fake.dem"
-            fake.write_bytes(b"CSDEMO-accept-fake" * 200)
-            txt = ACCEPT_DIR / "notes.txt"
-            txt.write_bytes(b"not a demo")
-            page.goto(BASE + "/", wait_until="networkidle", timeout=60000)
-            page.set_input_files("#file-input", [str(fake), str(txt)])
-            page.click("[data-upload-btn]")
-            page.wait_for_load_state("networkidle", timeout=120000)
-            assert "只支持 .dem" in page.content(), "non-.dem not rejected (F10)"
-            live = page.locator('#batch-table tr[data-job]:not([data-job=""])')
-            assert live.count() == 1, \
-                f"expected exactly 1 live job row (the .dem), got {live.count()}"
-            job_id = live.first.get_attribute("data-job")
-            deadline = time.time() + 120
-            status = ""
-            while time.time() < deadline:
-                status = api(f"/api/jobs/{job_id}").get("status", "")
-                if status in ("done", "error"):
-                    break
-                time.sleep(1.0)
-            assert status == "error", f"fake bytes should fail to parse, got {status}"
-            # the .dem stays in demos/ (unparsed) until cleanup removes it
-            assert DEMO_FILE.exists(), "upload did not persist the .dem"
-            DEMO_FILE.unlink()
-            expect_no_console_errors("upload")
-
-        run("F10 upload gate + job lifecycle", step_upload)
-
-        # ---- 12. match tabs / map chips / view toggles ----
+        # ---- 10. match tabs / map chips / view toggles ----
         def step_tabs():
             page.goto(BASE + f"/match/{H}", wait_until="networkidle", timeout=90000)
             for tab in ("kills", "economy", "utility", "routes", "tactics"):
@@ -358,7 +328,7 @@ def main() -> int:
 
         run("map chips / utility follow / highlight filter / view toggle", step_chips)
 
-        # ---- 13. Phase X IA: nav active state + retired-page redirects ----
+        # ---- 11. Phase X IA: nav active state + retired-page redirects ----
         def step_nav_ia():
             # report page must highlight 报告 (W-audit P2 finding)
             page.goto(BASE + f"/report/{H}", wait_until="networkidle", timeout=60000)
@@ -378,7 +348,7 @@ def main() -> int:
 
         run("X nav active + retired 301s + lab deep-link", step_nav_ia)
 
-        # ---- 14. W2 F-A: players tab round-trip, echarts injected ONCE ----
+        # ---- 12. W2 F-A: players tab round-trip, echarts injected ONCE ----
         def step_players_roundtrip():
             page.goto(BASE + "/players", wait_until="networkidle", timeout=90000)
             page.wait_for_timeout(2000)  # matrix fetch + mount
@@ -409,7 +379,7 @@ def main() -> int:
 
         run("W2 players tab round-trip + single echarts", step_players_roundtrip)
 
-        # ---- 15. W2 F-B: /reports?demo= preselect + preview href synced ----
+        # ---- 13. W2 F-B: /reports?demo= preselect + preview href synced ----
         def step_reports_preselect():
             page.goto(BASE + f"/reports?demo={H}", wait_until="networkidle", timeout=90000)
             page.wait_for_function(
@@ -421,7 +391,7 @@ def main() -> int:
 
         run("W2 reports ?demo= preselect + preview href", step_reports_preselect)
 
-        # ---- 16. W2: funlab sigma slider label + localStorage + restore ----
+        # ---- 14. W2: funlab sigma slider label + localStorage + restore ----
         def step_sigma_slider():
             page.goto(BASE + "/players?tab=lab", wait_until="networkidle", timeout=90000)
             page.wait_for_selector("#fl-stack-chips [data-stack]", timeout=180000)
@@ -446,7 +416,7 @@ def main() -> int:
 
         run("W2 funlab sigma slider persist/restore", step_sigma_slider)
 
-        # ---- 17. R5: loss-attribution chip deep-links the viewer round ----
+        # ---- 15. R5: loss-attribution chip deep-links the viewer round ----
         def step_loss_chips():
             page.goto(BASE + f"/match/{H}", wait_until="networkidle", timeout=90000)
             chip = page.locator("#lossattr-panel a.loss-tag").first
@@ -465,8 +435,9 @@ def main() -> int:
 
         run("R5 loss chip deep-links viewer round", step_loss_chips)
 
-        # ---- 18. R1/R3: career conf rows fill + aim table stopped column ----
+        # ---- 16. R1/R3: career conf rows fill + aim table stopped column ----
         def step_career_conf_rows():
+            assert wait_warm(), "wave2 warm timeout before career conf step"
             page.goto(BASE + "/player/76561198845044722",
                       wait_until="networkidle", timeout=90000)
             # conf rows must fill from the career-conf API (poll, never sleep)
@@ -488,8 +459,9 @@ def main() -> int:
 
         run("R career conf rows + aim table filled", step_career_conf_rows)
 
-        # ---- 19. R4: smoke-bucket table follows the page map selection ----
+        # ---- 17. R4: smoke-bucket table follows the page map selection ----
         def step_smoke_buckets_follow_map():
+            assert wait_warm(), "warm timeout before smoke buckets step"
             page.goto(BASE + "/map-analysis", wait_until="networkidle", timeout=120000)
             page.wait_for_function(
                 """() => {
@@ -508,7 +480,7 @@ def main() -> int:
 
         run("R4 smoke buckets follow map selection", step_smoke_buckets_follow_map)
 
-        # ---- 20. S2-A5: scan-sources button (dry-run: demos/ untouched) ----
+        # ---- 18. S2-A5: scan-sources button (dry-run: demos/ untouched) ----
         def step_scan_sources():
             page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
             demos_before = sorted(p.name for p in DEMOS_GLOB_DIR.glob("*.dem")) \
@@ -530,10 +502,11 @@ def main() -> int:
 
         run("S2 scan-sources dry-run button", step_scan_sources)
 
-        # ---- 21. 收尾 V-A1: the career duel block shows the viewer's own
+        # ---- 19. 收尾 V-A1: the career duel block shows the viewer's own
         # row even outside the Top 12 (board is 200+ players; slice(0,12)
         # used to hide 209 of them on their own career page) ----
         def step_duel_self_row():
+            assert wait_warm(), "wave2 warm timeout before duel step"
             board = api("/api/duel-model.json")
             players = board.get("players", [])
             if len(players) <= 12:
@@ -556,9 +529,10 @@ def main() -> int:
 
         run("V-A1 duel block shows own row outside Top 12", step_duel_self_row)
 
-        # ---- 22. 收尾 V-A2: winprob V2 OOS note (no duplicated 跨场 prefix)
+        # ---- 20. 收尾 V-A2: winprob V2 OOS note (no duplicated 跨场 prefix)
         # + chart actually mounted on the match page ----
         def step_winprob_v2():
+            assert wait_warm(), "wave2 warm timeout before winprob step"
             page.goto(BASE + f"/match/{H}", wait_until="networkidle",
                       timeout=90000)
             page.wait_for_function(
@@ -576,6 +550,91 @@ def main() -> int:
             expect_no_console_errors("winprob V2")
 
         run("V-A2 winprob OOS note + chart mounted", step_winprob_v2)
+
+        # ---- 21. 收尾 V-B2: overlap interactive sweep — the whole sub-mode
+        # (mode switch / round-grid filters / phase slider / half switch /
+        # toolbar chips) previously had zero button-level acceptance ----
+        def step_overlap_sweep():
+            page.goto(BASE + f"/match/{H}/viewer", wait_until="networkidle",
+                      timeout=90000)
+            page.wait_for_timeout(5000)  # data fetch + map image + first frames
+            page.click('.ob-mode-switch [data-mode="overlap"]')
+            page.wait_for_selector("#ov-rounds .chip", timeout=30000)
+            page.click("#ovr-first4")
+            page.wait_for_timeout(800)
+            page.eval_on_selector(
+                "#ov-phase",
+                """el => { el.value = 50;
+                          el.dispatchEvent(new Event('input', {bubbles: true})); }""")
+            page.wait_for_timeout(500)
+            page.click("#ov-half-2")
+            page.wait_for_timeout(800)
+            assert "on" in (page.get_attribute("#ov-half-2", "class") or ""), \
+                "half switch did not activate"
+            chip = page.locator('#ob-toolbar .chip', has_text="模式着色").first
+            cls_before = chip.get_attribute("class") or ""
+            chip.click()
+            page.wait_for_timeout(600)
+            assert (chip.get_attribute("class") or "") != cls_before, \
+                "模式着色 chip did not toggle"
+            size = page.evaluate(
+                "() => { const c = document.getElementById('ov-metrics');"
+                " return c ? {w: c.width, h: c.height} : null; }")
+            assert size and size["w"] > 0, f"overlap metrics canvas empty: {size}"
+            page.click('.ob-mode-switch [data-mode="replay"]')
+            page.wait_for_timeout(600)
+            expect_no_console_errors("overlap sweep")
+
+        run("V-B2 overlap sweep (mode/filters/slider/half/chip)", step_overlap_sweep)
+
+        # ---- 22/23. (tail, V-B4) the self-invalidating steps: 一键入库 +
+        # upload kick invalidate_aggregate → wave2 rebuild — deliberately
+        # LAST so they never poison the memo-dependent assertions above.
+        # Run-order contract: fresh server → this script once, nothing else.
+
+        # ---- 22. 一键入库 (idempotent on a clean demos/) ----
+        def step_import():
+            page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
+            page.click("#sys-import")
+            # the click feedback IS the disabled state (fetch in flight)
+            page.wait_for_timeout(300)
+            assert page.locator("#sys-import").is_disabled(), "import gave no click feedback"
+            page.wait_for_function("!document.getElementById('sys-import').disabled",
+                                   timeout=15000)
+            expect_no_console_errors("system import")
+
+        run("system import click (tail, invalidates)", step_import)
+
+        # ---- 23. F10: upload rejects non-.dem, queues the .dem ----
+        def step_upload():
+            DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
+            fake = ACCEPT_DIR / "accept-fake.dem"
+            fake.write_bytes(b"CSDEMO-accept-fake" * 200)
+            txt = ACCEPT_DIR / "notes.txt"
+            txt.write_bytes(b"not a demo")
+            page.goto(BASE + "/", wait_until="networkidle", timeout=60000)
+            page.set_input_files("#file-input", [str(fake), str(txt)])
+            page.click("[data-upload-btn]")
+            page.wait_for_load_state("networkidle", timeout=120000)
+            assert "只支持 .dem" in page.content(), "non-.dem not rejected (F10)"
+            live = page.locator('#batch-table tr[data-job]:not([data-job=""])')
+            assert live.count() == 1, \
+                f"expected exactly 1 live job row (the .dem), got {live.count()}"
+            job_id = live.first.get_attribute("data-job")
+            deadline = time.time() + 120
+            status = ""
+            while time.time() < deadline:
+                status = api(f"/api/jobs/{job_id}").get("status", "")
+                if status in ("done", "error"):
+                    break
+                time.sleep(1.0)
+            assert status == "error", f"fake bytes should fail to parse, got {status}"
+            # the .dem stays in demos/ (unparsed) until cleanup removes it
+            assert DEMO_FILE.exists(), "upload did not persist the .dem"
+            DEMO_FILE.unlink()
+            expect_no_console_errors("upload")
+
+        run("F10 upload gate + job lifecycle (tail, invalidates)", step_upload)
 
         browser.close()
 

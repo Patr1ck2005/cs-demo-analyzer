@@ -184,6 +184,18 @@ def test_player_career_404(web_client) -> None:
     assert "未找到选手" in r.text
 
 
+def test_viewer_overlap_404(web_client) -> None:
+    """收尾 V-B1: viewer/overlap bad-hash must be a real 404 too.
+
+    The viewer branch used to render error.html without status_code —
+    HTTP 200 with error content, inconsistent with /match and /player."""
+    c, _, _ = web_client
+    for url in ("/match/unknown-hash/viewer", "/match/unknown-hash/overlap"):
+        r = c.get(url)
+        assert r.status_code == 404, url
+        assert "未找到 demo" in r.text
+
+
 def test_highlights_page(web_client) -> None:
     c, _, _ = web_client
     r = c.get("/highlights")

@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-10（Phase V2 完结+收尾检查完成：fa45b7e 已推送；收尾修复=对枪块本人行 Top12 外追加/胜率注释去重复/胜势曲线 V2 正名；README+14 张截图对齐现状；accept_buttons 20→22 步；收尾改动待批准提交）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-10（第二轮收尾检查完成：fa45b7e→343a464 已推送；第二轮修复=viewer/overlap 404 正名（V-B1）+ overlap 按钮级验收（V-B2/V-B2 sweep）+ accept_buttons 自触发步骤移队尾（V-B4）+ ARCHITECTURE 表同步（V-B3）；370 测试全绿，第二轮改动待批准提交）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,9 +13,9 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、369 测试全绿、visual_check 28 页零 console 错误、accept_buttons 22 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、370 测试全绿、visual_check 28 页零 console 错误、accept_buttons 23 步零失败**。
 
-**Git 状态**：origin/main = `fa45b7e`（Phase V2 研究轮 1-3 已提交推送）。工作区为**收尾检查改动**（对枪块本人行修复 + 胜率注释去重 + V2 正名 + README/截图对齐 + accept_buttons +2 步），待批准提交。
+**Git 状态**：origin/main = `343a464`（首轮收尾已提交推送）。工作区为**第二轮收尾改动**（viewer/overlap 404 修复 + accept_buttons 23 步/时序修复 + ARCHITECTURE 同步），待批准提交。
 
 - **Phase X 一句话**：13 一级页 → 10 + 链接卫生 + 遗留性能/科学性小件全清，303 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
@@ -1270,6 +1270,33 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
 - **复验全绿**：pytest 369；visual_check 28 页 0 失败；accept_buttons 22 步 0 失败
   （fresh-server 单跑契约；期间一轮 hub"网页服务已意外退出"复跑即过，负载时序
   非代码）；ruff F 级 0。待批准提交。
+
+### 收尾检查 · 第二轮（2026-09-10，343a464 之后——上轮未覆盖面）
+
+- **审计面（上轮未深入的方向）**：API→消费者反向对账（全部 /api 路由均有页面/JS
+  消费者；`/api/compare/teamplay.json` 是 HANDOFF 记载的 canonical 别名且有测试，
+  非孤儿）；404 错误路径一致性；viewer/overlap 重交互面；ARCHITECTURE.md 事实同步。
+  已核对无问题：收藏 JS 集中在 favorites.js 无重复分散、players 未知 `?tab=` 安全
+  回退、match 各 tab 无隐藏筛选控件、tests 无 skip/xfail、报告 PDF 与 PNG 同
+  doExport 路径、导出文件无自动清理（本地 output/ 可随手删，记档即可）。
+- **修复 V-B1（行为不一致，活服务器复现实证）**：viewer/overlap 的 demo-未找到
+  分支漏 `status_code=404` → error.html 以 HTTP 200 出去（`/match/{bad}`、
+  `/player/{bad}` 均正确 404）。修复一行 + `test_web.py::test_viewer_overlap_404`
+  两断言。pytest 369→**370**。
+- **修复 V-B4（验收基建缺口/半成品，本轮实测 7/23 失败后定位）**：accept_buttons
+  的自触发步骤（一键入库/上传）位于中段 → `invalidate_aggregate → warmup.kick`
+  让 V2 时代新增的 wave2 依赖步骤（career conf / V-A1 / V-A2）吃 503（duelmo/
+  winloo/aimsci 重建窗口）。修复：自触发步骤移到**队尾** + wave2 依赖步骤加
+  `wait_warm()` 闸门（外部冷启动也能自愈而非误报）；docstring 契约同步。
+  accept_buttons 22→**23 步**（+步骤 21 V-B2 overlap sweep：模式切换/回合网格
+  前4/相位滑杆/上下半场/模式着色 chip/画布尺寸断言——该子模式此前零按钮级验收）。
+- **修复 V-B3（文档漂移）**：ARCHITECTURE.md 实现状态表同步代码事实：模块
+  13→21（补全清单）、maps 3→8（+anubis/cache/dust2/nuke/vertigo）、
+  PARSER_VERSION 1.5.1→1.8.0、viewer-data v2→v4（layers v3）、viewer 路由
+  `/demo`→`/match`（301 兼容）。README 不变（上轮已对齐）；截图不变（本轮改动
+  不影响页面视觉）。
+- **复验全绿**：pytest 370；visual_check 28 页 0 失败；accept_buttons 23 步
+  0 失败（含新 overlap sweep 与队尾自触发步骤）；ruff F 级 0。待批准提交。
 
 
 
