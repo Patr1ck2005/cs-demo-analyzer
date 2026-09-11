@@ -621,6 +621,11 @@ def match_detail(request: Request, demo_hash: str):
         )
     analysis = _analyze(demo)
     ctx = _demo_context(demo, analysis)
+    # M1 复盘教练线: 复盘 Tab 数据（败方视角；peek-only 合成层，输入走
+    # runtime memo —— 与 /report 的 B1 成本画像一致，LRU 缓存后免重复算）。
+    from cs_analyzer.web.conclusions import match_conclusions
+
+    ctx["conclusions"] = match_conclusions(demo)
     return TEMPLATES.TemplateResponse(request, "match_detail.html", ctx)
 
 

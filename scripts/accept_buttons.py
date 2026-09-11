@@ -675,12 +675,42 @@ def main() -> int:
 
         run("B3 auto record (?rec=1) round-end download", step_recorder_auto)
 
-        # ---- 26/27. (tail, V-B4) the self-invalidating steps: 一键入库 +
+        # ---- 26. M1 复盘教练线: review tab — ?tab=review deep link activates
+        # the SSR panel; key-round cards carry well-formed viewer deep links
+        # (▶ t=0 / 🎬 rec=1&recname=). The real library may legitimately
+        # produce zero key rounds → the honest fallback text is the expected
+        # alternative. Href-form assertions only (no navigation): the actual
+        # viewer?round= landing is already covered by steps 23/25. ----
+        def step_review_tab():
+            page.goto(BASE + f"/match/{H}?tab=review",
+                      wait_until="networkidle", timeout=60000)
+            panel_on = page.evaluate(
+                "() => { const p = document.querySelector('[data-panel=\"review\"]');"
+                " return p ? !p.hidden : false; }")
+            assert panel_on, "?tab=review deep link did not activate the panel"
+            kr = page.locator('[data-panel="review"] .kr-card')
+            if kr.count() > 0:
+                watch = kr.first.locator("a.btn", has_text="看回放").first
+                href = watch.get_attribute("href") or ""
+                assert "/viewer?round=" in href and "t=0" in href, \
+                    f"bad viewer deep link: {href}"
+                rec_href = kr.first.locator('a.btn[href*="rec=1"]').first
+                assert "recname=" in (rec_href.get_attribute("href") or ""), \
+                    "rec link missing recname"
+            else:
+                body = page.inner_text('[data-panel="review"]')
+                assert ("未命中关键回合规则" in body) or ("不可判定" in body), \
+                    f"review panel empty without honest fallback: {body[:120]}"
+            expect_no_console_errors("review tab")
+
+        run("M1 review tab deep link + key-round link forms", step_review_tab)
+
+        # ---- 27/28. (tail, V-B4) the self-invalidating steps: 一键入库 +
         # upload kick invalidate_aggregate → wave2 rebuild — deliberately
         # LAST so they never poison the memo-dependent assertions above.
         # Run-order contract: fresh server → this script once, nothing else.
 
-        # ---- 26. 一键入库 (idempotent on a clean demos/) ----
+        # ---- 27. 一键入库 (idempotent on a clean demos/) ----
         def step_import():
             page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
             page.click("#sys-import")
@@ -693,7 +723,7 @@ def main() -> int:
 
         run("system import click (tail, invalidates)", step_import)
 
-        # ---- 27. F10: upload rejects non-.dem, queues the .dem ----
+        # ---- 28. F10: upload rejects non-.dem, queues the .dem ----
         def step_upload():
             DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
             fake = ACCEPT_DIR / "accept-fake.dem"

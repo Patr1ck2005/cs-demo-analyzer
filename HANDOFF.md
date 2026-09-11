@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（稳定化收尾轮 R3：3c0e24d 之后——新增模块定案 + 入库三路去重 + 失败记忆持久化 + search/trend peek-503 + teams.js 收口 + 文档对齐；408 测试全绿，改动待批准提交）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（复盘教练线 M1：17aa75c 之后——match 详情七 Tab「复盘」+ 关键回合 viewer/录制深链 + 内联 JS 收编 + matches 表格复盘入口；412 测试全绿，改动待批准提交）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,9 +13,9 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、408 测试全绿、visual_check 28 页零 console 错误、accept_buttons 27 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、412 测试全绿、visual_check 28 页零 console 错误、accept_buttons 28 步零失败**。
 
-**Git 状态**：origin/main = `3c0e24d`（开发菜单 C3 收官已推送）。工作区为**稳定化收尾轮 R3 改动**（模块定案 + F1 入库去重 + F2 失败记忆 + F3 search/trend peek-503 + F4 teams.js 收口 + 文档对齐，见文末 R3 小节），待批准提交。
+**Git 状态**：origin/main = `17aa75c`（稳定化收尾轮 R3 已推送）。工作区为**复盘教练线 M1 改动**（match 详情「复盘」Tab + 关键回合 viewer/rec 深链 + 内联 JS 收编 match_detail.js + matches 表格复盘入口 + 文档对齐，见文末 M1 小节），待批准提交。路线计划：复盘教练线 M1–M4（M2 建议引擎 / M3 focus 追踪 / M4 周报）已经用户批准，M2 起每轮开工前轻量复读 + 口径行报批。
 
 - **Phase X 一句话**：13 一级页 → 10 + 链接卫生 + 遗留性能/科学性小件全清，303 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
@@ -1463,6 +1463,44 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
   accept_buttons **27 步** 0 失败（fresh-server 单跑契约）；全树 ruff
   `--select F401,F821,F811,F841` = 0；probe_research verdict OK (0/35
   suspect)；重启后 /system 快照 8/8 命中。待批准提交。
+
+### 复盘教练线 M1：match 详情「复盘」Tab（2026-09-12，17aa75c 之后——路线计划批准第一轮）
+
+**背景**：用户令"看看项目还可以怎样往前发展"——四路线比较（A 复盘教练 / B 数据纵深
+/ C 回放研究台 / D 平台工程）后选定 **A + 节奏"主线为主+顺手还债"**；三个形态决策：
+建议生成=**规则+预留模板接口** / focus 粒度=**选手×技能维度** / 工作台落点=**match
+详情新 Tab**。路线计划 M1–M4 全文已经用户批准（M2 建议引擎、M3 focus 追踪、M4
+周报；M2 起每轮开工前轻量复读+口径行报批）。本轮 = M1。
+
+- **改动面**：`app.py` match_detail 路由注入 `conclusions`（`match_conclusions(demo)`
+  直调；peek-only 合成层，成本画像与 /report B1 一致，LRU 缓存）；`match_detail.html`
+  六→七 Tab：页头 🎯 复盘按钮（`?tab=review`）+ 复盘面板 SSR——关键回合卡带
+  ▶ 看回放（`viewer?round=N&t=0`）+ 🎬 录片段（`rec=1&recname=复盘_R{n}_{map}`，
+  B3 协议 + urlencode）+ 每人改进点（steamid 经 players ctx
+  `selectattr('name','equalto',…)` 解析——**conclusions.py 零改动**，改进点项含
+  steamid 的需求留给 M2）；`matches.html` 表格视图入口列加 🎯 复盘。
+  **卡片墙（_match_card.html）不动**：整卡 `<a>` 包裹下嵌套链接是非法 HTML——
+  偏离计划"败场卡徽章"处，以 match 页头按钮补足动线（tie/平局/胜场也都能进复盘）。
+- **还债（F4 同款，第 1/3 处内联 JS）**：match_detail 内联 ~450 行 JS（23097 字符）
+  脚本化精确搬移到 `static/js/match_detail.js`（正则提取整块 → 仅 H 行改
+  `data-hash` 读取 → node --check；故意不加 'use strict'——机械搬移以行为
+  逐字不变为准）；`TABS` 数组加 `'review'`（深链与点击激活的唯一开关；review
+  纯 SSR，loader 有意缺省）。match_detail/player_career/system 三处内联 JS 的
+  R3"不动"裁决自此改为"逐轮顺手收编"。
+- **指纹核查（R3 教训执行）**：`_SNAPSHOT_SOURCES` 全部成员逐一核对——本轮改动
+  面（app.py / 模板 / 静态 JS / 测试 / 验收脚本）**零成员** → 零指纹滚动；重启后
+  实测快照 8/8 current（fingerprint 未变）。
+- **测试 408→412**（+4）：tie 路径 honest note（合成夹具 1:1 平局 →
+  "败方视角不可判定"，零 memo 读取）/ 关键回合渲染（monkeypatch
+  match_conclusions 锁模板：深链 + rec 链接 + 改进点职业链接）/ JS 收编装载锁
+  （模板引 src + 无 inline TABS + JS 含 dataset.hash 与 'review'）/ matches
+  表格复盘入口。
+- **验收**：accept_buttons 27→**28 步**（新步骤 26=复盘 Tab 深链激活 +
+  关键回合链接形态断言；**只读不导航**——viewer?round= 落地已由步骤 23/25
+  覆盖，避免导航窗口的 console 噪声误报；尾部自失效步骤顺延 27/28，V-B4
+  契约不变）；visual_check 28 页 0 失败；复盘 Tab 人工截图复核（真实库
+  R16/R19/R24 三条"优势局失守"命中 + 改进点卡渲染正确）；pytest 412 全绿；
+  全树 ruff F 级 0。待批准提交。
 
 
 

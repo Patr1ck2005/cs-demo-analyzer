@@ -382,6 +382,70 @@ def test_match_viewer_page(web_client) -> None:
     assert "<video" not in r.text
 
 
+# ---------- M1 复盘教练线: review tab ----------
+
+
+def test_match_review_tab_tie_note(web_client) -> None:
+    """M1: the review tab renders SSR; the synthetic fixture is a 1:1 tie →
+    the honest undecidable note (conclusions tie branch, no memo reads)."""
+    c, h, _ = web_client
+    r = c.get(f"/match/{h}?tab=review")
+    assert r.status_code == 200
+    assert 'data-panel="review"' in r.text
+    assert "复盘结论" in r.text
+    assert "败方视角不可判定" in r.text
+    # page-head entry point (the matches table carries one too)
+    assert "?tab=review" in r.text
+
+
+def test_matches_table_has_review_entry(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/matches")
+    assert r.status_code == 200
+    assert "?tab=review" in r.text
+
+
+def test_match_detail_js_extraction() -> None:
+    """M1 debt: the inline block moved to static/js/match_detail.js (teams.js
+    precedent, R3-F4); the template passes the demo hash via data-hash."""
+    web_dir = Path(web_app.__file__).parent
+    tpl = (web_dir / "templates" / "match_detail.html").read_text(encoding="utf-8")
+    assert "/static/js/match_detail.js" in tpl and "data-hash=" in tpl
+    assert "const TABS" not in tpl  # the inline tab engine is gone
+    js = (web_dir / "static" / "js" / "match_detail.js").read_text(encoding="utf-8")
+    assert "dataset.hash" in js and "'review'" in js
+
+
+def test_match_review_tab_key_rounds_render(web_client, monkeypatch) -> None:
+    """M1: key-round cards carry the viewer deep link + B3 rec link; per-player
+    improvement points resolve the career link via the players ctx."""
+    c, h, _ = web_client
+    from cs_analyzer.web import conclusions
+
+    fake = {
+        "loser_side": "T",
+        "curve_source": "oos",
+        "key_rounds": [{
+            "round": 7, "rule": "本该赢却输",
+            "sentence": "优势峰值 90% → 仍丢分 · 峰谷摆幅 60%",
+            "tags": [], "adv_max": 0.9, "adv_start": 0.4, "adv_end": 0.3,
+        }],
+        "improvements": [{
+            "name": "Alice",
+            "points": ["急停下开火 40%，低于库中位 50%（n=1200 发）"],
+        }],
+        "notes": {},
+    }
+    monkeypatch.setattr(conclusions, "match_conclusions", lambda demo, **kw: fake)
+    r = c.get(f"/match/{h}")
+    assert r.status_code == 200
+    assert "本该赢却输" in r.text
+    assert f"/match/{h}/viewer?round=7&t=0" in r.text
+    assert "rec=1" in r.text and "recname=" in r.text
+    assert "每人改进点" in r.text and "低于库中位" in r.text
+    assert "/player/76561111111110001" in r.text  # Alice's career link
+
+
 # ---------- Phase H: new API endpoints ----------
 
 
