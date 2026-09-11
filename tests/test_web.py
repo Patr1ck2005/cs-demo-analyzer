@@ -197,8 +197,20 @@ def test_viewer_overlap_404(web_client) -> None:
 
 
 def test_search_api(web_client) -> None:
-    """/api/search.json over the T1 aggregate memo (复盘提升包 A1)."""
+    """/api/search.json over the T1 aggregate memo (复盘提升包 A1).
+
+    R3-F3: cold memo → 503 warming (peek-only, S3-B2 precedent); tests warm
+    explicitly per the documented contract."""
     c, h, _ = web_client
+    from cs_analyzer.web import aggregation
+
+    r_cold = c.get("/api/search.json?q=alice")
+    assert r_cold.status_code == 503
+    assert r_cold.json()["status"] == "warming"
+    # empty query needs no memo — still 200 while cold
+    r_empty_cold = c.get("/api/search.json?q=")
+    assert r_empty_cold.status_code == 200
+    aggregation.aggregated()  # explicit warm (S3-B2 test contract)
     r = c.get("/api/search.json?q=")
     assert r.status_code == 200
     body = r.json()
@@ -244,8 +256,14 @@ def test_viewer_recorder_wiring() -> None:
 def test_trend_api(web_client) -> None:
     """C3: /api/trend.json windows from the T1 aggregate memo. The synthetic
     fixture has ONE demo → no player can have ≥3 demos per window → honest
-    empty list."""
+    empty list. R3-F3: cold memo → 503 warming (peek-only, S3-B2 precedent)."""
     c, h, _ = web_client
+    from cs_analyzer.web import aggregation
+
+    r_cold = c.get("/api/trend.json")
+    assert r_cold.status_code == 503
+    assert r_cold.json()["status"] == "warming"
+    aggregation.aggregated()  # explicit warm (S3-B2 test contract)
     r = c.get("/api/trend.json")
     assert r.status_code == 200
     body = r.json()
@@ -400,7 +418,13 @@ def test_system_apis(web_client, tmp_path) -> None:
 
 
 def test_system_import_submits_jobs(web_client, tmp_path) -> None:
-    """POST /system/import submits a parse job for each unparsed .dem."""
+    """POST /system/import submits a parse job for each unparsed .dem.
+
+    R3: the job runs on the REAL TaskManager pool — wait for it to settle
+    before unlinking, or the worker may still hold the file open (Windows
+    PermissionError on delete; racy since Phase S, hit at teardown)."""
+    import time
+
     c, _, _ = web_client
     d = tmp_path / "demos"
     d.mkdir(parents=True, exist_ok=True)
@@ -408,6 +432,13 @@ def test_system_import_submits_jobs(web_client, tmp_path) -> None:
     r = c.post("/system/import", follow_redirects=False)
     assert r.status_code == 303
     assert r.headers["location"] == "/system"
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        jobs = c.get("/api/jobs").json()
+        job = next((j for j in jobs if j["label"] == "import_me.dem"), None)
+        if job and job["status"] in ("done", "error"):
+            break  # fake bytes → error; either way the handle is closed
+        time.sleep(0.05)
     (d / "import_me.dem").unlink()
 
 

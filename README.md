@@ -5,7 +5,7 @@
 **本地优先的 CS2 Demo 分析平台** —— 解析 `.dem`，产出定量统计 + 电竞 OB 级实时 2D 回放
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-369_passing-3DDC97)](#)
+[![Tests](https://img.shields.io/badge/tests-408_passing-3DDC97)](#)
 [![License](https://img.shields.io/badge/License-MIT-a78bfa)](#license)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows11&logoColor=white)](#)
 [![ECharts](https://img.shields.io/badge/charts-Apache_ECharts-AA344D?logo=apacheecharts&logoColor=white)](https://echarts.apache.org/)
@@ -209,8 +209,9 @@ csa coverage "demos/*.dem" --out report.html   # 解析覆盖度报告
 - **自动复盘报告**：/report 页自动生成**复盘结论**——关键回合（优势局失守/峰谷摆幅/
   残局·无贸易命中，附模型 p 与失利标签证据）+ 每人改进点（有证据才列出，全部带 n=
   与库基线锚）；生涯页**实力画像卡**四维判定（对枪/枪法纪律/失利模式/道具）。
-- **自动入库**：监视 demos/ 目录（30s 轮询，文件稳定后入库，失败不重试），/system
-  页可开关——demo 拖进目录即自动解析 + 增量重算。
+- **自动入库**：监视 demos/ 目录（30s 轮询，文件稳定后入库，失败不重试且跨重启记忆），
+  /system 页可开关——demo 拖进目录即自动解析 + 增量重算；上传/一键入库/自动监视三路
+  并发投递同一 demo 时自动去重。
 - **决策 EV**：经济 Tab 的买法×比分差×连败状态查询表，小样本格自动灰显。
 - **风格演变**：趣味数据页风格星系支持时间窗演变轨迹（同一选手跨窗口向量漂移）。
 - **控图 v2**：交战衰减 + 存活加权 + 密度去重（⚙ 面板可调，v1/v2 开关并存）。
@@ -228,7 +229,7 @@ RWS 与 Rating 为自实现的专有公式近似（HLTV 2.0 / ESEA RWS 风格）
 
 ```bash
 pip install -e ".[dev]"
-pytest                    # 369 tests
+pytest                    # 408 tests
 ruff check cs_analyzer/
 ```
 

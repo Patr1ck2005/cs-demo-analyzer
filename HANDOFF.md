@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-10（第二轮收尾检查完成：fa45b7e→343a464 已推送；第二轮修复=viewer/overlap 404 正名（V-B1）+ overlap 按钮级验收（V-B2/V-B2 sweep）+ accept_buttons 自触发步骤移队尾（V-B4）+ ARCHITECTURE 表同步（V-B3）；370 测试全绿，第二轮改动待批准提交）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（稳定化收尾轮 R3：3c0e24d 之后——新增模块定案 + 入库三路去重 + 失败记忆持久化 + search/trend peek-503 + teams.js 收口 + 文档对齐；408 测试全绿，改动待批准提交）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,9 +13,9 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、370 测试全绿、visual_check 28 页零 console 错误、accept_buttons 23 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、408 测试全绿、visual_check 28 页零 console 错误、accept_buttons 27 步零失败**。
 
-**Git 状态**：origin/main = `343a464`（首轮收尾已提交推送）。工作区为**第二轮收尾改动**（viewer/overlap 404 修复 + accept_buttons 23 步/时序修复 + ARCHITECTURE 同步），待批准提交。
+**Git 状态**：origin/main = `3c0e24d`（开发菜单 C3 收官已推送）。工作区为**稳定化收尾轮 R3 改动**（模块定案 + F1 入库去重 + F2 失败记忆 + F3 search/trend peek-503 + F4 teams.js 收口 + 文档对齐，见文末 R3 小节），待批准提交。
 
 - **Phase X 一句话**：13 一级页 → 10 + 链接卫生 + 遗留性能/科学性小件全清，303 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
@@ -253,15 +253,16 @@ scripts/bench_process_pool.py                                # T2：进程池收
 ## 8. 提交历史（近期）
 
 ```
-cd2ec98 docs: README GIF overhaul + Phase K6 sync               ← origin/main（Phase K 六连已推送）
-1a9a3c5 feat(analysis): K5 five-stack teamplay analytics + compare card
-44f7e7f feat(viewer): K2 overlap sub-mode UI + interactions
-e65f522 docs: README overlap hero GIF
-c4a5fc4 feat: 5E match-id recognition, three new maps, warmup-round segmentation fix
-2c40f81 fix(viewer): overlap camera-follow regression + base-map sync timing
-e839a1a docs: README visual overhaul + robust start_web.bat
-60e47c9 feat: Phase I deep analytics engine + Phase J viewer/overlap polish
-04e39a9 Phase G | 03c9eb4 Phase F | 933e9b1 Phase E | ...（更早见 git log）
+3c0e24d feat: squad trend comparison - recent-half vs earlier-half (C3, menu complete)   ← origin/main（开发菜单收官）
+dc24672 feat: highlight clip export - pure-browser webm recording (B3)
+49e41b8 research: C2 round - impact metric + untraded rate gates FAILED, negative results ledgered
+186c3df feat: global quick search (Ctrl+K palette) - review-pack A1
+b8d1f79 feat: review pack - auto match conclusions + career profile card + demos watcher
+d29957e fix: closeout round 2 - viewer/overlap real 404 + overlap sweep acceptance + run-order contract
+343a464 feat: Phase V2 closeout - duel self-row fix + V2 naming + README alignment
+fa45b7e feat: Phase V2 research rounds 1-3 - win model V2 + duel model + ledger
+554a075 fix: Phase S3 - fourth audit remediation + stabilization closeout
+5510304 fix: Phase S2 - full audit remediation + stabilization closeout
 ```
 
 Phase T 全部改动在工作区待审（见 §1/§13）。完整阶段日志见 dev_log.md（每个 Phase 一条，含模型名）。
@@ -393,10 +394,10 @@ METRIC_DEFS 完整性/free_pickup_pr 分母/map 池化+门槛/lineups 池化）�
 
 ## 11. 给新对话的第一步建议
 
-1. 读本文件 §0-§2（Phase L 全貌）、§7 的「5E 五排数据洞察」
-2. `git status` 确认待审改动还在（Phase L 一批）；`git log` 若出现新 commit 说明用户已批准提交
-3. Phase L 全部完成——下一步候选见 §9 未来路线
-4. 任何 commit 前重读 §0 铁律 1 与铁律 5（路由注册顺序）
+1. 读本文件 §0 铁律、§1 状态摘要、文末「稳定化收尾轮 R3」小节
+2. `git status` 确认待审改动还在（R3 一批）；`git log` 若出现新 commit 说明用户已批准提交
+3. 开发菜单已全部收官（C1 等 FACEIT key，外部阻塞）——新方向等用户定；启动入口 `start_web.bat`
+4. 任何 commit 前重读 §0 铁律 1（批准提交 + 溯源）与铁律 5（路由注册顺序）
 
 ## 12. Phase S —— 稳定化（2026-09-05，计划已批准，分批执行）
 
@@ -1408,6 +1409,60 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
   0 失败；ruff F 级 0。本轮无 producer 改动（模板+JS），快照指纹未动——
   重启后的 wave2:winloo 重建是上轮 accept 队尾失效撞重启的尾巴（S2 坑 1
   变体，非 B3 引起）。
+
+### 稳定化收尾轮 R3（2026-09-12，3c0e24d 之后——新增模块定案 + 缺陷收口）
+
+**背景**：开发菜单收官后用户令"稳定当前版本"——围绕已有功能检查未完成/行为
+不一致/结构分散/缺少验证，并结合陆续新增的分析/复盘模块逐个定案。用户两裁决：
+① 模块口径=项目陆续新增的分析/复盘模块；② C3 的 teams 内联 fetch 并入 teams.js。
+
+- **模块定案表**：conclusions（保留）/ trend_data（收口=F4）/ auto_import
+  （收口=F1+F2）/ search+trend API（收口=F3）/ viewer_recorder（收口=accept
+  步骤 25 自动流验收）/ winprob_loo、duel_data、aim_data、loss_data、
+  rating21_data、ev_data（保留，本轮零改动）/ C2 impact+untraded infra
+  （封存：负结果台账，零成本保留不接页面）/ pro_baseline（保留）/ pro_fetch
+  （封存：等 FACEIT key）。
+- **F1（P1 行为缺陷）入库三路重复提交竞态**：上传落盘 demos/ 根 = watcher
+  监视同目录；上传解析期间（>~60s 的大文件）watcher 会再投一个 `[自动]`
+  重复任务 + 第二次 invalidate；TaskManager 仅 2 worker，重复任务等
+  per-hash 锁时占池。修复：`TaskManager.submit(dedupe_key=)`——同 key 存在
+  pending/running 任务时直接返回既有 job id，任务终态清登记；三提交点接入
+  （upload / 一键入库 / auto_import；sweep 在 serve 前无竞态不动）。
+  watcher 的 `_pending` 拿到真实 job id，error 归因 `_failed` 语义不变。
+- **F2（P2 契约失实）`_failed` 重启失忆**：docstring 承诺"NEVER retried"
+  但失败集合仅在进程内 → 每次重启重投坏文件（白耗解析+任务噪音）。修复：
+  失败哈希+文件名持久化进 auto_import_state.json（cap 200），`status()`
+  暴露 failed 列表，/system 自动入库状态行显示文件名；跨重启不重试从此与
+  文档一致。
+- **F3（P2 一致性）search/trend 接入 peek-503**（S3-B2 先例）：两路由此前
+  直调 `aggregated()`，producer roll 后的 wave1 聚合重算窗口（~200s）里打开
+  /teams 或 Ctrl+K 会同步阻塞请求路径整库扫描。修复：`aggregated_peek()`
+  （只读、永不计算）+ 冷 memo → `503 {"status":"warming"}`；search 空查询
+  无需 memo 恒 200；前端 teams 趋势块补"预热中"+有限重试（3×8s），cmdk
+  面板补预热提示。
+- **F4 teams.html 趋势内联块并入 teams.js**（用户裁决）：模板回归纯
+  `<script src>`；行为不变 + 503 处理。match_detail/player_career/system
+  既有内联块维持"不动"裁决。
+- **验证补齐**：accept_buttons 26→**27 步**（新步骤 25=🎬 片段 →
+  `viewer?round=N&rec=1` 自动起录 → 拨 8× 快进 → 回合结束自动停 → 下载
+  .webm + URL 清 `rec=`——B3 自动模式首次按钮级验收；选**最低**高光回合
+  保证后续回合存在，自动停有确定终点）。测试 403→**408**（+5：tasks
+  dedupe 三态 3 / 失败持久化跨重启 1 / watcher×upload 真实 TaskManager
+  去重收合 1）。
+- **测试竞态顺手修（两处）**：① test_system_import_submits_jobs POST 后
+  立即 unlink，真实 worker 可能仍持文件句柄 → Windows 删除 PermissionError
+  （竞态自 Phase S 潜伏，本轮触碰提交点时在全量跑中暴露）——改为等 job
+  终态再删；② test_auto_import_api_roundtrip 未补丁 STATE_PATH，会把真实
+  auto_import_state.json 当草稿写——补 tmp 补丁。
+- **快照指纹滚动（预期，非事故）**：`web/aggregation.py` 是
+  `_SNAPSHOT_SOURCES` 成员（merge 层生产者）——新增 peek 函数即滚动 src8 →
+  一次性全量重建（T1 8/8 重存 + 6 分片族 wave2 物化 ~25 分钟）。
+  **教训**：对生产者清单内文件，任何改动（哪怕纯增量函数）都会失效全部
+  快照——"改动面不在清单"的预判必须逐一核对文件本身，不能只看"没改数值"。
+- **验收（全绿）**：pytest 403→**408**；visual_check 28 页 0 失败；
+  accept_buttons **27 步** 0 失败（fresh-server 单跑契约）；全树 ruff
+  `--select F401,F821,F811,F841` = 0；probe_research verdict OK (0/35
+  suspect)；重启后 /system 快照 8/8 命中。待批准提交。
 
 
 

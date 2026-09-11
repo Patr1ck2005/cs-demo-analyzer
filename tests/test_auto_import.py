@@ -19,14 +19,18 @@ class _StubJobs:
 
     def __init__(self) -> None:
         self.submitted: list[str] = []
+        self._labels: dict[str, str] = {}
         self.status = "error"  # what get_status reports for every job
 
     def submit(self, fn, *, label="", **kwargs):
         self.submitted.append(kwargs.get("path", ""))
-        return f"job{len(self.submitted)}"
+        job_id = f"job{len(self.submitted)}"
+        self._labels[job_id] = label
+        return job_id
 
     def get_status(self, job_id: str):
-        return SimpleNamespace(status=self.status, label="stub.dem")
+        return SimpleNamespace(status=self.status,
+                               label=self._labels.get(job_id, "stub.dem"))
 
 
 @pytest.fixture()
@@ -36,6 +40,7 @@ def watcher(tmp_path, monkeypatch):
     monkeypatch.setattr(auto_import, "DEMOS_DIR", demo_dir)
     monkeypatch.setattr(auto_import, "STATE_PATH", tmp_path / "state.json")
     monkeypatch.setattr(auto_import, "_failed", set())
+    monkeypatch.setattr(auto_import, "_failed_names", {})
     monkeypatch.setattr(auto_import, "_pending", {})
     monkeypatch.setattr(auto_import, "_last_sig", {})
     stub = _StubJobs()
@@ -91,6 +96,77 @@ def test_failed_parse_never_retried(watcher):
     assert len(watcher.stub.submitted) == 1
 
 
+def test_failed_persisted_across_restart(watcher, monkeypatch):
+    """R3-F2: failures survive a restart — reloaded from the state file and
+    the same file is still never resubmitted."""
+    import json
+
+    _drop_demo(watcher.dir)
+    auto_import._poll_once()
+    auto_import._poll_once()
+    watcher.stub.status = "error"
+    auto_import._reap_jobs()
+    assert len(auto_import._failed) == 1
+    data = json.loads(watcher.dir.parent.joinpath("state.json").read_text(
+        encoding="utf-8"))
+    assert data["failed"] and data["failed"][0][1] == "new.dem"
+    # fresh process: memory cleared, state reloaded from disk
+    monkeypatch.setattr(auto_import, "_failed", set())
+    monkeypatch.setattr(auto_import, "_failed_names", {})
+    auto_import._load_state()
+    assert len(auto_import._failed) == 1
+    assert auto_import.status()["failed"][0]["name"] == "new.dem"
+    assert auto_import._poll_once() == 0
+    assert len(watcher.stub.submitted) == 1  # still no retry after "restart"
+
+
+def test_watcher_upload_dedupe_collapse(tmp_path, monkeypatch):
+    """R3-F1: watcher × upload duplicate collapse at the TaskManager layer —
+    a same-path submit while the first parse is still running returns the
+    existing job id instead of queueing a second one."""
+    import os
+    import threading
+    import time
+
+    from cs_analyzer.web import tasks as tasks_mod
+    from cs_analyzer.web.tasks import TaskManager
+
+    demo_dir = tmp_path / "demos"
+    demo_dir.mkdir()
+    monkeypatch.setattr(auto_import, "DEMOS_DIR", demo_dir)
+    monkeypatch.setattr(auto_import, "STATE_PATH", tmp_path / "state.json")
+    monkeypatch.setattr(auto_import, "_failed", set())
+    monkeypatch.setattr(auto_import, "_failed_names", {})
+    monkeypatch.setattr(auto_import, "_pending", {})
+    monkeypatch.setattr(auto_import, "_last_sig", {})
+
+    release = threading.Event()
+
+    def slow_parse(path):  # simulates a long upload parse holding the slot
+        release.wait(timeout=2.0)
+        return "h" * 64
+
+    monkeypatch.setattr(app_module, "_parse_job", slow_parse)
+    import cs_analyzer.web.aggregation as agg_mod
+
+    monkeypatch.setattr(agg_mod, "invalidate_aggregate", lambda: None)
+    real_mgr = TaskManager(max_workers=1)
+    monkeypatch.setattr(tasks_mod, "tasks", real_mgr)
+
+    p = demo_dir / "race.dem"
+    p.write_bytes(b"CSDEMO-race" * 12)
+    old_t = time.time() - 600
+    os.utime(p, (old_t, old_t))
+    assert auto_import._poll_once() == 0  # first sight records the signature
+    assert auto_import._poll_once() == 1  # stable → watcher submits first
+    watcher_job = next(iter(auto_import._pending.values()))
+    # upload path submits the same file while the watcher job is still running
+    upload_job = real_mgr.submit(app_module._parse_job, label="race.dem",
+                                 path=str(p), dedupe_key=str(p))
+    assert upload_job == watcher_job
+    release.set()
+
+
 def test_cached_file_skipped(watcher, monkeypatch):
     from cs_analyzer.cache import DemoCache
 
@@ -112,8 +188,10 @@ def test_toggle_persists(watcher):
     assert auto_import.status()["enabled"] is True
 
 
-def test_auto_import_api_roundtrip(web_client):
+def test_auto_import_api_roundtrip(web_client, tmp_path, monkeypatch):
     c, _, _ = web_client
+    # R3: never let the API test touch the real persisted state file
+    monkeypatch.setattr(auto_import, "STATE_PATH", tmp_path / "state.json")
     r = c.get("/api/system/auto-import.json")
     assert r.status_code == 200
     body = r.json()

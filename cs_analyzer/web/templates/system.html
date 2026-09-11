@@ -168,9 +168,11 @@
       if (!r.ok) return;
       const s = await r.json();
       autoCb.checked = s.enabled;
+      const failedList = (s.failed || []).slice(0, 3)
+        .map((f) => CSACommon.esc(f.name || f.hash)).join('、');
       autoSt.innerHTML = `自动入库：${s.enabled ? '开启' : '关闭'} · 监视 <code>${CSACommon.esc(s.watched)}</code>` +
         ` · ${CSACommon.esc(s.last_action)}` +
-        (s.failed_n ? ` · <span style="color:var(--err)">${s.failed_n} 个解析失败（不重试）</span>` : '');
+        (s.failed_n ? ` · <span style="color:var(--err)">${s.failed_n} 个解析失败（不重试）${failedList ? '：' + failedList : ''}</span>` : '');
     } catch (e) { /* keep previous frame */ }
   }
   pollAutoImport();

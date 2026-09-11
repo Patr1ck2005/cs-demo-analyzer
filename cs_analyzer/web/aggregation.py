@@ -26,6 +26,16 @@ def aggregated() -> AggregateResult:
     return _result
 
 
+def aggregated_peek() -> AggregateResult | None:
+    """Read-only variant for request paths (R3-F3): the memo only when warm.
+
+    Never computes — a cold caller gets None and must answer 503 instead of
+    synchronously scanning the whole library (U1 lesson; S3-B2 precedent for
+    aim/loss/duel)."""
+    with _lock:
+        return _result
+
+
 def invalidate_aggregate() -> None:
     """Drop the memo. Call whenever the demo cache set may have changed."""
     global _result

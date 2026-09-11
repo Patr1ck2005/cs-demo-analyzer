@@ -37,6 +37,10 @@
     if (!q.trim()) { list.innerHTML = HINT; rows = []; return; }
     try {
       const r = await fetch('/api/search.json?q=' + encodeURIComponent(q));
+      if (r.status === 503) {  // R3-F3: aggregate memo still rebuilding
+        list.innerHTML = '<div class="cmdk-hint">预热中（聚合重算进行中）…</div>';
+        return;
+      }
       if (!r.ok) return;
       const d = await r.json();
       rows = [];

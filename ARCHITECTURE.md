@@ -311,17 +311,17 @@ render:
 
 ## 5. 项目结构
 
-> 以下为**当前实际代码**布局（2026-08 与代码同步）。早期规划与实现的差异见 §1 的实现状态表。
+> 以下为**当前实际代码**布局（2026-09-12 R3 与代码同步）。早期规划与实现的差异见 §1 的实现状态表。
 
 ```
 CsDemoAnalyzer/
 ├── cs_analyzer/                       # 主包
 │   ├── __init__.py
 │   ├── __main__.py                    # python -m cs_analyzer
-│   ├── cli.py                         # typer CLI 入口（9 个命令）
-│   ├── config.py                      # pydantic settings
-│   ├── cache.py                       # 哈希缓存 + parser_version 失效标记
-│   ├── batch.py                       # BatchRunner 批处理编排
+│   ├── cli.py                         # typer CLI 入口（parse/analyze/coverage/serve/info）
+│   ├── config.py                      # pydantic settings（含 scan_executor: thread/process）
+│   ├── cache.py                       # 内容哈希缓存 + PARSER_VERSION（1.8.0）失效标记
+│   ├── coverage.py                    # 解析覆盖度扫描 + 报告（CLI 在用）
 │   │
 │   ├── parser/                        # Layer 1
 │   │   ├── __init__.py
@@ -335,69 +335,50 @@ CsDemoAnalyzer/
 │   │   ├── parsed_demo.py             # ParsedDemo 容器 + 查询辅助
 │   │   └── io.py                      # JSON/Parquet 序列化
 │   │
-│   ├── analysis/                      # Layer 3
-│   │   ├── __init__.py
-│   │   ├── base.py                    # AnalysisModule ABC + 注册表
-│   │   ├── runner.py                  # AnalysisRunner 模块执行/依赖排序
-│   │   ├── util.py                    # 共享助手：逐回合阵营（换边安全）
-│   │   ├── basic_stats.py             # KPR/ADR/Survivals/HS%/FK/FD
-│   │   ├── ratings.py                 # RWS, HLTV Rating 2.0, KAST, Impact
-│   │   ├── preference.py              # 位置/道具/Peek/准星（合并自 4 个规划模块）
-│   │   ├── duels.py                   # 对枪矩阵
-│   │   ├── economy.py                 # 买法分类/胜率/连败
-│   │   ├── utility_effect.py          # 闪光价值/烟中击杀/闪光助攻
-│   │   ├── routes.py                  # 开局路线聚类（T+CT）
-│   │   ├── highlights.py              # 多杀/残局高光
-│   │   ├── kill_context.py            # 击杀情境徽章/MVP/捡枪/武器分布
-│   │   ├── hitgroups.py               # 部位伤害/护甲效率
-│   │   ├── aim.py                     # 枪法纪律（开火转化/移动状态）
-│   │   ├── postplant.py               # 下包后攻防
-│   │   └── weapon_splits.py           # 武器类别拆分
+│   ├── replay/                        # 2D 回放时间线（PlayerTimeline：道具时长/投掷起点重建）
 │   │
-│   ├── render/                        # Layer 4
+│   ├── analysis/                      # Layer 3：21 个注册模块 + runner 拓扑排序
 │   │   ├── __init__.py
-│   │   ├── base.py                    # Renderer ABC + RadarPlayerData + merge
-│   │   ├── image_utils.py             # 头像裁剪/透明度工具（迁移自 utils/image_pre.py）
-│   │   ├── radar_chart.py             # PlayerRadarChart + RadarChartRenderer
-│   │   ├── action_map.py              # 2D 行动 map
-│   │   └── overlap_animation.py       # T/CT 重叠动画
+│   │   ├── base.py / runner.py        # AnalysisModule ABC + 注册表 + 依赖排序
+│   │   ├── util.py                    # 共享助手：逐回合阵营（换边安全）+ clean_sid
+│   │   ├── basic_stats / ratings / ratings21 / preference / funlab
+│   │   ├── duels / duel_model / economy / economy_ev / utility_effect
+│   │   ├── routes / highlights / kill_context / hitgroups / aim / aim_science
+│   │   ├── loss_attribution / postplant / weapon_splits / weapon_timeline
+│   │   ├── win_probability
+│   │   ├── library.py                 # 线程/进程池全库与子集扫描（scan_demos[_proc]/scan_hashes[_proc]）
+│   │   └── aggregate.py               # 跨场聚合（T3：per-demo 分片 dict + merge_aggregate_shards）
 │   │
-│   ├── export/                        # Layer 5
-│   │   ├── __init__.py
-│   │   ├── base.py                    # Exporter ABC
-│   │   ├── video.py                   # ffmpeg 合成 (bg + music, NVENC)
-│   │   └── report.py                  # JSON/HTML 报告
+│   │   （Layer 4/5 render+export 已退役：渲染与导出全部在浏览器端，见 §1 实现状态表）
 │   │
-│   ├── web/                           # LTG-2 本地 Web 平台 (FastAPI)
+│   ├── web/                           # 本地平台（FastAPI + Jinja2 SSR + canvas 回放）
 │   │   ├── __init__.py
-│   │   ├── app.py                     # 路由: 仪表盘/对局/选手/高光/对比/系统 + 6 专题页 + API
-│   │   ├── store.py                   # demo 索引
-│   │   ├── tasks.py                   # 线程任务管理器 (后台渲染)
-│   │   ├── viewer_data.py             # canvas 回放数据包 (8Hz 快照, VIEWER_DATA_VERSION)
-│   │   ├── coverage.py                # 解析覆盖度扫描 + 报告
-│   │   ├── templates/                 # Jinja2 页面 (仪表盘/对局库/对局详情/生涯/高光/对比/系统 + viewer/overlap/专题页)
-│   │   └── static/                    # style.css (电竞风 token) / viewer_canvas.js / charts.js / js/ 模块 / app.js / common.js
+│   │   ├── app.py                     # 路由（页面/API 必须注册在 /{placeholder} 通配之前）
+│   │   ├── runtime.py                 # 门面：settings/cache/out_dir（S4 解除数据模块→app 依赖环）
+│   │   ├── aggregation.py             # 跨场 memo 总失效入口 invalidate_aggregate()（快照生产者清单成员）
+│   │   ├── snapshots.py               # T1 快照 + T3 per-demo 分片 + 指纹（_SNAPSHOT_SOURCES 生产者溯源）
+│   │   ├── warmup.py                  # 两波预热：wave1 → ready；wave2 分片物化 → wave2_done
+│   │   ├── tasks.py                   # 线程任务池（submit 支持 dedupe_key：同路径解析去重）
+│   │   ├── auto_import.py             # demos/ 监视自动入库（失败持久化、跨重启不重试）
+│   │   ├── store.py / match_data.py / chart_data.py / viewer_data.py
+│   │   ├── feed_data / teamplay_data / utilitylab_data / mapdata / lineups_data
+│   │   ├── funlab_data / style_map / aim_data / loss_data / winprob_loo
+│   │   ├── duel_data / rating21_data / ev_data / pro_baseline_data
+│   │   ├── conclusions.py / trend_data.py   # 复盘结论+实力画像 / 前半 vs 近半趋势（纯合成层）
+│   │   ├── report_data.py / report_export.py / favorites_store.py / weapons.py
+│   │   ├── templates/                 # Jinja2 页面 + 局部模板（收藏星标/对局卡/上传区）
+│   │   └── static/                    # style.css + viewer_canvas.js + charts.js + js/ 15 模块 + vendor/echarts
 │   │
 │   └── maps/                          # 地图资源
 │       ├── __init__.py
 │       ├── loader.py                  # 雷达图加载、坐标映射
-│       └── data/                      # de_mirage/de_ancient/de_inferno .yaml + 官方雷达 .png
+│       └── data/                      # 8 图 .yaml + 官方雷达 .png（mirage/ancient/inferno/nuke/dust2/cache/anubis/vertigo）
 │
-├── configs/                           # 示例配置
-│   ├── default.yaml
-│   ├── batch_example.yaml
-│   └── content_prod.yaml              # 内容生产：背景 + BGM
+├── configs/                           # default.yaml / demo_sources.yaml（平台源目录锚点）
 │
-├── tests/
-│   ├── conftest.py                    # 合成 demo fixtures
-│   ├── test_model.py
-│   ├── test_parser.py
-│   ├── test_analysis.py
-│   ├── test_render.py
-│   └── test_export.py
-│
-├── examples/
-│   └── render_radar_from_csv.py       # CSV 适配器（旧流程兼容）
+├── docs/                              # funlab-metrics / research-ledger / screenshots 等
+├── scripts/                           # visual_check / accept_buttons / research_eval / pro_fetch / platform_import / bench_* / probe_*
+├── tests/                             # 408 项（conftest 合成 demo fixtures + 模块/阶段测试）
 │
 ├── pyproject.toml
 ├── ARCHITECTURE.md
@@ -665,29 +646,37 @@ export:
 ```toml
 [project]
 dependencies = [
-    "demoparser2>=0.41",       # demo 解析
-    "pydantic>=2.0",           # 数据模型
-    "pydantic-settings>=2.0",  # 配置
+    "demoparser2>=0.42,<0.43", # demo 解析
+    "pydantic>=2.5",           # 数据模型
+    "pydantic-settings>=2.1",  # 配置
     "typer>=0.9",              # CLI
     "rich>=13.0",              # 终端输出 / 进度条
-    "pandas>=2.0",             # 数据处理
+    "pandas>=2.1",             # 数据处理
     "pyarrow>=14.0",           # Parquet 支持
     "numpy>=1.24",
-    "manim>=0.18",             # 动画渲染
-    "Pillow>=10.0",            # 图像处理
-    "matplotlib>=3.7",         # 2D 图表
-    "jinja2>=3.1",             # HTML 报告模板
+    "scipy>=1.11",             # Ward 聚类（风格星系）
     "pyyaml>=6.0",             # YAML 配置
+    "jinja2>=3.1",             # SSR 模板
+    "fastapi>=0.110",          # Web 平台
+    "uvicorn>=0.27",
+    "starlette>=0.36",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pytest-timeout>=2.2",
     "pytest-cov>=4.0",
     "ruff>=0.1",               # linter + formatter
     "mypy>=1.5",               # 类型检查
 ]
+reports = [
+    "playwright>=1.40",        # /reports PNG/PDF 导出（headless chromium 打印）
+]
 ```
+
+**注意**：`manim` / `matplotlib` / `Pillow` 已随 Layer 4/5 渲染层退役移除（Phase E，
+渲染与图表全部在浏览器端 canvas + vendored ECharts 完成）。以 `pyproject.toml` 为准。
 
 ---
 

@@ -548,7 +548,8 @@ def upload(request: Request, files: list[UploadFile] = File(...)):
             rows.append({"label": label, "job_id": None, "state": "duplicate",
                          "error": None, "demo_hash": demo_hash})
             continue
-        job_id = tasks.tasks.submit(_parse_job, label=label, path=str(dest))
+        job_id = tasks.tasks.submit(_parse_job, label=label, path=str(dest),
+                                    dedupe_key=str(dest))
         rows.append({"label": label, "job_id": job_id, "state": "submitted",
                      "error": None, "demo_hash": demo_hash})
 
@@ -1273,7 +1274,8 @@ def system_import():
                     continue
             except OSError:
                 continue
-            tasks.tasks.submit(_parse_job, label=dem.name, path=str(dem))
+            tasks.tasks.submit(_parse_job, label=dem.name, path=str(dem),
+                               dedupe_key=str(dem))
             submitted += 1
     if submitted:
         from cs_analyzer.web.aggregation import invalidate_aggregate
@@ -1310,15 +1312,19 @@ def search_api(q: str = ""):
     """Cross-library quick search over the T1 aggregate memo (request-safe).
 
     Matches players (name substring / steamid prefix) and demos (filename /
-    map / match_id substring). Never scans — aggregated() is snapshot-backed.
+    map / match_id substring). Never scans — R3-F3: peek-only, a cold memo
+    answers 503 {"status": "warming"} instead of a synchronous full scan
+    (S3-B2 precedent); an empty query needs no memo and always answers 200.
     """
-    from cs_analyzer.web.aggregation import aggregated
+    from cs_analyzer.web.aggregation import aggregated_peek
 
     qn = (q or "").strip().lower()
     out: dict = {"q": qn, "players": [], "matches": []}
     if not qn:
         return JSONResponse(out)
-    result = aggregated()
+    result = aggregated_peek()
+    if result is None:
+        return JSONResponse({"status": "warming"}, status_code=503)
     for p in result.players:
         if qn in p.name.lower() or p.steamid.startswith(qn):
             out["players"].append({
@@ -1422,11 +1428,17 @@ def system_scan_sources():
 def trend_api():
     """Per-player Rating/ADR/KAST means, chronological-median split (前半 vs 近半).
 
-    Presentation layer over the T1 aggregate memo — request-safe, never
-    scans. Δ values are display conventions, not significance tests."""
+    Presentation layer over the T1 aggregate memo — R3-F3: peek-only, a cold
+    memo answers 503 {"status": "warming"} instead of a synchronous full
+    scan (S3-B2 precedent). Δ values are display conventions, not
+    significance tests."""
+    from cs_analyzer.web.aggregation import aggregated_peek
     from cs_analyzer.web.trend_data import trend_report
 
-    return JSONResponse(trend_report())
+    result = aggregated_peek()
+    if result is None:
+        return JSONResponse({"status": "warming"}, status_code=503)
+    return JSONResponse(trend_report(agg=result))
 
 
 # ---- 2D map replay viewer (B2) ----

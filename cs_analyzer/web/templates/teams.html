@@ -61,42 +61,4 @@
 <script src="/static/vendor/echarts.min.js"></script>
 <script src="/static/vendor/echarts-theme-csa.js?v={{ static_v }}"></script>
 <script src="/static/js/teams.js?v={{ static_v }}"></script>
-<script>
-// C3 趋势对比: windowed means from /api/trend.json (T1 aggregate memo).
-(async function () {
-  const tb = document.getElementById('tr-tbody');
-  if (!tb) return;
-  const num = (v, dig, suffix) => v == null ? '—' : Number(v).toFixed(dig) + (suffix || '');
-  const delta = (v, dig, band) => {
-    if (v == null) return '—';
-    const s = (v >= 0 ? '+' : '') + Number(v).toFixed(dig);
-    const color = Math.abs(v) < band ? 'var(--muted)'
-      : (v > 0 ? 'var(--ok)' : 'var(--err)');
-    return `<span style="color:${color}">${s}</span>`;
-  };
-  try {
-    const r = await fetch('/api/trend.json');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const d = await r.json();
-    document.getElementById('tr-note').textContent =
-      `前 ${d.split.before} 场 vs 近 ${d.split.recent} 场（比赛时间序中位数切分）`
-      + ` · Δ 为展示值非显著性检验 · 任一窗口 <3 场灰显`;
-    tb.innerHTML = d.players.length ? d.players.map((p) =>
-      `<tr><td><a href="/player/${p.steamid}">${CSACommon.esc(p.name)}</a></td>` +
-      `<td class="num">${p.n_before}/${p.n_recent}</td>` +
-      `<td class="num">${num(p.rating_before, 2)}</td>` +
-      `<td class="num">${num(p.rating_recent, 2)}</td>` +
-      `<td class="num">${delta(p.d_rating, 2, 0.05)}</td>` +
-      `<td class="num">${num(p.adr_before, 1)}</td>` +
-      `<td class="num">${num(p.adr_recent, 1)}</td>` +
-      `<td class="num">${delta(p.d_adr, 1, 2)}</td>` +
-      `<td class="num">${num(p.kast_before, 0)}%</td>` +
-      `<td class="num">${num(p.kast_recent, 0)}%</td>` +
-      `<td class="num">${delta(p.d_kast, 1, 2)}</td></tr>`).join('')
-      : '<tr><td colspan="11" class="sub">暂无数据（样本不足以切分窗口）</td></tr>';
-  } catch (e) {
-    tb.innerHTML = '<tr><td colspan="11" class="sub">趋势数据不可用</td></tr>';
-  }
-})();
-</script>
 {% endblock %}

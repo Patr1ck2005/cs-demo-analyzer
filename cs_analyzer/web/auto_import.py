@@ -9,9 +9,10 @@ copied file must never enter the queue. invalidate_aggregate() runs once
 per submitted batch (same contract as /system/import).
 
 Failure policy (口径): a file whose parse job ends in "error" is recorded
-in-process and NEVER retried (dead-loop guard); it stays visible in
-/system's 未入库文件 list until removed manually. State (enabled flag)
-persists to output/web/auto_import_state.json; default is ON.
+(persisted to the state file — survives restarts, R3-F2) and NEVER retried
+(dead-loop guard); failed files stay visible in /system's 自动入库 status
+line until removed manually. State (enabled flag + failed hashes) persists
+to output/web/auto_import_state.json; default is ON.
 
 Everything here reuses existing building blocks — no new parse path.
 """
@@ -35,6 +36,8 @@ _enabled = True
 _started = False
 _last_sig: dict[str, tuple[int, int]] = {}  # filename -> (size, mtime int)
 _failed: set[str] = set()                   # content hashes that failed (no retry)
+_failed_names: dict[str, str] = {}          # content hash -> filename (display)
+_FAILED_CAP = 200                           # persisted-failure list cap (oldest dropped)
 _pending: dict[str, str] = {}               # content hash -> job id
 _last_action = "尚未扫描"
 
@@ -44,15 +47,23 @@ def _load_state() -> None:
     try:
         data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
         _enabled = bool(data.get("enabled", True))
+        for entry in data.get("failed", []):
+            try:
+                h, name = entry
+            except (TypeError, ValueError):
+                continue
+            _failed.add(str(h))
+            _failed_names[str(h)] = str(name)
     except (OSError, ValueError):
-        pass  # missing/corrupt state → default ON
+        pass  # missing/corrupt state → default ON, empty failure memory
 
 
 def _save_state() -> None:
     try:
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        failed = [[h, _failed_names.get(h, "")] for h in list(_failed)[- _FAILED_CAP:]]
         STATE_PATH.write_text(
-            json.dumps({"enabled": _enabled}, ensure_ascii=False),
+            json.dumps({"enabled": _enabled, "failed": failed}, ensure_ascii=False),
             encoding="utf-8")
     except OSError:
         logger.warning("auto_import: cannot persist state", exc_info=True)
@@ -74,6 +85,8 @@ def status() -> dict:
             "poll_sec": POLL_SEC,
             "last_action": _last_action,
             "failed_n": len(_failed),
+            "failed": [{"hash": h[:12], "name": _failed_names.get(h, "")}
+                       for h in list(_failed)[-10:]],
         }
 
 
@@ -143,7 +156,7 @@ def _poll_once() -> int:
     for dem in submit:
         demo_hash = DemoCache.hash_demo(dem)
         job_id = tasks.tasks.submit(_parse_job, label=f"[自动] {dem.name}",
-                                    path=str(dem))
+                                    path=str(dem), dedupe_key=str(dem))
         _pending[demo_hash] = job_id
     invalidate_aggregate()  # once per batch (same as /system/import)
     _set_action(f"自动入库 {len(submit)} 个新 demo："
@@ -166,9 +179,12 @@ def _reap_jobs() -> None:
             continue
         if job.status == "error":
             _failed.add(demo_hash)
+            _failed_names[demo_hash] = job.label.replace("[自动] ", "")
             _pending.pop(demo_hash, None)
             _set_action(f"自动入库失败（不再重试）：{job.label}")
             logger.warning("auto_import: parse failed for %s — no retry", job.label)
+            with _lock:
+                _save_state()
         elif job.status == "done":
             _pending.pop(demo_hash, None)
 

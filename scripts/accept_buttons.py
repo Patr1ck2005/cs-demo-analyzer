@@ -640,12 +640,47 @@ def main() -> int:
 
         run("C3 teams trend table fills", step_trend)
 
-        # ---- 25/26. (tail, V-B4) the self-invalidating steps: 一键入库 +
+        # ---- 25. R3: B3 auto mode (?rec=1) — the 🎬 片段 highlight-card
+        # flow previously had zero button-level acceptance (step 23 covers
+        # the manual chip only). Click a card → the viewer arms itself →
+        # 8× fast-forward → the round-end auto-stop must land a .webm and
+        # clean ?rec= from the URL. ----
+        def step_recorder_auto():
+            page.goto(BASE + "/highlights", wait_until="networkidle",
+                      timeout=90000)
+            page.wait_for_selector(".hl-card [data-rec-href]", timeout=60000)
+            # lowest highlight round → a later round almost surely exists,
+            # so the round-end auto-stop (not a manual stop) ends the clip
+            rounds = [h["round"] for h in api("/api/highlights.json")["highlights"]]
+            assert rounds, "no highlights on the real library"
+            target = min(rounds)
+            with page.expect_download(timeout=240000) as dl_info:
+                page.click(f'[data-rec-href*="round={target}&"]')
+                page.wait_for_url(lambda url: f"round={target}" in url,
+                                  timeout=30000)
+                page.wait_for_load_state("networkidle", timeout=90000)
+                page.wait_for_function(
+                    "() => { const b = document.getElementById('btn-rec');"
+                    " return b && (b.textContent || '').includes('停止'); }",
+                    timeout=60000)
+                page.select_option("#sel-speed", "8")
+            name = dl_info.value.suggested_filename
+            assert name.endswith(".webm"), f"unexpected auto download: {name}"
+            page.wait_for_function(
+                "() => { const b = document.getElementById('btn-rec');"
+                " return b && (b.textContent || '').includes('⏺'); }",
+                timeout=30000)
+            assert "rec=1" not in page.url, "auto mode did not clean ?rec="
+            expect_no_console_errors("recorder auto mode")
+
+        run("B3 auto record (?rec=1) round-end download", step_recorder_auto)
+
+        # ---- 26/27. (tail, V-B4) the self-invalidating steps: 一键入库 +
         # upload kick invalidate_aggregate → wave2 rebuild — deliberately
         # LAST so they never poison the memo-dependent assertions above.
         # Run-order contract: fresh server → this script once, nothing else.
 
-        # ---- 25. 一键入库 (idempotent on a clean demos/) ----
+        # ---- 26. 一键入库 (idempotent on a clean demos/) ----
         def step_import():
             page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
             page.click("#sys-import")
@@ -658,7 +693,7 @@ def main() -> int:
 
         run("system import click (tail, invalidates)", step_import)
 
-        # ---- 26. F10: upload rejects non-.dem, queues the .dem ----
+        # ---- 27. F10: upload rejects non-.dem, queues the .dem ----
         def step_upload():
             DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
             fake = ACCEPT_DIR / "accept-fake.dem"

@@ -48,12 +48,24 @@ class TaskManager:
     def __init__(self, max_workers: int = 2) -> None:
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="csa-task")
         self._jobs: dict[str, Job] = {}
+        #: dedupe_key -> job id, for jobs still pending/running (R3-F1).
+        #: upload / 一键入库 / auto_import all submit _parse_job for the same
+        #: demos/<name> path — without this, the watcher re-submits a demo
+        #: whose upload-parse is still running (duplicate task row + a second
+        #: invalidate_aggregate + a worker thread parked on the parse lock).
+        self._dedupe: dict[str, str] = {}
         self._lock = threading.Lock()
 
-    def submit(self, fn, *, label: str = "", **kwargs) -> str:
+    def submit(self, fn, *, label: str = "", dedupe_key: str | None = None, **kwargs) -> str:
         job_id = uuid.uuid4().hex[:12]
-        job = Job(id=job_id, label=label)
         with self._lock:
+            if dedupe_key is not None:
+                existing = self._dedupe.get(dedupe_key)
+                if (existing is not None and existing in self._jobs
+                        and self._jobs[existing].status in ("pending", "running")):
+                    return existing  # unfinished job for this key already queued
+                self._dedupe[dedupe_key] = job_id
+            job = Job(id=job_id, label=label)
             self._jobs[job_id] = job
             if len(self._jobs) > self._MAX_JOBS:
                 finished = sorted(
@@ -77,6 +89,12 @@ class TaskManager:
             finally:
                 job.finished = time.time()
                 job.progress = 1.0
+                if dedupe_key is not None:
+                    with self._lock:
+                        # only clear our own registration (a same-key job
+                        # submitted after this one finished may already hold it)
+                        if self._dedupe.get(dedupe_key) == job_id:
+                            self._dedupe.pop(dedupe_key, None)
 
         self._pool.submit(_run)
         return job_id

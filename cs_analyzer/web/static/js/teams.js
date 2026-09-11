@@ -142,9 +142,67 @@
       sv.mixed_matches + ' 场 5E（常客不足同场）。Rating 为该组常客样本均值。</div>';
   }
 
+  // ---- C3 趋势对比 (R3-F4: moved from the teams.html inline block) ----
+  // Windowed means from /api/trend.json (T1 aggregate memo, peek-only).
+  function loadTrend(attempt) {
+    attempt = attempt || 0;
+    var tb = document.getElementById('tr-tbody');
+    if (!tb) return;
+    fetch('/api/trend.json', { cache: 'no-store' })
+      .then(function (r) {
+        if (r.status === 503) {  // R3-F3: aggregate memo still rebuilding
+          if (attempt < 3) {
+            tb.innerHTML = '<tr><td colspan="11" class="sub">预热中（聚合重算进行中）…</td></tr>';
+            setTimeout(function () { loadTrend(attempt + 1); }, 8000);
+          } else {
+            tb.innerHTML = '<tr><td colspan="11" class="sub">预热超时，刷新页面可重试</td></tr>';
+          }
+          return null;
+        }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (d) {
+        if (d) renderTrend(d);
+      })
+      .catch(function () {
+        tb.innerHTML = '<tr><td colspan="11" class="sub">趋势数据不可用</td></tr>';
+      });
+  }
+
+  function renderTrend(d) {
+    var tb = document.getElementById('tr-tbody');
+    var num = (v, dig, suffix) => v == null ? '—' : Number(v).toFixed(dig) + (suffix || '');
+    const delta = (v, dig, band) => {
+      if (v == null) return '—';
+      const s = (v >= 0 ? '+' : '') + Number(v).toFixed(dig);
+      const color = Math.abs(v) < band ? 'var(--muted)'
+        : (v > 0 ? 'var(--ok)' : 'var(--err)');
+      return `<span style="color:${color}">${s}</span>`;
+    };
+    var note = document.getElementById('tr-note');
+    if (note) note.textContent =
+      `前 ${d.split.before} 场 vs 近 ${d.split.recent} 场（比赛时间序中位数切分）`
+      + ` · Δ 为展示值非显著性检验 · 任一窗口 <3 场灰显`;
+    tb.innerHTML = d.players.length ? d.players.map((p) =>
+      `<tr><td><a href="/player/${p.steamid}">${CSACommon.esc(p.name)}</a></td>` +
+      `<td class="num">${p.n_before}/${p.n_recent}</td>` +
+      `<td class="num">${num(p.rating_before, 2)}</td>` +
+      `<td class="num">${num(p.rating_recent, 2)}</td>` +
+      `<td class="num">${delta(p.d_rating, 2, 0.05)}</td>` +
+      `<td class="num">${num(p.adr_before, 1)}</td>` +
+      `<td class="num">${num(p.adr_recent, 1)}</td>` +
+      `<td class="num">${delta(p.d_adr, 1, 2)}</td>` +
+      `<td class="num">${num(p.kast_before, 0)}%</td>` +
+      `<td class="num">${num(p.kast_recent, 0)}%</td>` +
+      `<td class="num">${delta(p.d_kast, 1, 2)}</td></tr>`).join('')
+      : '<tr><td colspan="11" class="sub">暂无数据（样本不足以切分窗口）</td></tr>';
+  }
+
   function init() {
     initLineups();
     loadTeamplay();
+    loadTrend();
   }
 
   function initLineups() {
