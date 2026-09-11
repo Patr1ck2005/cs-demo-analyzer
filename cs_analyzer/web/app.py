@@ -1416,6 +1416,19 @@ def system_scan_sources():
     })
 
 
+# ---- C3 趋势对比 (车队趋势): recent-half vs earlier-half, presentation only ----
+
+@app.get("/api/trend.json")
+def trend_api():
+    """Per-player Rating/ADR/KAST means, chronological-median split (前半 vs 近半).
+
+    Presentation layer over the T1 aggregate memo — request-safe, never
+    scans. Δ values are display conventions, not significance tests."""
+    from cs_analyzer.web.trend_data import trend_report
+
+    return JSONResponse(trend_report())
+
+
 # ---- 2D map replay viewer (B2) ----
 
 # ---- real-time canvas viewer data (Phase C) ----

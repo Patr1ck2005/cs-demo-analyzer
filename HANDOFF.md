@@ -1369,6 +1369,24 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
 - 测试 393→**399**（impact 归因 4 + untraded 计数 2）；pytest 399 全绿；
   visual 28 页 0 失败；accept_buttons 24 步 0 失败；ruff F 级 0。
 
+### C3 趋势对比（2026-09-11 深夜，复盘提升包收官件）
+
+- **`web/trend_data.py`（纯展示层）**：T1 聚合 memo 派生——demos 按 match_key
+  （比赛时间序）中位数切分为"前半/近半"，per-player Rating/ADR/KAST 窗口均值 +
+  Δ；任一窗口 <3 场诚实灰显。Δ 为展示值非显著性检验（页脚口径注明）。
+  请求安全（aggregated() 快照背书，永不扫库）。`GET /api/trend.json`。
+- **/teams 新"📈 趋势对比"表**（ teams.html + 内联 fetch，Δ 颜色带
+  Rating±0.05/ADR±2/KAST±2 展示带宽）。
+- **测试 400→403**（trend API 空态 + 窗口均值单测 + teams 装载锁）。
+- **新坑（自我重复两次）**：edit 工具替换"段尾带换行"的锚点时吞掉下一行换行，
+  两次把 def 行与 docstring 挤到同一行（search_api/system_import）；第三次
+  更是在 scan-sources 函数体中间插入 trend 路由 → 原函数体变成 trend_api
+  return 之后的死代码 → scan-sources 返回 null（2 个 S2 测试失败暴露）。
+  教训：插入路由类改动必须读插入点前后 ≥20 行确认函数边界，插完跑全量。
+- 验收：accept_buttons 25→**26 步**（步骤 24=/teams 趋势表填充）；visual
+  28 页 0 失败；pytest 403 全绿；ruff F 级 0。F9 一次点击超时复跑即过
+  （既有先例）。**开发菜单至此全部完成**（C1 等 FACEIT key 外部阻塞）。
+
 ### B3 高光片段视频导出（2026-09-11 晚，复盘提升包续件）
 
 - **纯浏览器录制，零 ffmpeg/零服务端渲染**（项目原则）：新

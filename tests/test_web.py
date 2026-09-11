@@ -241,6 +241,54 @@ def test_viewer_recorder_wiring() -> None:
     assert "data-rec-href" in hl and "rec=1" in hl
 
 
+def test_trend_api(web_client) -> None:
+    """C3: /api/trend.json windows from the T1 aggregate memo. The synthetic
+    fixture has ONE demo → no player can have ≥3 demos per window → honest
+    empty list."""
+    c, h, _ = web_client
+    r = c.get("/api/trend.json")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["split"]["before"] + body["split"]["recent"] >= 1
+    assert body["players"] == []
+
+
+def test_trend_report_windows() -> None:
+    """C3: windowed means + grey-out on a fake aggregate (6 demos → 3/3)."""
+    from types import SimpleNamespace
+
+    from cs_analyzer.web.trend_data import trend_report
+
+    demos = [SimpleNamespace(demo_hash=f"h{i}", t_score=13, ct_score=11)
+             for i in range(6)]
+    players = [SimpleNamespace(
+        steamid="s1", name="Alice",
+        demos=[{"demo_hash": f"h{i}", "Rating": 1.0 + i * 0.1, "ADR": 80.0,
+                "KAST": 70.0} for i in range(6)],
+    ), SimpleNamespace(
+        steamid="s2", name="Bob",
+        demos=[{"demo_hash": "h0", "Rating": 1.0, "ADR": 70.0, "KAST": 60.0}],
+    )]
+    agg = SimpleNamespace(demos=demos, players=players)
+    rep = trend_report(agg)
+    assert rep["split"] == {"before": 3, "recent": 3}
+    # Bob has 1 demo total → greyed out; Alice means split at the median
+    assert [p["name"] for p in rep["players"]] == ["Alice"]
+    alice = rep["players"][0]
+    assert alice["n_before"] == 3 and alice["n_recent"] == 3
+    assert abs(alice["rating_before"] - 1.1) < 1e-6   # h0..h2 → 1.0/1.1/1.2
+    assert abs(alice["rating_recent"] - 1.4) < 1e-6   # h3..h5 → 1.3/1.4/1.5
+    assert abs(alice["d_rating"] - 0.3) < 1e-6
+    assert "非显著性检验" in rep["note"]
+
+
+def test_teams_page_carries_trend(web_client) -> None:
+    c, _, _ = web_client
+    r = c.get("/teams")
+    assert r.status_code == 200
+    assert "tr-tbody" in r.text and "趋势对比" in r.text
+
+
 def test_highlights_page(web_client) -> None:
     c, _, _ = web_client
     r = c.get("/highlights")

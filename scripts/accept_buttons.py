@@ -628,12 +628,24 @@ def main() -> int:
 
         run("B3 viewer recorder produces webm download", step_recorder)
 
-        # ---- 24/25. (tail, V-B4) the self-invalidating steps: 一键入库 +
+        # ---- 24. C3 趋势对比: /teams renders the windowed trend table ----
+        def step_trend():
+            page.goto(BASE + "/teams", wait_until="networkidle", timeout=90000)
+            page.wait_for_function(
+                "() => { const tb = document.getElementById('tr-tbody');"
+                " return tb && tb.querySelector('a'); }", timeout=60000)
+            rows = page.locator("#tr-tbody tr").count()
+            assert rows >= 1, "trend table empty"
+            expect_no_console_errors("trend table")
+
+        run("C3 teams trend table fills", step_trend)
+
+        # ---- 25/26. (tail, V-B4) the self-invalidating steps: 一键入库 +
         # upload kick invalidate_aggregate → wave2 rebuild — deliberately
         # LAST so they never poison the memo-dependent assertions above.
         # Run-order contract: fresh server → this script once, nothing else.
 
-        # ---- 24. 一键入库 (idempotent on a clean demos/) ----
+        # ---- 25. 一键入库 (idempotent on a clean demos/) ----
         def step_import():
             page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
             page.click("#sys-import")
@@ -646,7 +658,7 @@ def main() -> int:
 
         run("system import click (tail, invalidates)", step_import)
 
-        # ---- 25. F10: upload rejects non-.dem, queues the .dem ----
+        # ---- 26. F10: upload rejects non-.dem, queues the .dem ----
         def step_upload():
             DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
             fake = ACCEPT_DIR / "accept-fake.dem"
