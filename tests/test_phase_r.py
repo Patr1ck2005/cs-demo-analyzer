@@ -201,6 +201,38 @@ class TestLossAttribution:
         r1 = next(r for r in res.rounds if r["round"] == 1)
         assert "untraded" not in r1["tags"]
 
+    def test_player_untraded_counts_c2h2(self):
+        """C2-H2: per-player untraded granularity in LOST rounds."""
+        demo = _loss_demo()
+        res = AnalysisRunner().run_one(demo, "loss_attribution")
+        by_sid = {p["steamid"]: p for p in res.players}
+        # R1 T loses (Carol, Dave die unavenged); R2 CT loses (Bob, Alice die
+        # unavenged — per the R2 tags). One lost death each, all untraded.
+        assert by_sid[S_CAROL] == {"steamid": S_CAROL, "lost_deaths": 1,
+                                   "untraded_deaths": 1}
+        assert by_sid[S_DAVE]["untraded_deaths"] == 1
+        assert by_sid[S_ALICE]["lost_deaths"] == 1
+        assert by_sid[S_BOB]["untraded_deaths"] == 1
+        assert set(by_sid) == {S_ALICE, S_BOB, S_CAROL, S_DAVE}
+
+    def test_player_traded_death_not_counted_c2h2(self):
+        demo = _loss_demo()
+        deaths = demo.events["player_death"]
+        extra = pd.DataFrame({
+            "tick": [620],
+            "attacker_steamid": [S_DAVE],
+            "user_steamid": [S_ALICE],
+            "attacker_name": ["Dave"],
+            "user_name": ["Alice"],
+            "weapon": ["ak47"],
+        })
+        demo.events["player_death"] = pd.concat([deaths, extra], ignore_index=True)
+        res = AnalysisRunner().run_one(demo, "loss_attribution")
+        by_sid = {p["steamid"]: p for p in res.players}
+        assert by_sid[S_CAROL]["lost_deaths"] == 1
+        assert by_sid[S_CAROL]["untraded_deaths"] == 0  # traded by Dave
+        assert by_sid[S_DAVE]["untraded_deaths"] == 1
+
 
 def _utility_demo() -> ParsedDemo:
     team_a = Team(name="Team 3", starting_side="CT")

@@ -41,6 +41,9 @@ class LossAttributionResult(AnalysisResult):
     # [{round, winner_side, loser_side, buy, tags:[...], loser_sids:[...]}]
     teams: list[dict] = Field(default_factory=list)
     # [{team, lost_rounds, tags:{tag: count}}] (team = "Team 2"/"Team 3")
+    # C2-H2: per-player death granularity in LOST rounds (rate vs presence)
+    players: list[dict] = Field(default_factory=list)
+    # [{steamid, lost_deaths, untraded_deaths}]
     roster: dict[str, str] = Field(default_factory=dict)  # sid -> display name
     notes: dict = Field(default_factory=dict)
 
@@ -138,6 +141,7 @@ class LossAttributionModule(AnalysisModule):
                     break
 
         teams_counts: dict[str, dict] = {}
+        player_stats: dict[str, list] = {}  # C2-H2: sid -> [lost_deaths, untraded]
         for rnd in rounds:
             if not rnd.winner_side:
                 continue
@@ -159,17 +163,21 @@ class LossAttributionModule(AnalysisModule):
             # 2. untraded deaths: count loser deaths whose killer was NOT
             #    killed by a loser-side teammate within TRADE_WINDOW_TICKS.
             #    Tag when >=2 such deaths (a single untraded death is normal).
+            #    C2-H2: also accumulated per VICTIM for the rate metric.
             untraded = 0
             loser_deaths = [k for k in window
                             if smap.get(k[2], "") == loser and k[1]]
-            for t0, killer, _vic, _w in [(k[0], k[1], k[2], k[3]) for k in loser_deaths]:
+            for t0, killer, vic, _w in loser_deaths:
                 traded = any(
                     t0 < t <= t0 + TRADE_WINDOW_TICKS
                     and a and v == killer and smap.get(a, "") == loser
                     for t, a, v, _w2 in window
                 )
+                pst = player_stats.setdefault(vic, [0, 0])
+                pst[0] += 1
                 if not traded:
                     untraded += 1
+                    pst[1] += 1
             if untraded >= 2:
                 tags.append("untraded")
 
@@ -209,6 +217,10 @@ class LossAttributionModule(AnalysisModule):
             {"team": tc["team"], "lost_rounds": tc["lost_rounds"],
              "tags": dict(sorted(tc["tags"].items(), key=lambda kv: -kv[1]))}
             for tc in teams_counts.values()
+        ]
+        res.players = [
+            {"steamid": sid, "lost_deaths": d, "untraded_deaths": u}
+            for sid, (d, u) in sorted(player_stats.items())
         ]
         res.roster = roster
         return res

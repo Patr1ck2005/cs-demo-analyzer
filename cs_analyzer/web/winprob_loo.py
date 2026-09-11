@@ -105,16 +105,18 @@ def _demo_payload(demo) -> dict:
     sides: list[str] = []
     positions: list[list[int]] = []
     alive_keys: list[list] = []
+    deaths: list[list[list[str]]] = []
     if result is not None:
         for s in result.snapshots_all:
             rows.append(_feature_row(s))
             y.append(int(s.outcome))
             sides.append(s.side)
             positions.append([int(s.round), int(s.tick)])
+            deaths.append([list(d) for d in (s.deaths or [])])
         alive_keys = result.alive_keys
     return {
         "rows": rows, "y": y, "sides": sides, "positions": positions,
-        "alive_keys": alive_keys,
+        "alive_keys": alive_keys, "deaths": deaths,
         "meta": {"model": result.model_version if result is not None else "?",
                  "n_features": N_FEATURES},
     }
@@ -197,14 +199,70 @@ def _scan_all() -> dict[str, dict]:
                                  h, payload)
             sharded[h] = payload
     # shape guard: only current-shape payloads (V2 n_features + sides +
-    # alive_keys — career rekey silently degrades without the keys)
+    # alive_keys — career rekey silently degrades without the keys; C2-H1
+    # needs the deaths column for impact attribution)
     entries = {h: p for h, p in sharded.items()
                if h in set(hashes) and isinstance(p, dict)
                and p.get("meta", {}).get("n_features") == N_FEATURES
-               and isinstance(p.get("alive_keys"), list)}
+               and isinstance(p.get("alive_keys"), list)
+               and isinstance(p.get("deaths"), list)}
     with _lock:
         _shards = entries
         return _shards
+
+
+def _impact_rows(shard: dict, p_rows: list[float]) -> dict[str, float]:
+    """C2-H1 (approved 口径 2026-09-10): per-player win-prob swing attribution.
+
+    Per (perspective, round) subsequence, Δp between consecutive rows is
+    attributed to the SINGLE player who died at that tick: the victim gets
+    their OWN-view Δ, the killer gets the MIRROR view's Δ at the same tick
+    ("各从己方视角"). Multi-death ticks, plant-only ticks and rows where the
+    alive-roster diff disagrees with the death record are skipped (team
+    events / ambiguity — not attributable). Returns {steamid: impact}."""
+    keys = shard.get("alive_keys") or []
+    deaths_rows = shard.get("deaths") or []
+    sides = shard.get("sides") or []
+    pos = shard.get("positions") or []
+    n = min(len(keys), len(p_rows), len(sides), len(pos), len(deaths_rows))
+
+    seq: dict[tuple[str, int], list[int]] = {}
+    for i in range(n):
+        seq.setdefault((sides[i], int(pos[i][0])), []).append(i)
+    # (side, round, tick) → own-view Δp of that perspective at this tick
+    delta: dict[tuple[str, int, int], float] = {}
+    for (side, rn), idxs in seq.items():
+        for a, b in zip(idxs, idxs[1:]):
+            delta[(side, rn, int(pos[b][1]))] = p_rows[b] - p_rows[a]
+
+    def sids(k: list, j: int) -> set:
+        return set(k[j].split("|")) if k[j] else set()
+
+    impact: dict[str, float] = {}
+    for (side, rn), idxs in seq.items():
+        opp = "CT" if side == "T" else "T"
+        for a, b in zip(idxs, idxs[1:]):
+            ev = deaths_rows[b] or []
+            ka, kb = keys[a], keys[b]
+            if len(ev) != 1 or not isinstance(kb, list) or len(kb) < 5:
+                continue
+            vic, kil = ev[0][0], ev[0][1]
+            if not vic:
+                continue
+            died_mine = sids(ka, 3) - sids(kb, 3)
+            died_opp = sids(ka, 4) - sids(kb, 4)
+            d_own = p_rows[b] - p_rows[a]
+            if vic in died_mine:
+                impact[vic] = impact.get(vic, 0.0) + d_own
+            elif vic in died_opp:
+                continue  # credited from the victim's own perspective
+            else:
+                continue  # alive-roster diff disagrees — skip (ambiguity)
+            if kil and kil != vic:
+                d_kil = delta.get((opp, rn, int(pos[b][1])))
+                if d_kil is not None:
+                    impact[kil] = impact.get(kil, 0.0) + d_kil
+    return {s: round(v, 4) for s, v in impact.items()}
 
 
 def _build(rating_mode: str = "demo") -> dict:
@@ -228,6 +286,7 @@ def _build(rating_mode: str = "demo") -> dict:
     pooled_p: list[float] = []
     pooled_y: list[float] = []
     oos_curves: dict[str, dict] = {}
+    impact_out: dict[str, dict[str, float]] = {}
     try:
         feats = {h: np.array(per_demo[h]["rows"], dtype=float) for h in hashes}
         labels = {h: np.array(per_demo[h]["y"], dtype=float) for h in hashes}
@@ -271,12 +330,16 @@ def _build(rating_mode: str = "demo") -> dict:
                     oos_curves[h] = {"p": [round(float(v), 3) for v in p_h],
                                      "y": [int(v) for v in y_h],
                                      "by_pos": by_pos}
+                    # C2-H1: per-player impact from the same OOS predictions
+                    rows_h = _impact_rows(per_demo[h], [float(v) for v in p_h])
+                    if rows_h:
+                        impact_out[h] = rows_h
             if h not in demos_out:
                 demos_out[h] = entry
     except Exception:  # noqa: BLE001 — validation must never break the page
         return {
             "demos": {}, "mean_auc": None, "n_computed": 0, "n_demos": len(hashes),
-            "note": "跨场验证计算失败（特征不可用）",
+            "impact": {}, "note": "跨场验证计算失败（特征不可用）",
         }
 
     mean_auc = None
@@ -306,6 +369,8 @@ def _build(rating_mode: str = "demo") -> dict:
     return {
         "demos": demos_out,
         "oos_curves": oos_curves,
+        "impact": impact_out,
+        "impact_note": "C2-H1 影响力：击杀 +Δp / 被杀 −Δp（各从己方视角，OOS p）",
         "mean_auc": mean_auc,
         "pooled_auc": pooled_auc,
         "brier": pooled["brier"],

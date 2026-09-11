@@ -82,6 +82,9 @@ class RoundState(BaseModel):
     p_lo: float = 0.0
     p_hi: float = 0.0
     outcome: int = 0  # 1 if this side won the round (label, train only)
+    # C2-H1: deaths at this tick as [victim, killer] pairs (killer "" when
+    # world/self) — merge-layer impact attribution reads these from shards.
+    deaths: list[list[str]] = Field(default_factory=list)
 
 
 class WinProbabilityResult(AnalysisResult):
@@ -364,6 +367,11 @@ class WinProbabilityModule(AnalysisModule):
             perspectives = ("T", "CT") if ts.usable else ("T",)
 
             for t in ticks_at:
+                # C2-H1: victim→killer pairs at this tick (shared by both
+                # perspectives' RoundState rows for merge-layer attribution)
+                deaths_at_t = [[k.user_steamid, (getattr(k, "attacker_steamid", "") or "")]
+                               for k in deaths_by_round.get(rnd.number, [])
+                               if int(k.tick) == t]
                 # per-tick state computed once, reused by both perspectives
                 alive = {"T": 0, "CT": 0}
                 hp = {"T": 0.0, "CT": 0.0}
@@ -418,6 +426,7 @@ class WinProbabilityModule(AnalysisModule):
                         util_diff=util_mine - util_opp,
                         rating_diff=rtg[my_side] - rtg[opp_side],
                         outcome=1 if winner == my_side else 0,
+                        deaths=deaths_at_t,
                     ))
                     # H-B: alive-roster key for the merge-layer career-rating
                     # rekey (kept OUT of the row vector — 12 features stay)

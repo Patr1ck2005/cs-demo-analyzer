@@ -42,6 +42,11 @@ def _demo_payload(demo) -> dict:
         "rounds": result.rounds,
         "teams": [{"team": t["team"], "lost_rounds": t["lost_rounds"],
                    "tags": t["tags"]} for t in result.teams],
+        # C2-H2: per-player death granularity in lost rounds (rate metric)
+        "players": [{"steamid": p["steamid"],
+                     "lost_deaths": p["lost_deaths"],
+                     "untraded_deaths": p["untraded_deaths"]}
+                    for p in result.players],
         "roster": result.roster,
     }
 
@@ -96,6 +101,7 @@ def loss_peek() -> dict | None:
 def _merge(per_demo: list) -> dict:
     teams: dict[str, dict] = {}
     players: dict[str, dict] = {}
+    pdeaths: dict[str, list] = {}  # C2-H2: sid -> [lost_deaths, untraded]
     for entry in per_demo:
         for t in entry["teams"]:
             a = teams.setdefault(t["team"], {"team": t["team"], "lost_rounds": 0,
@@ -113,6 +119,10 @@ def _merge(per_demo: list) -> dict:
                 p["lost_rounds"] += 1
                 for tag in r["tags"]:
                     p["tags"][tag] += 1
+        for pd in entry.get("players") or []:
+            cell = pdeaths.setdefault(pd["steamid"], [0, 0])
+            cell[0] += int(pd.get("lost_deaths") or 0)
+            cell[1] += int(pd.get("untraded_deaths") or 0)
     return {
         "teams": [
             {"team": a["team"], "lost_rounds": a["lost_rounds"],
@@ -122,7 +132,11 @@ def _merge(per_demo: list) -> dict:
         "players": [
             {"steamid": p["steamid"], "lost_rounds": p["lost_rounds"],
              "demos": len(p["demos"]),
-             "tags": dict(sorted(p["tags"].items(), key=lambda kv: -kv[1]))}
+             "tags": dict(sorted(p["tags"].items(), key=lambda kv: -kv[1])),
+             "lost_deaths": pdeaths.get(p["steamid"], [0, 0])[0],
+             "untraded_deaths": pdeaths.get(p["steamid"], [0, 0])[1],
+             "untraded_rate": (round(pdeaths[p["steamid"]][1] / pdeaths[p["steamid"]][0], 3)
+                               if pdeaths.get(p["steamid"], [0, 0])[0] else None)}
             for p in players.values()
         ],
         "demos": len(per_demo),

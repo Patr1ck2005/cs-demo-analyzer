@@ -1340,5 +1340,34 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
 - 测试 390→**393**（search API 三态 + base 模板装载锁）；visual 28 页 0 失败；
   accept 24 步 0 失败；ruff F 级 0。
 
+### C2 研究轮：影响力值 + untraded 率（2026-09-11，双门槛未过，负结果）
+
+- **预注册口径**（用户批准）：H-C1 影响力值 = 单死亡事件 Δp 归因（被杀者己方
+  视角 / 击杀者镜像视角，"各从己方视角"），门槛 G1 视角一致性
+  median|Δp_T+Δp_CT|≤0.05、G2 胜方总影响力>败方占比≥70%、G3 与 Rating2.1
+  Spearman∈[0.3, 0.9]；H-C2 untraded 率（败回合内率 vs 在场性），门槛
+  G4 IQR≥0.10、G5 |Spearman(rate, R21)|<0.7。**门槛未过即不上页面**。
+- **实测**（`scripts/probe_c2.py` →
+  output/research/probe_c2_20260911_085814.json，可复现）：
+  G1 **0.0**（10128 事件，双侧模型严格镜像 p_CT=1−p_T）✓ /
+  G2 **0.606 < 0.70 ✗** / G3 **0.397** ✓（238 人）；
+  G4 **0.0996 < 0.10（压线）✗** / G5 **−0.201** ✓。
+  **双假设不采纳**，conclusions 失利规则维持在场性口径。
+- **G2 失败的解读（有价值）**：影响力度量的是"比预期更能打"，不是赢球——
+  39.4% 的场次胜方净影响力为负（对手表现更超预期）。若未来做"逆预期榜"，
+  语义按此重定义。
+- **infra 零成本沉淀**（H-A 先例）：winprob 模块 RoundState 增 `deaths` 列
+  （[victim, killer]）→ winloo 分片同步 + 形状守卫；`_impact_rows` +
+  memo["impact"]（35/35 场）；lossattr 模块增 per-player lost_deaths/
+  untraded_deaths（C2-H2）→ lossattr 分片 + loss_data 合并 `untraded_rate`
+  字段。conclusions/页面零改动。
+- **运维观察**：指纹 roll 后 wave1 的 T1 聚合重算 ~200s；本次 visual 在其
+  完成前开跑 → player_career/narrow_system 首访撞进重算窗口（GOTO 90s×2
+  超时，memo 暖后复跑即过）。下次 producer roll 后先 `curl` 一个聚合页暖场
+  再跑 visual（S2 坑 1 的兄弟变体——wave2_done 门不覆盖 wave1 聚合重算的
+  尾巴）。
+- 测试 393→**399**（impact 归因 4 + untraded 计数 2）；pytest 399 全绿；
+  visual 28 页 0 失败；accept_buttons 24 步 0 失败；ruff F 级 0。
+
 
 
