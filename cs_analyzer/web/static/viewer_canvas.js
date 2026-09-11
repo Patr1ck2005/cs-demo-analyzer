@@ -1783,10 +1783,13 @@
       ['control', '控图'], ['ctrl3d', '3D'], ['buys', '买装'],
       ['ovpatterns', '模式着色'],
     ];
-    // keep the static ⚙ prefs button (lives in the same bar)
+    // keep the static ⚙ prefs button (lives in the same bar) and the B3
+    // ⏺ recorder chip — buildToolbar rebuilds bar.innerHTML on mode switches
     const prefsBtn = document.getElementById('prefs-btn');
+    const recBtn = document.getElementById('btn-rec');
     bar.innerHTML = '';
     if (prefsBtn) bar.appendChild(prefsBtn);
+    if (recBtn) bar.appendChild(recBtn);
     toolbarChips = {};
     // K2e: prominent segmented mode switcher FIRST — replay vs overlap is a
     // mode, not an overlay toggle, so it gets its own control shape.

@@ -228,6 +228,19 @@ def test_base_template_carries_cmdk() -> None:
     assert 'id="cmdk"' in tpl and "js/search.js" in tpl
 
 
+def test_viewer_recorder_wiring() -> None:
+    """B3: recorder chip + script in the viewer, 🎬 link on highlight cards,
+    and the toolbar rebuild preserves the chip."""
+    web_dir = Path(web_app.__file__).parent
+    tpl = (web_dir / "templates" / "replay_viewer.html").read_text(encoding="utf-8")
+    assert 'id="btn-rec"' in tpl and "viewer_recorder.js" in tpl
+    assert (web_dir / "static" / "js" / "viewer_recorder.js").exists()
+    canvas = (web_dir / "static" / "viewer_canvas.js").read_text(encoding="utf-8")
+    assert "btn-rec" in canvas
+    hl = (web_dir / "templates" / "highlights.html").read_text(encoding="utf-8")
+    assert "data-rec-href" in hl and "rec=1" in hl
+
+
 def test_highlights_page(web_client) -> None:
     c, _, _ = web_client
     r = c.get("/highlights")

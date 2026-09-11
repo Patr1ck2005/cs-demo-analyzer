@@ -48,6 +48,7 @@
       </div>
       <div class="ob-toolbar" id="ob-toolbar">
         <button class="chip" id="prefs-btn" type="button" title="视觉参数调节面板">⚙ 调节</button>
+        <button class="chip" id="btn-rec" type="button" hidden title="录制当前回放为 webm 片段（浏览器本地编码）">⏺ 录制</button>
       </div>
     </div>
     <div class="tl-wrap" id="tl-wrap">
@@ -100,5 +101,6 @@
 <script src="/static/js/viewer_camera.js?v={{ static_v }}"></script>
 <script src="/static/js/viewer_control.js?v={{ static_v }}"></script>
 <script src="/static/js/viewer_overlays.js?v={{ static_v }}"></script>
+<script src="/static/js/viewer_recorder.js?v={{ static_v }}"></script>
 <script src="/static/viewer_canvas.js?v={{ static_v }}"></script>
 {% endblock %}

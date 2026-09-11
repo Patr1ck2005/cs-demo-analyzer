@@ -1369,5 +1369,27 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
 - 测试 393→**399**（impact 归因 4 + untraded 计数 2）；pytest 399 全绿；
   visual 28 页 0 失败；accept_buttons 24 步 0 失败；ruff F 级 0。
 
+### B3 高光片段视频导出（2026-09-11 晚，复盘提升包续件）
+
+- **纯浏览器录制，零 ffmpeg/零服务端渲染**（项目原则）：新
+  `static/js/viewer_recorder.js`——合成画布逐帧 drawImage 三层 viewer 画布
+  （map/fx/main）→ `captureStream(30)` → MediaRecorder（vp9→vp8→webm 逐级
+  回退，6Mbps）→ Blob 下载。全部经 `window.__viewerDebug` 读状态
+  （state.tick/D.segments），viewer_canvas.js 播放逻辑**零改动**（仅
+  buildToolbar 保留 btn-rec 与 prefs-btn 同款一行）。
+- **两种模式**：① 工具栏 `⏺ 录制` chip（hidden 特性检测——MediaRecorder/
+  captureStream 缺席则不出现）：手动起录/停止下载 `{map}_R{round}.webm`；
+  ② 高光卡「🎬 片段」（highlights.html，data-rec-href + stopPropagation）→
+  `viewer?round=N&rec=1&recname=<tier_选手_回合_地图>`：数据就绪后 seek 回合
+  起点、自动播放，tick 越过回合段自动停止下载；30s 未就绪静默放弃（手动
+  chip 仍可用）；落地后 URL 清掉 rec 参数。
+- **验收**：accept_buttons 24→**25 步**（步骤 23=viewer?round=13 手动录
+  ~3.5s → expect_download 断言 `.webm`——无头 Chromium 软件编码实测可用）；
+  测试 399→**400**（模板/脚本装载锁 test_viewer_recorder_wiring）；
+  visual 28 页 0 失败（viewer 截图人工复核 chip 渲染）；accept 25 步
+  0 失败；ruff F 级 0。本轮无 producer 改动（模板+JS），快照指纹未动——
+  重启后的 wave2:winloo 重建是上轮 accept 队尾失效撞重启的尾巴（S2 坑 1
+  变体，非 B3 引起）。
+
 
 

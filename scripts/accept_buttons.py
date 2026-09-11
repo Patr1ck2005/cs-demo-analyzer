@@ -605,12 +605,35 @@ def main() -> int:
 
         run("A1 Ctrl+K palette lands on player page", step_cmdk)
 
-        # ---- 23/24. (tail, V-B4) the self-invalidating steps: 一键入库 +
+        # ---- 23. 复盘提升包 B3: viewer recorder — record ~3.5s of playback
+        # and assert a .webm download lands (headless chromium software
+        # encoder; the chip only shows when MediaRecorder works)
+        def step_recorder():
+            page.goto(BASE + f"/match/{H}/viewer?round=13",
+                      wait_until="networkidle", timeout=120000)
+            page.wait_for_function(
+                "() => { const b = document.getElementById('btn-rec');"
+                " return b && !b.hidden; }", timeout=60000)
+            page.wait_for_timeout(3000)  # map image + first frames settle
+            page.click("#btn-rec")
+            page.wait_for_function(
+                "() => (document.getElementById('btn-rec').textContent"
+                " || '').includes('停止')", timeout=10000)
+            page.wait_for_timeout(3500)  # ~3.5s of footage
+            with page.expect_download(timeout=30000) as dl_info:
+                page.click("#btn-rec")
+            name = dl_info.value.suggested_filename
+            assert name.endswith(".webm"), f"unexpected download: {name}"
+            expect_no_console_errors("recorder")
+
+        run("B3 viewer recorder produces webm download", step_recorder)
+
+        # ---- 24/25. (tail, V-B4) the self-invalidating steps: 一键入库 +
         # upload kick invalidate_aggregate → wave2 rebuild — deliberately
         # LAST so they never poison the memo-dependent assertions above.
         # Run-order contract: fresh server → this script once, nothing else.
 
-        # ---- 23. 一键入库 (idempotent on a clean demos/) ----
+        # ---- 24. 一键入库 (idempotent on a clean demos/) ----
         def step_import():
             page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
             page.click("#sys-import")
@@ -623,7 +646,7 @@ def main() -> int:
 
         run("system import click (tail, invalidates)", step_import)
 
-        # ---- 24. F10: upload rejects non-.dem, queues the .dem ----
+        # ---- 25. F10: upload rejects non-.dem, queues the .dem ----
         def step_upload():
             DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
             fake = ACCEPT_DIR / "accept-fake.dem"
