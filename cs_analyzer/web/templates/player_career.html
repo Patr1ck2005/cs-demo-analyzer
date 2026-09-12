@@ -54,6 +54,28 @@
   {% endif %}
 </div>
 
+{# 复盘教练线 M2: 练习建议 — suggestions_from_profile(profile)，与画像卡同源 #}
+<div class="section-header"><h2>🧭 练习建议</h2>
+  <div class="section-actions sub" style="margin:0">五维画像 → 建议 + 证据锚 · 弱项在前 · 口径与画像卡同源</div></div>
+<div class="card" style="margin-bottom:14px" data-suggestions>
+  {% if suggestions %}
+    {% for s in suggestions %}
+    <div class="sug-item" style="padding:8px 0;{% if not loop.last %}border-bottom:1px solid #222438{% endif %}">
+      <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+        {% if s.status == 'weak' %}<span class="badge" style="color:var(--err);border-color:rgba(255,77,94,.3);background:rgba(255,77,94,.12)">练</span>
+        {% else %}<span class="badge ok">保持</span>{% endif %}
+        <b style="font-size:13px">{{ s.label }}</b>
+      </div>
+      <div style="margin-top:4px;font-size:13px">{{ s.drill }}</div>
+      <div class="sub" style="font-size:11px;margin-top:2px">证据：{{ s.evidence }}</div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="empty-state"><div class="empty-title">暂无可给的建议</div>
+    <div>画像各维均正常或样本不足——正常维无需动作，样本过门槛后建议自动出现</div></div>
+  {% endif %}
+</div>
+
 <div class="grid">
   <div class="card" style="margin-bottom:0">
     <h2 style="border:none">生涯六轴雷达</h2>

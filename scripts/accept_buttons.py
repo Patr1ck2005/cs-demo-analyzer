@@ -705,12 +705,31 @@ def main() -> int:
 
         run("M1 review tab deep link + key-round link forms", step_review_tab)
 
-        # ---- 27/28. (tail, V-B4) the self-invalidating steps: 一键入库 +
+        # ---- 27. M2 复盘教练线: career suggestions — the 🧭 练习建议 card
+        # renders from the same profile instance; a regular (34-demo Jake)
+        # must have at least one strong/weak suggestion item with its
+        # evidence anchor. ----
+        def step_suggestions():
+            board = api("/api/search.json?q=Jake")
+            assert board["players"], "search API should know Jake"
+            page.goto(BASE + "/player/" + board["players"][0]["steamid"],
+                      wait_until="networkidle", timeout=60000)
+            page.wait_for_selector("[data-suggestions] .sug-item",
+                                   timeout=30000)
+            n = page.locator("[data-suggestions] .sug-item").count()
+            assert n >= 1, "no suggestion items for a 34-demo regular"
+            body = page.inner_text("[data-suggestions]")
+            assert "证据：" in body, "suggestion item missing its evidence anchor"
+            expect_no_console_errors("career suggestions")
+
+        run("M2 career suggestions render for a regular", step_suggestions)
+
+        # ---- 28/29. (tail, V-B4) the self-invalidating steps: 一键入库 +
         # upload kick invalidate_aggregate → wave2 rebuild — deliberately
         # LAST so they never poison the memo-dependent assertions above.
         # Run-order contract: fresh server → this script once, nothing else.
 
-        # ---- 27. 一键入库 (idempotent on a clean demos/) ----
+        # ---- 28. 一键入库 (idempotent on a clean demos/) ----
         def step_import():
             page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
             page.click("#sys-import")
@@ -723,7 +742,7 @@ def main() -> int:
 
         run("system import click (tail, invalidates)", step_import)
 
-        # ---- 28. F10: upload rejects non-.dem, queues the .dem ----
+        # ---- 29. F10: upload rejects non-.dem, queues the .dem ----
         def step_upload():
             DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
             fake = ACCEPT_DIR / "accept-fake.dem"

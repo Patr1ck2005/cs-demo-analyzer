@@ -54,6 +54,7 @@ def match_conclusions(
     aim_rep=None,
     loss_rep=None,
     util_rep=None,
+    funlab_rep=None,
 ) -> dict:
     """B1: per-match key rounds + per-player improvement points.
 
@@ -180,7 +181,7 @@ def match_conclusions(
     for p in demo.players:
         prof = player_profile(p.steamid, name=p.name, duel_board=duel_board,
                               aim_rep=aim_rep, loss_rep=loss_rep,
-                              util_rep=util_rep)
+                              util_rep=util_rep, funlab_rep=funlab_rep)
         points = prof["weak_items"][:2]
         if points:
             out["improvements"].append({"name": p.name, "points": points})
@@ -195,8 +196,17 @@ def player_profile(
     aim_rep=None,
     loss_rep=None,
     util_rep=None,
+    funlab_rep=None,
 ) -> dict:
     """A2: four-dimension strength profile + B1 improvement phrasing.
+
+    M2 (E0-E4 口径行, 2026-09-12 approved): fifth dimension 「eco 局表现」 —
+    eco_hard_rate (kills per own eco round, opportunity-normalised) EB
+    interval vs the library median, duel-dim shape (interval contains the
+    baseline → normal). eco_frag_rate (share of kills vs eco opponents) is
+    context-only in the anchor, never a verdict (E2). Zero new numeric
+    constants: the interval comes from the R3 stats layer, the median from
+    the gated funlab rows.
 
     Each dimension → {key, label, verdict(strong/normal/weak/na), value,
     anchor}; `weak_items` / `strong_items` carry the human sentences with
@@ -326,8 +336,52 @@ def player_profile(
                          "value": vpt,
                          "anchor": f"闪光价值/投掷 {vpt:.2f} ≈ 库中位 {med:.2f}"})
 
+    # ---- eco (M2 E1): eco_hard_rate EB interval vs library median ----
+    from cs_analyzer.web.funlab_data import funlab_peek
+
+    rep = funlab_rep if funlab_rep is not None else funlab_peek()
+    rows = (rep or {}).get("players", [])
+    row = next((x for x in rows if x["steamid"] == sid), None) if rows else None
+    conf = (row or {}).get("conf", {}).get("eco_hard_rate") if row else None
+    med = _median([x["eco_hard_rate"] for x in rows
+                   if x.get("eco_hard_rate") is not None]) if rows else None
+    if (row is None or conf is None or conf.get("gated")
+            or row.get("eco_hard_rate") is None or med is None):
+        dims.append({"key": "eco", "label": "eco 局表现", "verdict": "na",
+                     "value": None,
+                     "anchor": "funlab 样本不足（≥3 场门槛）或数据未就绪"})
+    else:
+        rate, lo, hi, n = (row["eco_hard_rate"], conf["lo"], conf["hi"],
+                           conf["n"])
+        frag = row.get("eco_frag_rate")
+        frag_med = _median([x["eco_frag_rate"] for x in rows
+                            if x.get("eco_frag_rate") is not None])
+        ctx = (f"（含金量：{frag:.0%} 击杀来自对手 eco 局，库中位 "
+               f"{frag_med:.0%}）" if frag is not None and frag_med is not None
+               else "")
+        if hi < med:
+            dims.append({
+                "key": "eco", "label": "eco 局表现", "verdict": "weak",
+                "value": rate,
+                "anchor": f"神仙率 {rate:.2f} 杀/eco 回合 vs 库中位 {med:.2f} · {ctx}",
+                "weak_item": f"eco 局输出偏低：神仙率 {rate:.2f} 杀/eco 回合，"
+                             f"区间上界 {hi:.2f} 仍低于库中位 {med:.2f}（n={n} 个 eco 回合）"})
+        elif lo > med:
+            dims.append({
+                "key": "eco", "label": "eco 局表现", "verdict": "strong",
+                "value": rate,
+                "anchor": f"神仙率 {rate:.2f} 杀/eco 回合 vs 库中位 {med:.2f} · {ctx}",
+                "strong_item": f"eco 局仍能稳定输出：神仙率 {rate:.2f} 杀/eco 回合，"
+                               f"区间下界 {lo:.2f} 高于库中位 {med:.2f}（n={n} 个 eco 回合）"})
+        else:
+            dims.append({"key": "eco", "label": "eco 局表现", "verdict": "normal",
+                         "value": rate,
+                         "anchor": f"神仙率 {rate:.2f} 杀/eco 回合 ≈ 库中位 "
+                                   f"{med:.2f}（区间含中位） · {ctx}"})
+
     return {
         "steamid": sid, "name": name, "dims": dims,
         "weak_items": [d["weak_item"] for d in dims if "weak_item" in d],
         "strong_items": [d["strong_item"] for d in dims if "strong_item" in d],
     }
+

@@ -254,11 +254,14 @@ def player_career(request: Request, steamid: str):
     # per-demo radar (the old hardcoded template ranges were wrong).
     # 复盘提升包 A2: strength profile (same conclusions layer as B1 report).
     from cs_analyzer.web.conclusions import player_profile
+    from cs_analyzer.web.suggestions import suggestions_from_profile
 
+    profile = player_profile(steamid, name=row.name)
     return TEMPLATES.TemplateResponse(
         request, "player_career.html",
         {"p": row, "radar_axes": RADAR_AXES, "r21": r21, "gate_duels": DUEL_GATE_N,
-         "profile": player_profile(steamid, name=row.name)},
+         "profile": profile,
+         "suggestions": suggestions_from_profile(profile)},
     )
 
 

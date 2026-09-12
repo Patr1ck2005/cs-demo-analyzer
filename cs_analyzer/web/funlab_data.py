@@ -268,6 +268,26 @@ def funlab_report(stack: tuple[int, ...] | None = None,
     return _report
 
 
+def funlab_peek() -> dict | None:
+    """Peek-only default report for the conclusions layer (U1 contract, M2).
+
+    Returns the merged all-players report when the scan payload is already
+    loaded (snapshot restore / warmup preheat); None when cold — the caller
+    renders 数据未就绪 instead of ever triggering the expensive scan. The
+    cold check + memoized merge happen under the same lock as
+    funlab_report so an invalidate landing mid-peek cannot force a compute.
+    """
+    global _report, _report_key
+    default_key = ((), (), "")  # funlab_report()'s key for no-filter calls
+    with _lock:
+        if _scan is None:
+            return None
+        if _report is None or _report_key != default_key:
+            _report = _merge(_scan, (), (), "")
+            _report_key = default_key
+        return _report
+
+
 def invalidate_funlab() -> None:
     global _report, _report_key, _scan
     with _lock:

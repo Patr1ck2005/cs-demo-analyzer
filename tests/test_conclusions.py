@@ -148,15 +148,17 @@ def test_improvements_capped_at_two_per_player():
     ] + [{"steamid": f"u{i}", "throws": 30, "value_per_throw": 2.0}
          for i in range(8)]}
     prof = player_profile("sid_a", "Alice", duel_board=duel_board,
-                          aim_rep=aim_rep, loss_rep=loss_rep, util_rep=util_rep)
+                          aim_rep=aim_rep, loss_rep=loss_rep, util_rep=util_rep,
+                          funlab_rep={"players": []})
     verdicts = {d["key"]: d["verdict"] for d in prof["dims"]}
     assert verdicts == {"duel": "weak", "aim": "weak", "loss": "weak",
-                        "utility": "weak"}
+                        "utility": "weak", "eco": "na"}
     assert len(prof["weak_items"]) == 4
     # match level: per-player cap 2 (fakes injected so no real memos touched)
     out = match_conclusions(demo, winprob=_winprob([]), lossattr=_lossattr([]),
                             oos_t=None, duel_board=duel_board, aim_rep=aim_rep,
-                            loss_rep=loss_rep, util_rep=util_rep)
+                            loss_rep=loss_rep, util_rep=util_rep,
+                            funlab_rep={"players": []})
     alice = next(x for x in out["improvements"] if x["name"] == "Alice")
     assert len(alice["points"]) == 2
     assert any("对枪" in i for i in alice["points"])

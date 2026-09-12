@@ -446,6 +446,25 @@ def test_match_review_tab_key_rounds_render(web_client, monkeypatch) -> None:
     assert "/player/76561111111110001" in r.text  # Alice's career link
 
 
+# ---------- M2 复盘教练线: career suggestions ----------
+
+
+def test_player_career_suggestions_section(web_client) -> None:
+    """M2: the career page renders the suggestion section from the same
+    profile instance; the 1-demo fixture starves every dim (gate/na) →
+    the honest empty state."""
+    c, _, _ = web_client
+    from cs_analyzer.web.aggregation import aggregated
+
+    result = aggregated()
+    sid = result.players[0].steamid
+    r = c.get(f"/player/{sid}")
+    assert r.status_code == 200
+    assert "练习建议" in r.text
+    assert "data-suggestions" in r.text
+    assert "暂无可给的建议" in r.text
+
+
 # ---------- Phase H: new API endpoints ----------
 
 

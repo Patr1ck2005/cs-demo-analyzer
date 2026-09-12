@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（复盘教练线 M1：17aa75c 之后——match 详情七 Tab「复盘」+ 关键回合 viewer/录制深链 + 内联 JS 收编 + matches 表格复盘入口；412 测试全绿，改动待批准提交）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（复盘教练线 M2：9012691 之后——练习建议引擎五维上线（E0-E4 口径行批准）+ player_profile 第五维 eco 局表现 + funlab_peek + suggestions.py 文案模板层；改动待批准提交）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,9 +13,9 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、412 测试全绿、visual_check 28 页零 console 错误、accept_buttons 28 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、417 测试全绿、visual_check 28 页零 console 错误、accept_buttons 29 步零失败**。
 
-**Git 状态**：origin/main = `17aa75c`（稳定化收尾轮 R3 已推送）。工作区为**复盘教练线 M1 改动**（match 详情「复盘」Tab + 关键回合 viewer/rec 深链 + 内联 JS 收编 match_detail.js + matches 表格复盘入口 + 文档对齐，见文末 M1 小节），待批准提交。路线计划：复盘教练线 M1–M4（M2 建议引擎 / M3 focus 追踪 / M4 周报）已经用户批准，M2 起每轮开工前轻量复读 + 口径行报批。
+**Git 状态**：origin/main = `9012691`（复盘教练线 M1 已推送）。工作区为**复盘教练线 M2 改动**（练习建议引擎：conclusions 第五维 eco 局表现 + funlab_peek + suggestions.py 文案模板层 + 生涯页建议区 + 文档对齐，见文末 M2 小节），待批准提交。路线计划：M3 focus 追踪（开工门槛：focus 单活跃假设确认）、M4 周报待 M3。
 
 - **Phase X 一句话**：13 一级页 → 10 + 链接卫生 + 遗留性能/科学性小件全清，303 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
@@ -1501,6 +1501,55 @@ iteration（冻结基线 → 假设 → 实现 → 同尺测量 → 台账记账
   契约不变）；visual_check 28 页 0 失败；复盘 Tab 人工截图复核（真实库
   R16/R19/R24 三条"优势局失守"命中 + 改进点卡渲染正确）；pytest 412 全绿；
   全树 ruff F 级 0。待批准提交。
+
+### 复盘教练线 M2：练习建议引擎（2026-09-12，9012691 之后——五维画像 → 建议动作）
+
+**背景**：M1 发布后目标续轮自动开工 M2。开工门槛"口径行报批"先做范围复读——
+**发现计划的经济维（ev_data）无选手级地基**（EV 表是全库 buy×side×score_bin×
+streak_bin 聚合，不按选手拆分）；用户裁决 **v1 就上五维**（接受语义折衷 +
+本轮一次指纹滚动重建），funlab 神仙率/eco特率顶上。分布实测（/api/funlab.json
+7 名常客：神仙率 med=0.583 区间 0.241-0.693；eco特率 med=0.154）后报批
+**E0-E4 全部批准**：E0 维度名"eco 局表现"（不称经济决策）/ E1 判定=神仙率
+EB 区间 vs 库中位（lo>med 强、hi<med 弱、含 med 正常、conf 缺失或 gated→na；
+duel 维同款形态，**零新数值常量**）/ E2 eco特率只进锚定文案不判定 / E3
+建议文案措辞不逐条报批 / E4 funlab_peek 付一次指纹滚动。
+
+- **改动面**：`conclusions.py` player_profile 第五维（eco 局表现；E1 区间判定 +
+  E2 含金量上下文进 anchor；`funlab_rep=None` 注入参数与既有四参同款）+
+  match_conclusions 透传 `funlab_rep`（测试确定性；复盘 Tab 改进点自动含
+  eco 弱项，仍 cap 2）；`funlab_data.py` 加 `funlab_peek()`（**⚠️ 本文件是
+  `_SNAPSHOT_SOURCES` 成员 → 本轮指纹滚动 + 全量重建一次，E4 预告兑现**；
+  peek=锁内冷检查 + 复用 report memo 键 `((), (), "")`，永不触发 scan 计算，
+  invalidate 撞中间不强制计算）；新 `web/suggestions.py`（纯文本映射层：
+  profile 单源 → `Suggestion(key/label/status/evidence/drill)`，
+  `DRILL_TEMPLATES` 每维强/弱文案（E3），normal/na 不产生建议；**零 I/O
+  零 memo**，证据锚逐字透传——未来本地 LLM 只换这层的渲染）；player_career
+  路由复用同一 profile 实例（零额外 peek）+ 生涯页"🧭 练习建议"区
+  （`data-suggestions` + `.sug-item`，弱项"练"徽章/强项"保持"徽章，证据行
+  恒显；空态="暂无可给的建议"）。
+- **测试 412→417**（+5：suggestions 映射四态 1 / eco 维三判定 + E2 上下文 1 /
+  冷与 gated→na 1 / funlab_peek 冷→None 1 / career 建议区空态集成 1）；
+  既有 `test_improvements_capped_at_two_per_player` 同步（verdicts 字典增
+  eco:na + 两调用补 `funlab_rep={"players": []}`——注入模式使其确定）。
+- **新坑（编辑器换行陷阱变体再犯）**：edit 的 new_string 以 `return {` 结尾
+  替换整段 return 时吞掉字典体（C3"段尾换行锚"的表亲）——读尾部发现即修，
+  ast.parse 复验；教训：**替换整段语句时 new_string 必须完整包含新语句**。
+- **验收（fresh-server 正典跑全绿）**：pytest **417** 全绿；全树 ruff F 级 0；
+  visual_check 28 页 0 失败；accept_buttons 28→**29 步**（新步骤 27=Jake 生涯页
+  建议区渲染 + 证据锚断言；尾部自失效顺延 28/29，V-B4 契约不变）0 失败；
+  probe_research verdict OK (0/35 suspect)；建议区人工截图复核（Jake 三条：
+  保持·对枪 +2.9pt n=1255 / 练·失利模式 无贸易死 97% / 保持·eco 神仙率 0.67
+  vs 0.58 含金量 17% vs 15%——与预注册实测分布一致）。待批准提交。
+- **中途事件留档（非代码）**：① 重建期间 auto_import 真实入库 1 场新对局
+  （`9216443462588176652_0.dem`）→ 批次 invalidate → 聚合冷却 → search
+  **peek-503 正确触发**（F3 契约首次被真实数据演练）→ 暖场后恢复；随后用户
+  移一增一（换掉一场旧 demo），库回到 **35 场**，sweep 清孤儿缓存；懒分片
+  重建窗口吃掉 accept 首跑的 V-A2/F9 两步（winloo OOS 合并 >90s——warmup
+  旗标不覆盖 auto_import 后的懒重建，V-B4 降级模式变体）→ 显式暖 winloo 后
+  复跑即过（F9 复跑先例）。② 一轮 hub"网页服务已意外退出"（accept+pytest+
+  probe 连续负载后；既有现象，负载时序非代码）→ hub 脚本重启 + 全量重建
+  1034s + 快照 8/8 current（指纹 fd68a8…）→ 当前实例正典复跑 visual/accept
+  全绿。
 
 
 
