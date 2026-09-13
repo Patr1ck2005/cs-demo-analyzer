@@ -748,12 +748,29 @@ def main() -> int:
 
         run("M3 focus set/progress/clear roundtrip", step_focus)
 
-        # ---- 29/30. (tail, V-B4) the self-invalidating steps: 一键入库 +
+        # ---- 29. M4 复盘教练线: weekly report renders (window note +
+        # matches/empty state + focus digest section). Read-only on purpose:
+        # clicking 标记已读 here would advance the REAL baseline state —
+        # the baseline API is covered by tests/test_weekly.py on tmp dirs. ----
+        def step_weekly():
+            page.goto(BASE + "/weekly", wait_until="networkidle",
+                      timeout=60000)
+            body = page.inner_text("body")
+            assert "周期报告" in body, "weekly page missing its heading"
+            assert ("标记已读" in body) and ("口径" in body), \
+                "weekly page missing the baseline button or the口径 footer"
+            assert ("基线以来没有新对局" in body) or ("新场次（" in body), \
+                "weekly page shows neither matches nor the honest empty state"
+            expect_no_console_errors("weekly")
+
+        run("M4 weekly report renders", step_weekly)
+
+        # ---- 30/31. (tail, V-B4) the self-invalidating steps: 一键入库 +
         # upload kick invalidate_aggregate → wave2 rebuild — deliberately
         # LAST so they never poison the memo-dependent assertions above.
         # Run-order contract: fresh server → this script once, nothing else.
 
-        # ---- 29. 一键入库 (idempotent on a clean demos/) ----
+        # ---- 30. 一键入库 (idempotent on a clean demos/) ----
         def step_import():
             page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
             page.click("#sys-import")
@@ -766,7 +783,7 @@ def main() -> int:
 
         run("system import click (tail, invalidates)", step_import)
 
-        # ---- 30. F10: upload rejects non-.dem, queues the .dem ----
+        # ---- 31. F10: upload rejects non-.dem, queues the .dem ----
         def step_upload():
             DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
             fake = ACCEPT_DIR / "accept-fake.dem"

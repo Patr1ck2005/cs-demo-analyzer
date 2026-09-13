@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}周期报告{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>周期报告</h1>
+    <div class="page-meta">{{ r.split_note }} ·
+      {% if r.has_baseline %}基线生成于 {{ r.generated_at }}{% else %}尚无基线（点右上「标记已读」开始追踪）{% endif %}</div>
+  </div>
+  <div class="page-actions">
+    <button class="btn" id="weekly-baseline" type="button">✅ 标记已读（推进基线）</button>
+  </div>
+</div>
+
+<div class="section-header"><h2>新场次（{{ r.n_new }}）</h2>
+  <div class="section-actions sub" style="margin:0">基线以来的对局 · T 方胜 {{ r.t_wins }} · CT 方胜 {{ r.ct_wins }}（双队并列，pug demo 不推断"我方"）</div></div>
+{% if r.matches %}
+<div class="table-wrap"><table>
+  <thead><tr><th>对局</th><th>地图</th><th class="num">比分 (T:CT)</th></tr></thead>
+  <tbody>
+  {% for m in r.matches %}
+    <tr class="row-link" data-href="/match/{{ m.demo_hash }}">
+      <td><a href="/match/{{ m.demo_hash }}">{{ m.filename }}</a></td>
+      <td>{{ m.map_name }}</td>
+      <td class="num">{{ m.t_score }} : {{ m.ct_score }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<div class="empty-state"><div class="empty-title">基线以来没有新对局</div>
+  <div>打完新场次后这里自动出现；「标记已读」会把当前库设为下一个对比基线</div></div>
+{% endif %}
+
+<div class="section-header"><h2>选手窗口对比</h2>
+  <div class="section-actions sub" style="margin:0">任一窗口 &lt;{{ r.min_per_window }} 场灰显 · Δ 为展示值非检验</div></div>
+<div class="table-wrap"><table>
+  <thead><tr><th>选手</th><th class="num">场次(前/后)</th>
+    <th class="num">Rating 前</th><th class="num">Rating 后</th><th class="num">ΔRating</th>
+    <th class="num">ADR 前</th><th class="num">ADR 后</th><th class="num">ΔADR</th>
+    <th class="num">KAST 前</th><th class="num">KAST 后</th><th class="num">ΔKAST</th></tr></thead>
+  <tbody>
+  {% for p in r.players %}
+    <tr>
+      <td><a href="/player/{{ p.steamid }}">{{ p.name }}</a></td>
+      <td class="num">{{ p.n_before }}/{{ p.n_after }}</td>
+      {% if p.gated %}
+        <td class="num sub" colspan="9">样本 &lt;{{ r.min_per_window }} 场，灰显</td>
+      {% else %}
+        <td class="num">{{ '%.2f'|format(p.before.rating) }}</td>
+        <td class="num">{{ '%.2f'|format(p.after.rating) }}</td>
+        <td class="num">{{ '%+.2f'|format(p.d_rating) }}</td>
+        <td class="num">{{ '%.1f'|format(p.before.adr) }}</td>
+        <td class="num">{{ '%.1f'|format(p.after.adr) }}</td>
+        <td class="num">{{ '%+.1f'|format(p.after.adr - p.before.adr) }}</td>
+        <td class="num">{{ '%.1f'|format(p.before.kast) }}</td>
+        <td class="num">{{ '%.1f'|format(p.after.kast) }}</td>
+        <td class="num">{{ '%+.1f'|format(p.after.kast - p.before.kast) }}</td>
+      {% endif %}
+    </tr>
+  {% else %}
+    <tr><td colspan="11" class="sub">无数据</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+
+<div class="section-header"><h2>关注进展摘要</h2>
+  <div class="section-actions sub" style="margin:0">已设关注选手的维度前后对比与当前弱项 · 完整卡在各自生涯页</div></div>
+{% if r.focus_rows %}
+  {% for f in r.focus_rows %}
+  <div class="card" style="margin-bottom:10px">
+    <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+      <a href="/player/{{ f.steamid }}"><b>{{ f.name }}</b></a>
+      <span class="badge ct">{{ f.dim_label }}</span>
+      <span class="sub">设于 {{ f.set_at }}</span>
+    </div>
+    {% if f.before is defined and f.before %}
+    <div class="stat-row" style="margin-top:6px">
+      <div class="stat-card"><div class="stat-label">关注前（{{ f.before.n }} 场）</div>
+        <div class="stat-value">{{ '%.3f'|format(f.before.mean) if f.before.mean is not none else '—' }}</div></div>
+      <div class="stat-card"><div class="stat-label">关注后（{{ f.after.n }} 场）</div>
+        <div class="stat-value">{{ '%.3f'|format(f.after.mean) if f.after.mean is not none else '—' }}</div></div>
+      <div class="stat-card"><div class="stat-label">Δ</div>
+        <div class="stat-value">{{ '%+.3f'|format(f.delta) if f.delta is not none else '—' }}</div>
+        <div class="sub">{{ f.unit }}</div></div>
+    </div>
+    {% else %}
+    <div class="sub" style="margin-top:4px">该维度逐场序列未就绪</div>
+    {% endif %}
+    {% if f.weak_items %}
+    <div class="sub" style="margin-top:4px">{% for w in f.weak_items %}<div>⚠️ {{ w }}</div>{% endfor %}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+<div class="empty-state"><div class="empty-title">暂无进行中的关注</div>
+  <div>在选手生涯页的练习建议里点「🎯 设为关注」，本报告会追踪其进展</div></div>
+{% endif %}
+
+<div class="sub" style="font-size:11px;margin-top:10px">
+  口径：窗口边界 = 上次「标记已读」时的库快照（WMPVP 文件名无日期，Y2；与 M3 focus 同机制）；
+  无基线时回退最近 10 场 vs 再前 10 场；每窗 &lt;{{ r.min_per_window }} 场灰显；Δ 为展示值非显著性检验；
+  胜负为 T/CT 双队并列（pug demo 不推断"我方"）。</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/weekly.js?v={{ static_v }}"></script>
+{% endblock %}

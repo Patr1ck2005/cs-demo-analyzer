@@ -548,6 +548,30 @@ def system_page(request: Request):
     return TEMPLATES.TemplateResponse(request, "system.html", {})
 
 
+@app.get("/weekly", response_class=HTMLResponse)
+def weekly_page(request: Request):
+    """M4 复盘教练线: 周期报告 — windowed aggregate + focus digest.
+
+    Single-segment page: must stay registered BEFORE the /{placeholder}
+    catch-all (iron rule #5).
+    """
+    from cs_analyzer.web.weekly_data import weekly_report
+
+    r = weekly_report(out_dir=OUT_DIR, cache_dir=_cache().cache_dir)
+    return TEMPLATES.TemplateResponse(request, "weekly.html", {"r": r})
+
+
+@app.post("/api/weekly/baseline")
+async def weekly_baseline():
+    """Mark-read: the current library becomes the next report's BEFORE cohort."""
+    from cs_analyzer.web import snapshots, weekly_data
+
+    doc = weekly_data.set_baseline(OUT_DIR,
+                                   snapshots._cached_demo_hashes(_cache().cache_dir))
+    return JSONResponse({"ok": True, "base_n": len(doc["base_hashes"]),
+                         "generated_at": doc["generated_at"]})
+
+
 @app.get("/{placeholder}", response_class=HTMLResponse)
 def placeholder_page(request: Request, placeholder: str):
     """Catch-all for unknown single-segment paths (Phase S: the old

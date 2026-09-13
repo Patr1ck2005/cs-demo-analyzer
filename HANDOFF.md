@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（复盘教练线 M3：57cc3b7 之后——focus 追踪闭环：focus_store 单活跃+历史 / focus_data 四族逐场序列（零 producer 改动）/ 关注进展卡 / system.js 收编；423 测试全绿，改动待批准提交）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（复盘教练线 M4：adb8d09 之后——周期报告 /weekly 上线（基线窗口而非墙钟日期）+ /api/weekly/baseline + reports 页入口 + visual 29 页；428 测试全绿，改动待批准提交）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,9 +13,9 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、423 测试全绿、visual_check 28 页零 console 错误、accept_buttons 30 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、428 测试全绿、visual_check 29 页零 console 错误、accept_buttons 31 步零失败**。
 
-**Git 状态**：origin/main = `57cc3b7`（复盘教练线 M2 已推送）。工作区为**复盘教练线 M3 改动**（focus 追踪闭环：focus_store + focus_data + /api/focus 三端点 + 生涯页关注按钮/进展卡 + system.js 收编 + 文档对齐，见文末 M3 小节），待批准提交。路线计划：M4 周报（最后一轮；/weekly SSR 页 + reports 页入口）。
+**Git 状态**：origin/main = `adb8d09`（复盘教练线 M3 已推送）。工作区为**复盘教练线 M4 改动**（周期报告 /weekly + weekly_data 基线窗口 + /api/weekly/baseline + reports 入口 + visual 29 页 + 文档对齐，见文末 M4 小节），待批准提交。**复盘教练线 M1–M4 路线至此全部实施完毕**（M4 批准提交后路线收官；后续方向=新路线讨论或既有封存模块按需解封）。
 
 - **Phase X 一句话**：13 一级页 → 10 + 链接卫生 + 遗留性能/科学性小件全清，303 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
@@ -1588,6 +1588,38 @@ funlab scan 走公开 `snapshots.load_snapshot`（指纹不匹配→诚实 None�
   "灰=关注前"图例不符，改默认中性徽章后重拍）。快照 8/8 命中秒级暖
   （零指纹滚动兑现）；重启后 wave2 对 4 族（aimsci/lossattr/evcells/duelmo）
   做了族级增量重建（用户换 demo 后的缺口，非本轮改动引起）。待批准提交。
+
+### 复盘教练线 M4：周期报告（2026-09-12，adb8d09 之后——路线收官件）
+
+**背景**：M3 发布后目标续轮开工 M4（最后一轮）。范围复读即遇**口径修正**：
+计划的"最近 7 天滚动窗口"在 WMPVP 数字文件名无日期的现实下（Y2）不可诚实
+计算——沿用 M3 已批准的库快照边界思想，窗口改为 **"自上次标记已读的基线
+以来的新场次"**（`output/web/weekly_state.json`，POST /api/weekly/baseline
+推进；无基线时回退最近 10 场 vs 再前 10 场，C3 门槛同源）。语义恰好匹配
+周报仪式：周一读报告 → 标记已读 → 下周报告只含新打的场次。
+
+- **改动面**：新 `web/weekly_data.py`（基线状态存取 focus_store 同款 +
+  `weekly_report()`：新场次表（DemoRow 比分，T/CT 双队并列不推断"我方"）、
+  per-player 窗口均值（agg PlayerRow.demos 直出，trend 机制同源，每窗
+  <3 场灰显）、**关注进展摘要**（活跃 focus 的 M3 progress + 当前弱项，
+  profile 仅对已关注选手计算——零额外全库 peek））；`/weekly` 路由
+  （**单段页注册在 /{placeholder} 之前**，铁律 #5）+ `/api/weekly/baseline`
+  POST；`weekly.html`（三段：新场次/选手窗口/关注摘要 + 口径脚注）+
+  `weekly.js`（标记已读按钮）；/reports 页头入口（不加一级导航，Phase X
+  收敛方向）；`visual_check.py` 28→**29 页**（weekly 入清单）。
+- **测试 423→428**（+5：回退分窗与门槛 1 / 基线窗口数学 1 / 状态
+  roundtrip+损坏容错 1 / 路由+基线 API（fixture tmp OUT_DIR）1 / reports
+  入口 1）；accept_buttons 30→**31 步**（新 29=周报渲染断言，**只读不点
+  "标记已读"**——在真实 state 上点会推进用户基线，基线 API 由 pytest 在
+  tmp 目录覆盖；尾部自失效顺延 30/31，V-B4 契约不变）。
+- **验收（fresh-server 正典跑全绿）**：pytest **428** 全绿；visual **29 页**
+  0 失败；accept **31 步** 0 失败；全树 ruff F 级 0；probe OK (0/35)；
+  周报页人工截图复核（无基线回退注记 + 新场次 10 场 T6/C4 + 选手窗口
+  完整行与低样本灰显并存）。本轮零 producer 改动 → 零指纹滚动；重启后
+  wave2 全族巡完（rating21/winloo/aimsci/lossattr/evcells/duelmo——用户
+  换 demo 后 gc 清旧分片的族级重建收尾，非本轮引起）。
+- **路线收官**：复盘教练线 M1–M4 全部实施（M1 复盘 Tab / M2 建议引擎 /
+  M3 focus 追踪 / M4 周报）。待批准提交。
 
 
 

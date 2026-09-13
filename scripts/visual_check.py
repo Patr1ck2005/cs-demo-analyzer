@@ -65,6 +65,8 @@ PAGES = [
     ("map_utility", "/map-analysis#utility", 2500),
     ("teams", "/teams", 1500),
     ("reports", "/reports", 1500),
+    # M4 复盘教练线: the weekly report page (windowed aggregate + focus digest)
+    ("weekly", "/weekly", 1500),
     ("report_match", f"/report/{H}", 1200),
     # S2-V2: Jake = the 34-demo regular; the old sid played 1 demo so the
     # R3 aim-science panel rendered mostly "—" (poor visual coverage)
