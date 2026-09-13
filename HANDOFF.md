@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（复盘教练线 M2：9012691 之后——练习建议引擎五维上线（E0-E4 口径行批准）+ player_profile 第五维 eco 局表现 + funlab_peek + suggestions.py 文案模板层；改动待批准提交）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（复盘教练线 M3：57cc3b7 之后——focus 追踪闭环：focus_store 单活跃+历史 / focus_data 四族逐场序列（零 producer 改动）/ 关注进展卡 / system.js 收编；423 测试全绿，改动待批准提交）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,9 +13,9 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、417 测试全绿、visual_check 28 页零 console 错误、accept_buttons 29 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、423 测试全绿、visual_check 28 页零 console 错误、accept_buttons 30 步零失败**。
 
-**Git 状态**：origin/main = `9012691`（复盘教练线 M1 已推送）。工作区为**复盘教练线 M2 改动**（练习建议引擎：conclusions 第五维 eco 局表现 + funlab_peek + suggestions.py 文案模板层 + 生涯页建议区 + 文档对齐，见文末 M2 小节），待批准提交。路线计划：M3 focus 追踪（开工门槛：focus 单活跃假设确认）、M4 周报待 M3。
+**Git 状态**：origin/main = `57cc3b7`（复盘教练线 M2 已推送）。工作区为**复盘教练线 M3 改动**（focus 追踪闭环：focus_store + focus_data + /api/focus 三端点 + 生涯页关注按钮/进展卡 + system.js 收编 + 文档对齐，见文末 M3 小节），待批准提交。路线计划：M4 周报（最后一轮；/weekly SSR 页 + reports 页入口）。
 
 - **Phase X 一句话**：13 一级页 → 10 + 链接卫生 + 遗留性能/科学性小件全清，303 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
@@ -1550,6 +1550,44 @@ duel 维同款形态，**零新数值常量**）/ E2 eco特率只进锚定文案
   probe 连续负载后；既有现象，负载时序非代码）→ hub 脚本重启 + 全量重建
   1034s + 快照 8/8 current（指纹 fd68a8…）→ 当前实例正典复跑 visual/accept
   全绿。
+
+### 复盘教练线 M3：focus 追踪闭环（2026-09-12，57cc3b7 之后——设关注 → 前后对比）
+
+**背景**：用户两次"继续"开工 M3（单活跃假设=开工门槛，视为接受并记档）。范围
+复读定案三个设计点：① **before/after 边界用库快照而非墙钟日期**——WMPVP 数字
+文件名无日期（Y2），`base_hashes`=设关注时的 demo 缓存集合，after=之后新增，
+语义恰好是"练了之后打的新场次"；② **逐场序列直读持久层零 producer 改动**——
+duelmo/aimsci/lossattr 走 `snapshots.load_shards`（缺分片即跳过，永不计算），
+funlab scan 走公开 `snapshots.load_snapshot`（指纹不匹配→诚实 None），
+`focus_data.py` 全程零 `_SNAPSHOT_SOURCES` 编辑 → 本轮零指纹滚动；③
+**utility 维不可追踪**（无逐场分片层）→ 关注按钮诚实禁用 + tooltip。
+
+- **改动面**：新 `web/focus_store.py`（favorites 同款：锁 + tmp+replace 原子写 +
+  损坏容错；`set_focus` 替换时旧条目进 history 带 cleared_at；base_hashes 去重
+  保序 cap500）；新 `web/focus_data.py`（`FOCUSABLE_DIMS` = duel/aim/loss/eco +
+  每维逐场指标=建议卡证据指标：对枪=己方视角胜率（y=attacker win，victim y=0
+  记胜）、急停下开火率、无贸易死占败死比、神仙率；`progress()` 前后窗均值，
+  每窗 <3 场灰显（C3 门槛同源），delta 双窗都有才出）；`/api/focus`
+  GET/POST/DELETE（POST 校验 focusable dim，base=`_cached_demo_hashes`）；
+  career 路由注入 `focus` + `focusable_dims`；生涯页建议条"🎯 设为关注"
+  （focusable 启用/utility 禁用带 tooltip）+ "🎯 关注进展"卡（前/后/Δ 三
+  stat 卡 + 逐场 chips 灰/绿 + 悬停 n）；新 `static/js/focus.js`（按钮
+  POST/DELETE → reload 重渲染 SSR 卡）。
+- **还债（第 2/3 处内联 JS）**：system.html 内联 ~150 行（7265 字符）脚本化
+  搬移 `static/js/system.js`（正则提取；**坑**：`(async…())()` 形态的提取正则
+  漏开括号→文件级语法错误 node --check 拦下→补 `(` 修复；无 Jinja）。
+- **测试 417→423**（+6：store 替换/清空语义 1 + roundtrip/损坏容错 1 +
+  progress 窗口数学与门槛 1 + 四族序列实 shards/快照读写 1 + 指纹失配
+  honest None 1 + API 三端点与 career 卡集成 1）；accept_buttons 29→**30 步**
+  （新 28=Jake 设关注 → 进展卡渲染 → API 断言持久化 → 清除 → 卡消失，尾部
+  自失效顺延 29/30，V-B4 契约不变）。
+- **验收（fresh-server 正典跑全绿）**：pytest **423** 全绿；visual 28 页
+  0 失败；accept **30 步** 0 失败；全树 ruff F 级 0；probe OK (0/35)；
+  进展卡人工截图复核（Jake loss 维：关注前 32 场均值 0.933 / 关注后 0 场
+  "新打 ≥3 场后出对比" / 逐场 chips 图例一致——初版 t0 徽章呈红色与
+  "灰=关注前"图例不符，改默认中性徽章后重拍）。快照 8/8 命中秒级暖
+  （零指纹滚动兑现）；重启后 wave2 对 4 族（aimsci/lossattr/evcells/duelmo）
+  做了族级增量重建（用户换 demo 后的缺口，非本轮改动引起）。待批准提交。
 
 
 

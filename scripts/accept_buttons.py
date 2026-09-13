@@ -724,12 +724,36 @@ def main() -> int:
 
         run("M2 career suggestions render for a regular", step_suggestions)
 
-        # ---- 28/29. (tail, V-B4) the self-invalidating steps: 一键入库 +
+        # ---- 28. M3 复盘教练线: focus — set from a suggestion button, the
+        # SSR progress card renders (BEFORE = current library, n≥3 → mean
+        # shown; AFTER = 0 new demos → gate note), then cleanup via the
+        # clear button + API assert. ----
+        def step_focus():
+            board = api("/api/search.json?q=Jake")
+            assert board["players"], "search API should know Jake"
+            sid = board["players"][0]["steamid"]
+            page.goto(BASE + "/player/" + sid, wait_until="networkidle",
+                      timeout=60000)
+            page.locator(".focus-btn[data-dim]").first.click()
+            page.wait_for_selector("[data-focus-progress]", timeout=20000)
+            body = page.inner_text("[data-focus-progress]")
+            assert "关注前" in body and "关注后" in body, "progress card incomplete"
+            active = api("/api/focus")["active"]
+            assert active and active[0]["steamid"] == sid, "focus not persisted"
+            page.click(".focus-clear")
+            page.wait_for_selector("[data-focus-progress]", state="detached",
+                                   timeout=20000)
+            assert api("/api/focus")["active"] == [], "focus not cleared"
+            expect_no_console_errors("focus")
+
+        run("M3 focus set/progress/clear roundtrip", step_focus)
+
+        # ---- 29/30. (tail, V-B4) the self-invalidating steps: 一键入库 +
         # upload kick invalidate_aggregate → wave2 rebuild — deliberately
         # LAST so they never poison the memo-dependent assertions above.
         # Run-order contract: fresh server → this script once, nothing else.
 
-        # ---- 28. 一键入库 (idempotent on a clean demos/) ----
+        # ---- 29. 一键入库 (idempotent on a clean demos/) ----
         def step_import():
             page.goto(BASE + "/system", wait_until="networkidle", timeout=60000)
             page.click("#sys-import")
@@ -742,7 +766,7 @@ def main() -> int:
 
         run("system import click (tail, invalidates)", step_import)
 
-        # ---- 29. F10: upload rejects non-.dem, queues the .dem ----
+        # ---- 30. F10: upload rejects non-.dem, queues the .dem ----
         def step_upload():
             DEMO_FILE.unlink(missing_ok=True)  # idempotent re-runs
             fake = ACCEPT_DIR / "accept-fake.dem"

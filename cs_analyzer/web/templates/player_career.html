@@ -65,6 +65,14 @@
         {% if s.status == 'weak' %}<span class="badge" style="color:var(--err);border-color:rgba(255,77,94,.3);background:rgba(255,77,94,.12)">练</span>
         {% else %}<span class="badge ok">保持</span>{% endif %}
         <b style="font-size:13px">{{ s.label }}</b>
+        <span style="flex:1"></span>
+        {% if s.key in focusable_dims %}
+        <button class="btn btn-sm focus-btn" type="button" data-dim="{{ s.key }}"
+                title="设为关注：之后新打的对局将与关注前对比该维度指标">🎯 设为关注</button>
+        {% else %}
+        <button class="btn btn-sm" type="button" disabled
+                title="该维度暂无逐场序列（道具数据未按场分片），暂不支持追踪">🎯 设为关注</button>
+        {% endif %}
       </div>
       <div style="margin-top:4px;font-size:13px">{{ s.drill }}</div>
       <div class="sub" style="font-size:11px;margin-top:2px">证据：{{ s.evidence }}</div>
@@ -75,6 +83,33 @@
     <div>画像各维均正常或样本不足——正常维无需动作，样本过门槛后建议自动出现</div></div>
   {% endif %}
 </div>
+
+{# 复盘教练线 M3: 关注进展 — BEFORE = 设关注时的库快照, AFTER = 之后新增场次 #}
+{% if focus %}
+<div class="section-header"><h2>🎯 关注进展 · {{ focus.dim_label }}</h2>
+  <div class="section-actions sub" style="margin:0">关注前 = 设为关注时已在库的场次 · 关注后 = 之后新增 · 每窗 &lt;{{ focus.min_per_window }} 场灰显 ·
+    <button class="btn btn-sm focus-clear" type="button">取消关注</button></div></div>
+<div class="card" style="margin-bottom:14px" data-focus-progress>
+  <div class="stat-row">
+    <div class="stat-card"><div class="stat-label">关注前（{{ focus.before.n }} 场）</div>
+      <div class="stat-value">{{ '%.3f'|format(focus.before.mean) if focus.before.mean is not none else '—' }}</div>
+      {% if focus.before.mean is none %}<div class="sub">样本 &lt;{{ focus.min_per_window }} 场，灰显</div>{% endif %}</div>
+    <div class="stat-card"><div class="stat-label">关注后（{{ focus.after.n }} 场）</div>
+      <div class="stat-value">{{ '%.3f'|format(focus.after.mean) if focus.after.mean is not none else '—' }}</div>
+      {% if focus.after.mean is none %}<div class="sub">新打 ≥{{ focus.min_per_window }} 场后出对比</div>{% endif %}</div>
+    <div class="stat-card"><div class="stat-label">Δ（后−前）</div>
+      <div class="stat-value">{{ '%+.3f'|format(focus.delta) if focus.delta is not none else '—' }}</div>
+      <div class="sub">{{ focus.unit }} · 展示值非检验</div></div>
+  </div>
+  <div class="sub" style="font-size:11px;margin:8px 2px 2px">逐场 {{ focus.unit }}（灰=关注前 · 绿=关注后 · 悬停看样本数）：</div>
+  <div class="pill-row" style="margin:2px 0 4px">
+    {% for p in focus.points %}
+    <span class="badge {{ '' if p.demo_hash in focus.base_hashes else 'ok' }}"
+          title="第 {{ p.seq + 1 }} 场 · n={{ p.n }}">{{ '%.2f'|format(p.value) }}</span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 <div class="grid">
   <div class="card" style="margin-bottom:0">
@@ -180,6 +215,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/favorites.js?v={{ static_v }}"></script>
+<script src="/static/js/focus.js?v={{ static_v }}"></script>
 <script id="radar-ranges" type="application/json">[
 {%- for a in radar_axes -%}
 {"key": "{{ a.key }}", "label": "{{ a.label }}", "min": {{ a.min }}, "max": {{ a.max }} }{{ "," if not loop.last }}

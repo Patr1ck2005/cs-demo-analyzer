@@ -257,11 +257,30 @@ def player_career(request: Request, steamid: str):
     from cs_analyzer.web.suggestions import suggestions_from_profile
 
     profile = player_profile(steamid, name=row.name)
+    # M3: focus progress — one active focus per player; BEFORE = the demos
+    # in the focus's base snapshot, AFTER = demos since. Series reads the
+    # persistent per-demo layers only (shard files / snapshot), request-safe.
+    from cs_analyzer.web import focus_data, focus_store
+
+    fdoc = focus_store.load_focus(OUT_DIR)
+    active = fdoc["active"].get(steamid)
+    focus_ctx = None
+    if active and active.get("dim") in focus_data.FOCUSABLE_DIMS:
+        dim = active["dim"]
+        chron = [d.demo_hash for d in result.demos]
+        series = focus_data.dim_series(dim, steamid, chron,
+                                       OUT_DIR, _cache().cache_dir)
+        if series is not None:
+            prog = focus_data.progress(series, active.get("base_hashes", []))
+            focus_ctx = {"dim": dim, "dim_label": focus_data.FOCUSABLE_DIMS[dim],
+                         "set_at": active.get("set_at", ""),
+                         "base_hashes": active.get("base_hashes", []), **prog}
     return TEMPLATES.TemplateResponse(
         request, "player_career.html",
         {"p": row, "radar_axes": RADAR_AXES, "r21": r21, "gate_duels": DUEL_GATE_N,
          "profile": profile,
-         "suggestions": suggestions_from_profile(profile)},
+         "suggestions": suggestions_from_profile(profile),
+         "focus": focus_ctx, "focusable_dims": focus_data.FOCUSABLE_DIMS},
     )
 
 
@@ -460,6 +479,63 @@ def _favorites_lock():
     from cs_analyzer.web import favorites_store
 
     return favorites_store._lock
+
+
+# ---- M3 复盘教练线: focus (one active per player; BEFORE = the library
+# snapshot at focus time, AFTER = demos since — wall-clock demo dates are
+# unreliable, Y2) ----
+
+@app.get("/api/focus")
+def focus_get():
+    from cs_analyzer.web import focus_store
+
+    doc = focus_store.load_focus(OUT_DIR)
+    active = [{"steamid": sid, "dim": e.get("dim"), "set_at": e.get("set_at"),
+               "base_n": len(e.get("base_hashes", []))}
+              for sid, e in doc["active"].items()]
+    return JSONResponse({"active": active, "history_n": len(doc["history"])})
+
+
+@app.post("/api/focus")
+async def focus_set(request: Request):
+    """Set/replace one player's focus: {steamid, dim} (focusable dims only)."""
+    from cs_analyzer.web import focus_data, focus_store, snapshots
+
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "expected object"}, status_code=400)
+    sid = str(body.get("steamid", "") or "")
+    dim = str(body.get("dim", "") or "")
+    if not sid or dim not in focus_data.FOCUSABLE_DIMS:
+        return JSONResponse({"error": "steamid and a focusable dim required"},
+                            status_code=400)
+    base = snapshots._cached_demo_hashes(_cache().cache_dir)
+    with focus_store._lock:
+        doc = focus_store.load_focus(OUT_DIR)
+        entry = focus_store.set_focus(doc, sid, dim, base)
+        focus_store.save_focus(OUT_DIR, doc)
+    logger.info("focus set %s -> %s (base_n=%d)", sid[:16], dim, len(entry["base_hashes"]))
+    return JSONResponse({"ok": True,
+                         "entry": {"steamid": sid, "dim": dim,
+                                   "set_at": entry["set_at"],
+                                   "base_n": len(entry["base_hashes"])}})
+
+
+@app.delete("/api/focus")
+def focus_delete(steamid: str = ""):
+    from cs_analyzer.web import focus_store
+
+    if not steamid:
+        return JSONResponse({"error": "steamid required"}, status_code=400)
+    with focus_store._lock:
+        doc = focus_store.load_focus(OUT_DIR)
+        prev = focus_store.clear_focus(doc, steamid)
+        if prev:
+            focus_store.save_focus(OUT_DIR, doc)
+    return JSONResponse({"ok": True, "cleared": bool(prev)})
 
 
 @app.get("/compare", response_class=HTMLResponse)
