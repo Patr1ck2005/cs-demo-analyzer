@@ -1,6 +1,6 @@
 # 交接文档 (HANDOFF)
 
-> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（复盘教练线 M4：adb8d09 之后——周期报告 /weekly 上线（基线窗口而非墙钟日期）+ /api/weekly/baseline + reports 页入口 + visual 29 页；428 测试全绿，改动待批准提交）**
+> 给下一个开发 agent 的交接说明。目标：10 分钟内了解项目状态、运行环境、待审改动、开发计划与所有坑。**最后更新：2026-09-12（还债收官轮：a140788 之后——player_career 内联 JS 收编为 static/js/player_career.js（player-data JSON 块先例），三处内联 JS 至此全部归零；430 测试全绿，改动待批准提交）**
 
 ## 0. ⚠️ 铁律（先读这个）
 
@@ -13,9 +13,9 @@
 
 ## 1. 项目状态摘要
 
-CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、428 测试全绿、visual_check 29 页零 console 错误、accept_buttons 31 步零失败**。
+CsDemoAnalyzer：本地优先 CS2 demo 分析平台（解析 `.dem` → 定量统计 + 电竞 OB 级 2D 实时回放）。FastAPI + Jinja2 全中文 SSR + canvas 回放器 + vendored ECharts。**当前 35 个 demo 在库、430 测试全绿、visual_check 29 页零 console 错误、accept_buttons 31 步零失败**。
 
-**Git 状态**：origin/main = `adb8d09`（复盘教练线 M3 已推送）。工作区为**复盘教练线 M4 改动**（周期报告 /weekly + weekly_data 基线窗口 + /api/weekly/baseline + reports 入口 + visual 29 页 + 文档对齐，见文末 M4 小节），待批准提交。**复盘教练线 M1–M4 路线至此全部实施完毕**（M4 批准提交后路线收官；后续方向=新路线讨论或既有封存模块按需解封）。
+**Git 状态**：origin/main = `a140788`（复盘教练线 M4 已推送，M1–M4 路线收官）。工作区为**还债收官轮改动**（player_career 内联 JS 收编 + player-data JSON 块 + 测试，见文末还债小节），待批准提交。后续方向=新路线讨论或既有封存模块按需解封（FACEIT key 仍缺）。
 
 - **Phase X 一句话**：13 一级页 → 10 + 链接卫生 + 遗留性能/科学性小件全清，303 测试。
 - **Phase T 一句话**：冷重启 175s→**5.2s**（快照命中）；全量重算 201s→**131s**（进程池 -35%）；新 demo 导入重算 **5×**（分片增量）；/system 新增性能面板。
@@ -1620,6 +1620,27 @@ funlab scan 走公开 `snapshots.load_snapshot`（指纹不匹配→诚实 None�
   换 demo 后 gc 清旧分片的族级重建收尾，非本轮引起）。
 - **路线收官**：复盘教练线 M1–M4 全部实施（M1 复盘 Tab / M2 建议引擎 /
   M3 focus 追踪 / M4 周报）。待批准提交。
+
+### 还债收官轮：player_career 内联 JS 收编（2026-09-12，a140788 之后——三处归零）
+
+- **改动面**：player_career 内联 ~256 行（12930 字符）搬移为
+  `static/js/player_career.js`——比前两处多两类 Jinja 依赖（radar raw 六值 +
+  per-demo 趋势/选择器数组），解法=扩展模板既有 `radar-ranges` JSON 块先例：
+  路由组 `player_data` dict（sid/raw/demos，`|tojson` 进 `player-data`
+  script 块），JS 读块替换四处插值，其余逐字；删除原 `.sort((a,b)=>0)`
+  no-op（行为等价）。`row.demos` 条目是 dict——**数据形状坑**：首版用属性
+  访问 `d.map_name` 炸 AttributeError（4 测试），改键访问即修。
+- **测试 428→430**（+2：抽取装载锁 + player-data 块功能）；
+  `test_career_conf_failure_settles`（S2-V4 契约"失败结算占位符"）随代码
+  迁移改读 JS 文件——契约跟随代码走。
+- **验收（fresh-server 正典跑全绿）**：pytest **430**；visual 29 页 0 失败；
+  accept 31 步 0 失败；全树 ruff F 级 0；生涯页人工截图复核（置信区间
+  结算 + 雷达/趋势图正常出图 = DATA 通路实证）。**三处内联 JS 至此全部
+  归零**（match_detail/system/player_career），R3"不动"裁决完全清账。
+- **运维观察（留档待查）**：用户换 demo 后连续三轮重启均见 wave2 多族
+  重建（每族 1-6 分钟，本轮 winloo/aimsci/lossattr/evcells/duelmo 又各走
+  一遍）——若分片持久化正常，族级缺口应在首次补齐后收敛；连续复现说明
+  族级缺口检测或 gc 有非预期交互，**下次重启若仍全族重建则立项排查**。
 
 
 

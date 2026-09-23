@@ -416,6 +416,29 @@ def test_match_detail_js_extraction() -> None:
     assert "dataset.hash" in js and "'review'" in js
 
 
+def test_player_career_js_extraction() -> None:
+    """还债 3/3: the career inline block moved to static/js/player_career.js;
+    per-player numbers travel via the player-data JSON block (radar-ranges
+    precedent)."""
+    web_dir = Path(web_app.__file__).parent
+    tpl = (web_dir / "templates" / "player_career.html").read_text(encoding="utf-8")
+    assert "/static/js/player_career.js" in tpl and 'id="player-data"' in tpl
+    assert "const SID = '{{" not in tpl  # the inline Jinja-dependent block is gone
+    js = (web_dir / "static" / "js" / "player_career.js").read_text(encoding="utf-8")
+    assert "DATA.sid" in js and "DATA.raw" in js and "DATA.demos" in js
+
+
+def test_player_career_data_block(web_client) -> None:
+    c, _, _ = web_client
+    from cs_analyzer.web.aggregation import aggregated
+
+    sid = aggregated().players[0].steamid
+    r = c.get(f"/player/{sid}")
+    assert r.status_code == 200
+    assert 'id="player-data"' in r.text
+    assert '"sid"' in r.text and '"raw"' in r.text and '"demos"' in r.text
+
+
 def test_match_review_tab_key_rounds_render(web_client, monkeypatch) -> None:
     """M1: key-round cards carry the viewer deep link + B3 rec link; per-player
     improvement points resolve the career link via the players ctx."""

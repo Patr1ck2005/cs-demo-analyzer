@@ -122,8 +122,10 @@ def test_utilitylab_failure_resets_placeholders():
 
 
 def test_career_conf_failure_settles():
-    html = Path("cs_analyzer/web/templates/player_career.html").read_text(encoding="utf-8")
-    assert "区间不可用" in html
+    # 还债 3/3: the settling logic moved with the inline block into the
+    # extracted static JS — the S2-V4 contract lives where the code lives.
+    js = Path("cs_analyzer/web/static/js/player_career.js").read_text(encoding="utf-8")
+    assert "区间不可用" in js
 
 
 # ---------- S2-A3: dead code gone ----------

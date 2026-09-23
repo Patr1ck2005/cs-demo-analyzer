@@ -257,6 +257,20 @@ def player_career(request: Request, steamid: str):
     from cs_analyzer.web.suggestions import suggestions_from_profile
 
     profile = player_profile(steamid, name=row.name)
+    # 还债 3/3: the career page's JS reads its per-player numbers from this
+    # JSON block (radar-ranges precedent) instead of inline Jinja — the
+    # extracted static/js/player_career.js stays Jinja-free.
+    player_data = {
+        "sid": steamid,
+        "raw": [round(float(row.avg_kpr), 4), round(float(row.avg_survivals), 4),
+                round(float(row.avg_adr), 4), round(float(row.avg_hs_pct), 4),
+                round(float(row.avg_fkpr), 4), round(float(row.avg_rating), 4)],
+        "demos": [{"name": f"{d['map_name']} #{i}", "hash": d["demo_hash"],
+                   "rating": round(float(d["Rating"]), 4),
+                   "adr": round(float(d["ADR"]), 4),
+                   "rws": round(float(d["RWS"]), 4)}
+                  for i, d in enumerate(row.demos, 1)],
+    }
     # M3: focus progress — one active focus per player; BEFORE = the demos
     # in the focus's base snapshot, AFTER = demos since. Series reads the
     # persistent per-demo layers only (shard files / snapshot), request-safe.
@@ -280,6 +294,7 @@ def player_career(request: Request, steamid: str):
         {"p": row, "radar_axes": RADAR_AXES, "r21": r21, "gate_duels": DUEL_GATE_N,
          "profile": profile,
          "suggestions": suggestions_from_profile(profile),
+         "player_data": player_data,
          "focus": focus_ctx, "focusable_dims": focus_data.FOCUSABLE_DIMS},
     )
 
