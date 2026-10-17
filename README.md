@@ -1,251 +1,65 @@
-<div align="center">
+# CS Demo Analyzer
 
-# 🎯 CsDemoAnalyzer
+**Turn CS2 demo files into an interactive local review desk.** Quantitative match analysis, a 2D replay viewer, round overlays and cross-match player comparisons run in your browser.
 
-**本地优先的 CS2 Demo 分析平台** —— 解析 `.dem`，产出定量统计 + 电竞 OB 级实时 2D 回放
+[简体中文](README.zh-CN.md) · [Architecture](ARCHITECTURE.md) · [Metric definitions](docs/funlab-metrics.md) · [History](docs/README-history.md)
 
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-408_passing-3DDC97)](#)
-[![License](https://img.shields.io/badge/License-MIT-a78bfa)](#license)
-[![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows11&logoColor=white)](#)
-[![ECharts](https://img.shields.io/badge/charts-Apache_ECharts-AA344D?logo=apacheecharts&logoColor=white)](https://echarts.apache.org/)
+![Recorded CS2 replay with player panels and map overlays](docs/screenshots/replay_hero.gif)
 
-**实时回放 · 控图染色 · 枪法纪律 · 经济博弈 · 下包攻防 · 大数据对比 · 秒开快照**
+*Existing public application recording; replay data is visualized from a demo, not a live game feed. The installed interface currently uses Chinese labels.*
 
-![replay](docs/screenshots/replay_hero.gif)
+## What you can investigate
 
-*实时回放器：OB 视角 + 轨迹 + 道具/击杀覆盖层 + 买装条（回合 13 实录）*
+| View | Questions it helps answer |
+|---|---|
+| Match and economy | What happened in each round? Which buys, duels and utility events mattered? |
+| Replay and round overlap | How did positions, routes and engagements change over time? |
+| Career and comparison | How does a player's per-round performance compare across the available sample? |
+| Reports and library | Which rounds deserve review? How do imported matches and saved notes connect? |
 
-</div>
+| Replay viewer | Player career |
+|---|---|
+| ![Replay viewer](docs/screenshots/replay_viewer.png) | ![Player career](docs/screenshots/player_career.png) |
 
----
+## Quick start
 
-## 这是什么
-
-把 CS2 比赛录像（`.dem`）变成**可交互的分析平台**：
-
-- **定量视角** —— 评分雷达、对枪矩阵、经济博弈、部位伤害、枪法纪律、下包攻防、武器拆分
-- **空间-时间视角** —— 电竞转播级 2D 实时回放：相机缩放平移、道具弧线、枪线曳光、控图染色、伪 3D 视图
-- **大数据对比** —— 个体 vs 全库基线（≥5 场样本）的分位对比，不是两两 PK
-- **Ctrl+K 全局搜索** —— 任意页快速定位选手（昵称 / SteamID）与对局（文件名 / 地图 / 比赛 ID）
-- 全部本地运行，**不需要任何在线服务**；浏览器打开 `http://127.0.0.1:8000` 即用
-
-## 界面一览
-
-### 📺 实时回放器
-![回放器](docs/screenshots/replay_viewer.png)
-
-电竞 OB 布局：中央 2D 地图 + 两侧选手面板（武器图标/弹药/血甲/换弹徽标），比分板 + 回合时钟 + 炸弹倒计时。
-相机缩放至光标/拖拽平移；道具飞行弧、烟/火真实时长区域、枪线曳光、闪光环、下包/拆弹/爆炸标记；
-**控图染色**（高斯影响核 + EMA 平滑）与**伪 3D 挤出视图**一键切换；缩放 LOD 逐级浮现血量环/弹药/武器徽章。
-点击任一选手**镜头跟随聚焦**（2.5× 持续跟踪），其余选手自动变暗。
-
-![镜头跟随聚焦](docs/screenshots/focus_follow.gif)
-
-*点击选手即镜头 2.5× 平滑跟随，其余选手自动变暗（回合 13 实录）*
-
-### 🧩 回合重叠（回放器子模式）
-工具条 `[ 实时回放 | 回合重叠 ]` 一键切换：同半场全部回合按相同相对时刻叠加，暖色 = T 方 / 冷色 = CT 方，
-编号跨回合锚定选手身份——开局路线、默认站位、重复决策一目了然。回合网格按胜方角标勾选对比
-（空选 = 全部，快捷「前4」），阵型曲线（全体散开度 / T-CT 重心间距）与相位滑杆联动，
-「模式着色」对开局路线做 k-means 聚类染色，聚焦选手可见各回合相对队伍重心的偏差连线与读数。
-
-![重叠模式](docs/screenshots/overlap_hero.gif)
-
-*重叠子模式：上半场 12 个回合同相位扫动，烟雾/交战逐相位对齐出现*
-
-![重叠交互](docs/screenshots/overlap_interact.gif)
-
-*重叠交互实录：回合网格「前4」过滤 → 「模式着色」聚类染色 → 点击聚焦，
-紫色虚线为各回合同相位相对队伍重心的偏差连线（读数 u/米），镜头 2.5× 跟随*
-
-### 📊 对局详情 · 七 Tab
-| 概览 | 击杀 |
-| :---: | :---: |
-| ![概览](docs/screenshots/match_overview.png) | ![击杀](docs/screenshots/tab_kills.png) |
-| **经济** | **路线 + 下包攻防** |
-| ![经济](docs/screenshots/tab_economy.png) | ![路线](docs/screenshots/tab_routes.png) |
-
-- **击杀**：逐杀情境徽章（穿墙/穿烟/盲狙/空中/爆头）+ 武器分布环图 + 部位伤害堆叠条 + 对枪矩阵
-- **经济**：每回合消费按买法（eco/强起/长枪）标注、各买法胜率、连败追踪
-- **路线**：开局轨迹 k-means 聚类（T/CT 双方），下包后攻防四卡（守包率/拆弹率/尝试/用时）
-- **战术**：开火→击杀转化率、移动/开镜/蹲下开火占比、首发延迟、武器类别拆分
-- **复盘**（M1）：败方视角自动结论——关键回合三规则（本该赢却输/优势局失守/失利模式命中）+ 每人改进点；关键回合一键跳转回放器对应回合或自动录制片段
-
-### 📈 跨场生涯与大数据对比
-| 生涯页 | 对比页 |
-| :---: | :---: |
-| ![生涯](docs/screenshots/player_career.png) | ![对比](docs/screenshots/compare.png) |
-
-生涯页聚合每位选手的全部场次（雷达/趋势/单场热力图/个人高光/🎯 对枪实力：实际对枪胜率
-vs 跨场模型期望与超预期差）；**🧭 练习建议**（M2）：五维画像（对枪/枪法纪律/失利模式/
-道具/eco 局表现）自动产出带证据锚的建议动作，弱项优先；对比页基于 ≥5 场有效样本计算
-全库**百分位分位**，可勾选多名选手雷达叠加。**五排协同**卡：跨场助攻/补枪/闪光助攻连接网络
-（矩阵热力 + Top 连线）、车队局 vs 混野的胜率/Rating/首杀对比、常客画像标签（闪光发动机/首杀先锋/残局大师）。
-
-### 🗂 收藏 · 队伍 · 地图 · 系统
-| 收藏 | 队伍 |
-| :---: | :---: |
-| ![收藏](docs/screenshots/favorites.png) | ![队伍](docs/screenshots/teams.png) |
-| **地图分析** | **系统** |
-| ![地图](docs/screenshots/map_analysis.png) | ![系统](docs/screenshots/system.png) |
-
-收藏 + 备注编辑（跨页星标同步）；车队局画像、五排协同网络、**前半 vs 近半趋势对比**；
-按图开局/烟阻桶/道具落点分析；一键入库 + 平台目录 dry-run 扫描 + 快照性能面板；
-**📈 周期报告**（M4）：「标记已读」基线窗口的新场次 / 选手窗口对比 / 关注进展摘要。
-
-## 快速开始
+Python **3.11+** is required. No server-side video rendering or ffmpeg is needed for the browser replay.
 
 ```bash
-# Python 3.11+（无需 ffmpeg —— 没有任何服务端渲染）
-pip install -e .
+python -m pip install -e .
+csa serve
 ```
 
-**最省事**：双击仓库根目录 **`start_web.bat`** —— 自动起服务并打开浏览器。
-
-| 命令 | 说明 |
-| :--- | :--- |
-| `start_web.bat` | 启动服务 + 开浏览器（已在运行则只开浏览器） |
-| `start_web.bat restart` | **改了代码后用这个**：结束旧进程并加载新代码 |
-| `stop_web.bat` | 一键关闭服务 |
-
-或手动：
+Open `http://127.0.0.1:8000`, then upload a `.dem` file. Windows users can use `start_web.bat`, `start_web.bat restart` and `stop_web.bat`.
 
 ```bash
-csa serve                          # 本地平台 → http://127.0.0.1:8000
-csa info path/to/demo.dem          # 看 demo 元信息
-csa parse path/to/demo.dem         # 解析并缓存
-csa analyze path/to/demo.dem       # 终端输出统计表
-csa coverage "demos/*.dem" --out report.html   # 解析覆盖度报告
+csa info path/to/demo.dem
+csa parse path/to/demo.dem
+csa analyze path/to/demo.dem
+csa coverage "demos/*.dem" --out report.html
 ```
 
-然后把 `.dem` 拖进网页上传（支持多文件、内容哈希去重），或直接放入 `demos/` 目录。
+Core analysis uses local demos and caches. Optional professional-baseline retrieval needs internet access and is separate from the local workflow.
 
-## 功能全景
+## How it works
 
-**解析层**
-- demoparser2（Rust）+ Provider 自动识别（Valve MM / Faceit / Perfect World / 5E）
-- 内容寻址缓存（JSON + Parquet），重复分析 <1s
-- SourceTV 容错：无 `player_info` 时从 spawn 重建名单；阵营以逐 tick `team_num` 多数派为真值（换边安全）
-- 经验 tick rate 推导（velocity ÷ 位移中位数），match_id 自动提取
-
-**定量分析（21 个可插拔模块）**
-- 基础：K/D/A、KPR、ADR、HS%、首杀/首死率
-- 评分：RWS、HLTV Rating 2.0 近似、KAST（标准 trade 语义）、Impact
-- 进阶：对枪矩阵、经济买法分类与胜率、闪光价值 + 闪光助攻、烟中击杀、开局路线聚类（T/CT）、
-  多杀/残局高光库、击杀情境徽章、部位伤害 + 护甲效率、枪法纪律、下包攻防、武器拆分
-
-**实时回放器**
-- viewer-data 快照包（8Hz，gzip ~0.7MB）首次打开 <3s 构建
-- 逐 tick 弹药/换弹（demoparser2 0.42）、枪口焰 + 曳光、缩放 LOD
-- 控图实时染色 + 伪 3D（帧预算 p95 0.2ms）
-- **⚙ 视觉参数调节面板**：19 个渲染参数滑杆实时可调，保存后可固化为新默认
-- 买装条：回合前 20 秒显示双方购枪配置
-- **⏺ 片段录制**：一键把当前回放录成 webm（三层画布合成、浏览器本地编码，
-  零 ffmpeg/服务端渲染）；高光卡「🎬 片段」直达回放器自动录制整回合并下载
-
-## 界面语言与兼容性
-
-全中文界面。已端到端验证：**Valve SourceTV** 测试 demo 与 **完美世界 (WMPVP)** SourceTV 真实对局
-（后者无 `player_info` 表、事件列表缺项——引擎已自动容错）。
-
-已知限制：个别 SourceTV 广播中某些玩家的 pawn 实体无法解析（Team 0）——位置类分析跳过该玩家，
-统计与击杀数据仍完整；`bomb_exploded` 事件部分广播缺失（客户端已按回合边界容错）。
-
-## 架构
-
-```
-.dem file
-    │
-    ▼
-[Parser] ── demoparser2 + Provider ──> ParsedDemo (DemoData + DataFrames)
-    │                                    │
-    │                                    ▼
-    │                          .cache/{hash}/ (JSON + Parquet)
-    ▼
-[Analysis] ── 可插拔模块（拓扑排序 + 惰性 memo）──> typed AnalysisResult
-    │
-    ▼
-[Web] ── FastAPI + Jinja2 SSR ──> 浏览器渲染
-    ├── viewer-data v4 JSON  ──> canvas 回放器（相机/覆盖层/控图/买装条）
-    └── charts.json 载荷     ──> vendored Apache ECharts（全离线暗色主题）
+```mermaid
+flowchart LR
+    Demo[CS2 .dem] --> Parser[demoparser2 and provider adaptation]
+    Parser --> Cache[Content-addressed JSON and Parquet cache]
+    Cache --> Analysis[Typed analysis modules]
+    Analysis --> Web[FastAPI and Jinja2]
+    Web --> Replay[Canvas replay and ECharts]
 ```
 
-完整设计文档见 [ARCHITECTURE.md](ARCHITECTURE.md)，阶段历史见 [HANDOFF.md](HANDOFF.md) 与 [dev_log.md](dev_log.md)。
+The analysis modules cover basic statistics, rating approximations, duels, economy, utility, routes, post-plant situations and weapon context. Definitions and sample thresholds matter: model-based ratings and win probabilities are estimates rather than official Valve/HLTV measurements or causal explanations. See [architecture](ARCHITECTURE.md), [metric definitions](docs/funlab-metrics.md) and [research ledger](docs/research-ledger.md).
 
-### 分析模块
+## Status and limitations
 
-| 模块 | 输出 |
-| :--- | :--- |
-| `basic_stats` | K/D/A、KPR、ADR、HS%、FKPR/FDPR |
-| `ratings` | RWS、Rating 2.0、KAST、Impact |
-| `preference` | 位置热力、道具落点、接敌风格、准星高度 |
-| `funlab` | 趣味数据：风格星系、跨时间窗向量漂移、四象限 |
-| `duels` | 选手 × 选手对枪胜率矩阵 |
-| `duel_model` | 跨场对枪模型：留一期望胜率 + 超预期差（EB 收缩展示） |
-| `economy` | 逐回合 eco/force/full 分类 + 各买法胜率 + 连败 |
-| `utility_effect` | 闪光价值榜、闪光助攻、烟中击杀/死亡 |
-| `routes` | 开局路线聚类（种子化 k-means，T/CT 双方） |
-| `highlights` | 多杀 2K-ACE、残局 1vN、ACE 高光库 |
-| `kill_context` | 穿墙/穿烟/盲狙/空中/距离徽章、MVP、捡枪 |
-| `hitgroups` | 部位伤害分布、护甲减伤效率 |
-| `aim` | 开火转化、移动状态开火、首发延迟 |
-| `aim_science` | 跨库枪法科学：停/动开火、急停开火、对枪停动拆分 |
-| `loss_attribution` | 逐回合失利归因标签 + 跨库失利模式分布 |
-| `postplant` | 守包/retake 胜率、拆弹尝试与用时 |
-| `weapon_splits` | 武器类别击杀/死亡拆分 |
-| `ratings21` | HLTV Rating 2.1 口径近似（KAST 保枪规则 + 助攻加成 + 再校准） |
-| `weapon_timeline` | 逐 tick 武器持有段 / 每回合开局主武器 / 持有时长击杀转化 |
-| `win_probability` | 回合胜势曲线 V2（双侧逐事件 logistic；页面默认跨场留一诚实曲线，标注留一 AUC / 库级 Brier） |
-| `economy_ev` | 决策 EV 查询表（买法×比分×连败，N<5 灰显） |
+The public source contains the review platform and existing recordings shown above. Demo-provider event coverage varies; missing pawn positions can exclude a player from spatial analysis even when kill statistics remain available. Small libraries limit comparison and model reliability. Historical test totals and timings are retained in [HANDOFF](HANDOFF.md), not presented as a fresh benchmark here.
 
-## 职业基准与竞技 AI
+For development, install the existing dev extra and run `python -m pytest`; this README pass checks documentation and asset references only. It does not import private demos or rerun the application.
 
-- **职业基准参照**：bo3.gg 公开统计 API 采集 s1mple / m0NESY / donk 等选手的逐图数据
-  （`python scripts/pro_baseline.py s1mple m0nesy donk`），/compare 页职业基准卡展示。
-- **胜势曲线 V2**：对局概览页逐回合 T 方胜率曲线，含下包标记；默认展示**跨场诚实曲线**
-  （其余场次训练的留一预测，标注本场留一 AUC 与库级 Brier）。评估协议与各轮结果
-  （含负结果）见 [docs/research-ledger.md](docs/research-ledger.md)。
-- **对枪实力模型**：每回合首次伤害建样（先死者归谁；含距离/武器/血甲/预瞄/被闪上下文），
-  生涯页展示实际对枪胜率 vs 模型期望与**超预期差**——模型吸收场景优势后，剩下的才是
-  "比预期更能打"（符合"人与人对比必须排除打得多=数据高"的口径原则）。
-- **自动复盘报告**：/report 页自动生成**复盘结论**——关键回合（优势局失守/峰谷摆幅/
-  残局·无贸易命中，附模型 p 与失利标签证据）+ 每人改进点（有证据才列出，全部带 n=
-  与库基线锚）；生涯页**实力画像卡**四维判定（对枪/枪法纪律/失利模式/道具）。
-- **自动入库**：监视 demos/ 目录（30s 轮询，文件稳定后入库，失败不重试且跨重启记忆），
-  /system 页可开关——demo 拖进目录即自动解析 + 增量重算；上传/一键入库/自动监视三路
-  并发投递同一 demo 时自动去重。
-- **决策 EV**：经济 Tab 的买法×比分差×连败状态查询表，小样本格自动灰显。
-- **风格演变**：趣味数据页风格星系支持时间窗演变轨迹（同一选手跨窗口向量漂移）。
-- **控图 v2**：交战衰减 + 存活加权 + 密度去重（⚙ 面板可调，v1/v2 开关并存）。
+## License and credits
 
-## 缓存
-
-按内容哈希缓存于 `.cache/{demo_hash}/`（`model.json` + `ticks.parquet` + `events/*.parquet`），
-同一 demo 重复分析 <1s；解析器版本升级自动失效重解析。
-
-## RWS / Rating 说明
-
-RWS 与 Rating 为自实现的专有公式近似（HLTV 2.0 / ESEA RWS 风格），与外部平台数值接近但不完全一致。
-
-## 开发
-
-```bash
-pip install -e ".[dev]"
-pytest                    # 408 tests
-ruff check cs_analyzer/
-```
-
-### 性能（Phase T）
-
-跨场聚合快照落盘 + 进程池扫描 + per-demo 分片增量：冷重启到数据就绪 **~5s**（35 demo 库，
-此前 ~175s）；全量重算 201s→131s；新增 demo 只补算新 demo（5×）。`/system` 页有实时
-性能面板（快照清单/指纹/预热耗时），快照目录 `output/web/snapshots/` 可随时删除自动重建。
-
-## License
-
-MIT
-
-
-<!-- project-hub:web-entry -->
-统一网页入口、停止和重启方式见 [WEB_ENTRY.md](WEB_ENTRY.md)。以此处登记端口和新脚本为准。
+Package metadata declares MIT for the project source; see [pyproject.toml](pyproject.toml). demoparser2, ECharts and bundled map/weapon assets retain their respective upstream terms. This is an independent CS2 analysis project, not an official Valve product.
